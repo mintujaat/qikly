@@ -79,7 +79,11 @@
           <form id="checkoutForm">
             <input type="hidden" id="selectedPlanId">
             <label>Telegram Username
-              <input id="telegramName" required maxlength="100" placeholder="@yourusername">
+              <input id="telegramUsername" required maxlength="32" placeholder="@yourusername" autocomplete="off">
+              <small class="muted">Example: @mintu_123 — username only, no spaces.</small>
+            </label>
+            <label>Telegram Name
+              <input id="telegramName" required maxlength="100" placeholder="Your Telegram display name" autocomplete="name">
             </label>
             <label class="check"><input type="checkbox" required> <span>I confirm I am 18+ and agree to the Terms & Conditions.</span></label>
             <button id="payBtn" class="btn primary large full" type="submit">Buy Now <span>→</span></button>
@@ -96,6 +100,8 @@
         </div>
       </div>
     </section>
+
+    <section id="returnAccess" class="section success-section hidden"></section>
 
     <section id="success" class="section success-section hidden">
       <div class="success-card">
