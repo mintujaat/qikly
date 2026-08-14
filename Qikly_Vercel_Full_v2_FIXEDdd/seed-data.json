@@ -1,0 +1,36 @@
+{
+  "plans": {
+    "1month": {
+      "name": "1 Month",
+      "price": 99,
+      "durationDays": 30,
+      "description": "30 days access",
+      "active": true,
+      "featured": false,
+      "sortOrder": 1
+    },
+    "2months": {
+      "name": "2 Months",
+      "price": 149,
+      "durationDays": 60,
+      "description": "60 days access",
+      "active": true,
+      "featured": true,
+      "sortOrder": 2
+    },
+    "permanent": {
+      "name": "Permanent",
+      "price": 299,
+      "durationDays": null,
+      "description": "Lifetime access",
+      "active": true,
+      "featured": false,
+      "sortOrder": 3
+    }
+  },
+  "settings/main": {
+    "telegramLink": "PUT_PRIVATE_TELEGRAM_INVITE_LINK_HERE",
+    "supportTelegram": "@your_support",
+    "supportEmail": "support@example.com"
+  }
+}
