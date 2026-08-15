@@ -5,5 +5,11 @@
       "source": "/api/(.*)",
       "destination": "/api/index.js"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/telegram-expiry",
+      "schedule": "15 0 * * *"
+    }
   ]
 }
