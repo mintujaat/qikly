@@ -1,8 +1,11 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
 import { getFirestore, collection, getDocs, query, where, orderBy, limit } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
+import { getDatabase, ref as dbRef, set as dbSet, update as dbUpdate, onDisconnect, serverTimestamp as rtdbServerTimestamp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-database.js";
 
 const firebaseConfig={apiKey:"AIzaSyBDFvnLiS5XqOkKG7gA29rGfAiQwHd0v0",authDomain:"ziro-tournament.firebaseapp.com",databaseURL:"https://ziro-tournament-default-rtdb.firebaseio.com",projectId:"ziro-tournament",storageBucket:"ziro-tournament.firebasestorage.app",messagingSenderId:"43314349279",appId:"1:43314349279:web:32272ee27254d495d6d56a",measurementId:"G-ZBLS3DX71J"};
-const app=initializeApp(firebaseConfig),db=getFirestore(app),API_BASE="",RAZORPAY_KEY_ID="rzp_live_TIU7NHtPDfx3b1";
+const app=initializeApp(firebaseConfig),db=getFirestore(app),presenceDb=getDatabase(app),API_BASE="",RAZORPAY_KEY_ID="rzp_live_TIU7NHtPDfx3b1";
+const startLivePresence=async()=>{try{const sid=(crypto.randomUUID?crypto.randomUUID():`${Date.now()}_${Math.random().toString(36).slice(2)}`);const presenceRef=dbRef(presenceDb,`qikly_presence/${sid}`);await onDisconnect(presenceRef).remove();await dbSet(presenceRef,{onlineAt:rtdbServerTimestamp()});setInterval(()=>dbUpdate(presenceRef,{onlineAt:rtdbServerTimestamp()}).catch(()=>{}),30000)}catch(e){console.warn("Live presence unavailable",e)}};
+startLivePresence();
 const $=s=>document.querySelector(s);const toast=msg=>{const t=$("#toast");if(t){t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2800)}};
 if($("#year"))$("#year").textContent=new Date().getFullYear();
 if(localStorage.getItem("qikly_age_verified")==="1")$("#ageGate")?.classList.add("hidden");
