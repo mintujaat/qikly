@@ -1,17 +1,22 @@
-const $=s=>document.querySelector(s),toast=m=>{const t=$("#toast");t.textContent=m;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2800)};
-let gurus=[],plans=[],selectedGuru=null,session=null,timerHandle=null;
-async function json(url,opt){const r=await fetch(url,opt);const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.error||`Request failed (${r.status})`);return d}
-async function init(){try{gurus=(await json('/api/ai/gurus')).gurus||[];renderGurus();const d=await json('/api/public/data');plans=(d.plans||[]).filter(p=>p.active!==false&&Number(p.price)>0&&(p.durationMinutes||p.durationDays));renderPlans();if(gurus[0])selectGuru(gurus[0].id)}catch(e){toast(e.message)}}
-function renderGurus(){$('#gurus').innerHTML=gurus.map((g,i)=>`<button class="guru ${i===0?'selected':''}" data-id="${g.id}"><span class="guru-icon">${g.emoji}</span><span><b>${esc(g.name)}</b><small>${esc(g.specialty)}</small></span><i>→</i></button>`).join('');document.querySelectorAll('.guru').forEach(b=>b.onclick=()=>selectGuru(b.dataset.id))}
-function selectGuru(id){selectedGuru=gurus.find(g=>g.id===id)||gurus[0];document.querySelectorAll('.guru').forEach(x=>x.classList.toggle('selected',x.dataset.id===selectedGuru.id));if(session)resetSession()}
-function minutes(p){return Number(p.durationMinutes||p.durationDays||0)}
-function renderPlans(){$('#plans').innerHTML=`<article class="plan trial"><div class="pill">FREE</div><h3>First taste</h3><strong>30 sec</strong><p>Try your selected Guru.</p><button class="buy trial-btn">Start Free Trial</button></article>`+plans.map((p,i)=>`<article class="plan ${i===1?'featured':''}">${i===1?'<div class="pill">POPULAR</div>':''}<h3>${esc(p.name)}</h3><strong>₹${Number(p.price).toLocaleString('en-IN')}</strong><p>${minutes(p)} minute${minutes(p)==1?'':'s'} private session</p><button class="buy" data-id="${esc(p.id)}">Continue →</button></article>`).join('');$('.trial-btn').onclick=startTrial;document.querySelectorAll('.plan .buy[data-id]').forEach(b=>b.onclick=()=>buy(b.dataset.id))}
-async function startTrial(){try{const d=await json('/api/ai/trial',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({guruId:selectedGuru.id})});startSession(d.sessionId,d.seconds,true)}catch(e){toast(e.message)}}
-async function buy(planId){const p=plans.find(x=>x.id===planId);if(!p)return;const name=prompt('Your name (optional):')||'Guest';try{const o=await json('/api/ai/create-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({planId,guruId:selectedGuru.id,customerName:name})});const rzp=new Razorpay({key:'rzp_live_TIU7NHtPDfx3b1',amount:o.amount,currency:o.currency||'INR',order_id:o.orderId,name:'AstroSage AI',description:`${p.name} • ${minutes(p)} min`,prefill:{name},theme:{color:'#9a6bff'},handler:async response=>{try{const v=await json('/api/ai/verify-payment',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(response)});startSession(v.sessionId,v.seconds,false)}catch(e){toast(e.message)}}});rzp.open()}catch(e){toast(e.message)}}
-function startSession(id,seconds,trial){session={id,remaining:seconds,trial};$('#chatSection').classList.remove('hidden');$('#guruAvatar').textContent=selectedGuru.emoji;$('#guruName').textContent=selectedGuru.name;$('#guruSpecialty').textContent=selectedGuru.specialty;$('#messages').innerHTML=`<div class="msg ai"><b>${esc(selectedGuru.name)}</b><br>Namaste 🙏 Ask me anything. I’ll offer a reflective perspective based on my specialty.</div>`;clearInterval(timerHandle);updateTimer();timerHandle=setInterval(()=>{session.remaining--;updateTimer();if(session.remaining<=0){clearInterval(timerHandle);$('#message').disabled=true;$('#chatForm button').disabled=true;toast('Your session has ended. Choose another plan to continue.')}},1000);$('#chatSection').scrollIntoView({behavior:'smooth',block:'center'})}
-function updateTimer(){const s=Math.max(0,session?.remaining||0);$('#timer').textContent=`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`}
-function resetSession(){if(session){clearInterval(timerHandle);session=null;$('#chatSection').classList.add('hidden')}}
-$('#chatForm').onsubmit=async e=>{e.preventDefault();const input=$('#message'),message=input.value.trim();if(!message||!session||session.remaining<=0)return;input.value='';addMsg('user',message);input.disabled=true;try{const d=await json('/api/ai/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:session.id,guruId:selectedGuru.id,message})});session.remaining=d.remainingSeconds;updateTimer();addMsg('ai',d.answer)}catch(e){toast(e.message)}finally{input.disabled=false;input.focus()}};
-function addMsg(type,text){const d=document.createElement('div');d.className=`msg ${type}`;d.innerHTML=esc(text).replace(/\n/g,'<br>');$('#messages').appendChild(d);$('#messages').scrollTop=$('#messages').scrollHeight}
-function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
+const $=s=>document.querySelector(s);
+const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
+async function json(url,opt={}){const r=await fetch(url,{cache:"no-store",...opt,headers:{"Content-Type":"application/json",...(opt.headers||{})}});const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.error||`Request failed (${r.status})`);return d}
+function avatar(g){
+  return g.imageUrl?`<img src="${esc(g.imageUrl)}" alt="${esc(g.name)}" loading="lazy">`:`<span>${esc(g.emoji||"🔮")}</span>`;
+}
+async function init(){
+  try{
+    const d=await json("/api/public/data");
+    renderGurus(d.gurus||[]);
+    if(d.marqueeText) $("#marqueeText").textContent=d.marqueeText;
+  }catch(e){$("#guruList").innerHTML=`<div class="loading-card">${esc(e.message)}</div>`}
+}
+function renderGurus(gurus){
+  const list=$("#guruList");
+  if(!gurus.length){list.innerHTML='<div class="loading-card">No Gurus are available right now.</div>';return}
+  list.innerHTML=gurus.map(g=>`<a class="guru-card" href="/chat.html?guru=${encodeURIComponent(g.id)}">
+    <div class="guru-avatar">${avatar(g)}<i></i></div>
+    <div class="guru-info"><small>${esc(g.specialty||"AI Guide")}</small><h3>${esc(g.name)}</h3><p>${esc(g.description||"Private AI guidance.")}</p><span class="chat-cta">Chat now <b>→</b></span></div>
+  </a>`).join("");
+}
 init();
