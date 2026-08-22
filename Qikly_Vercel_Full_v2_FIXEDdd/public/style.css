@@ -50,3 +50,12 @@ body.astro-body{background:radial-gradient(circle at 50% -10%,#9f4d1022,transpar
 
 /* Chat composer visibility fix */
 .chat-input.composer-hidden{display:none!important}
+
+/* ===== FINAL MOBILE CHAT COMPOSER + HUMAN-LIKE MESSAGE STATES ===== */
+.chat-input{position:fixed!important;left:50%!important;right:auto!important;bottom:14px!important;transform:translateX(-50%)!important;width:min(720px,calc(100% - 28px))!important;margin:0!important;padding:8px!important;background:rgba(255,250,243,.96)!important;border:1px solid #dfc7a4!important;border-radius:20px!important;box-shadow:0 12px 35px rgba(80,43,8,.16)!important;z-index:40!important}
+.chat-input input{min-width:0!important}
+.message-status{font-size:9px;color:#9b8065;margin:4px 8px 0;text-align:right;line-height:1}
+.bubble-row.user{position:relative;flex-wrap:wrap}
+.bubble-row.user .message-status{width:100%;order:2}
+.typing-bubble{min-width:112px}
+@media(max-width:600px){.chat-input{width:calc(100% - 24px)!important;bottom:12px!important;border-radius:19px!important;padding:7px!important}.chat-input input{padding:12px 14px!important}.chat-input button{width:48px!important;height:44px!important}.chat-main{padding-bottom:105px!important}}

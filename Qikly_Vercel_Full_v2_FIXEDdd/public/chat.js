@@ -39,7 +39,18 @@ function showPlans(){
   setTimeout(()=>$("#plansBox").scrollIntoView({behavior:"smooth",block:"nearest"}),60);
 }
 
-function addMsg(type,text){const el=document.createElement("div");el.className=`bubble-row ${type}`;el.innerHTML=`<div class="bubble">${text}</div>`;$("#chatMessages").appendChild(el);$("#chatMessages").scrollTop=$("#chatMessages").scrollHeight}
+function addMsg(type,text){const el=document.createElement("div");el.className=`bubble-row ${type}`;el.innerHTML=`<div class="bubble">${text}</div>`;$("#chatMessages").appendChild(el);$("#chatMessages").scrollTop=$("#chatMessages").scrollHeight;return el}
+function addUserMsg(text){
+ const el=addMsg("user",esc(text));
+ const meta=document.createElement("div");meta.className="message-status";meta.textContent="sent";el.appendChild(meta);
+ return meta;
+}
+function markRead(meta){if(meta)meta.textContent="read"}
+function wait(ms){return new Promise(resolve=>setTimeout(resolve,ms))}
+function responseDelay(text){
+ const len=String(text||"").length;
+ return Math.min(15000,7000+Math.min(8000,Math.max(0,len-80)*18));
+}
 function showTyping(){
  const old=$("#typingBubble"); if(old)old.remove();
  const el=document.createElement("div");el.id="typingBubble";el.className="bubble-row ai typing-row";
@@ -49,13 +60,18 @@ function showTyping(){
 function hideTyping(){const el=$("#typingBubble");if(el)el.remove()}
 $("#chatForm").onsubmit=async e=>{
  e.preventDefault();if(!sessionId||seconds<=0)return;
- const input=$("#message"),msg=input.value.trim();if(!msg)return;input.value="";addMsg("user",esc(msg));$("#sendBtn").disabled=true;$("#message").disabled=true;showTyping();
+ const input=$("#message"),msg=input.value.trim();if(!msg)return;input.value="";const status=addUserMsg(msg);$("#sendBtn").disabled=true;$("#message").disabled=true;
  try{
-   const d=await api("/api/ai/chat",{method:"POST",body:JSON.stringify({sessionId,guruId:guru.id,message:msg})});
+   const request=api("/api/ai/chat",{method:"POST",body:JSON.stringify({sessionId,guruId:guru.id,message:msg})});
+   await wait(3000);
+   markRead(status);
+   showTyping();
+   const d=await request;
    const answer=String(d.answer||"").trim();
-   const delay=Math.min(2200,700+Math.max(0,answer.length)*10);
-   await new Promise(r=>setTimeout(r,delay));
-   hideTyping();addMsg("ai",esc(answer).replace(/\n/g,"<br>"));seconds=Number(d.remainingSeconds||seconds);renderTimer();if(seconds<=0)endSession();
+   await wait(responseDelay(answer));
+   hideTyping();
+   if(!sessionId||seconds<=0)return;
+   addMsg("ai",esc(answer).replace(/\n/g,"<br>"));seconds=Number(d.remainingSeconds||seconds);renderTimer();if(seconds<=0)endSession();
  }catch(e){hideTyping();addMsg("system",esc(e.message))}finally{$("#sendBtn").disabled=!sessionId||seconds<=0;$("#message").disabled=!sessionId||seconds<=0}
 };
 async function buy(planId){
