@@ -49,7 +49,7 @@ async function getGurus(){
   const snap=await db.collection("aiGurus").get();
   if(snap.empty)return guruDefaults;
   const rows=snap.docs.map(d=>({id:d.id,...d.data()})).filter(x=>x.active!==false);
-  return rows.length?rows.sort((a,b)=>Number(a.sortOrder??0)-Number(b.sortOrder??0)):guruDefaults;
+  return rows.sort((a,b)=>Number(a.sortOrder??0)-Number(b.sortOrder??0));
 }
 app.get("/api/ai/gurus",async(req,res)=>{try{res.json({gurus:await getGurus()})}catch(e){res.status(500).json({error:e.message||"Unable to load gurus."})}});
 app.post("/api/ai/trial",async(req,res)=>{try{const guru=clean(req.body.guruId,40)||"aarav",id=crypto.randomBytes(16).toString("hex");await db.collection("aiSessions").doc(id).set({type:"trial",guruId:guru,remainingSeconds:30,durationSeconds:30,startedAt:admin.firestore.FieldValue.serverTimestamp(),createdAt:admin.firestore.FieldValue.serverTimestamp(),status:"active"});res.json({ok:true,sessionId:id,seconds:30})}catch(e){res.status(500).json({error:e.message||"Unable to start session."})}});
@@ -106,6 +106,9 @@ app.post("/api/admin/guru",guard,async(req,res)=>{
     const data={name:clean(req.body.name,100)||"AI Guru",specialty:clean(req.body.specialty,100)||"Guidance",emoji:clean(req.body.emoji,10)||"🔮",imageUrl:clean(req.body.imageUrl,600),description:clean(req.body.description,400),prompt:clean(req.body.prompt,1500),active:req.body.active!==false,sortOrder:Number(req.body.sortOrder)||Date.now(),updatedAt:admin.firestore.FieldValue.serverTimestamp()};
     await db.collection("aiGurus").doc(id).set(data,{merge:true});res.json({ok:true,id});
   }catch(e){res.status(500).json({error:e.message||"Unable to save guru."})}
+});
+app.post("/api/admin/guru/toggle",guard,async(req,res)=>{
+  try{const id=clean(req.body.id,60).toLowerCase().replace(/[^a-z0-9_-]/g,"");if(!id)return res.status(400).json({error:"Guru ID required."});if(typeof req.body.active!=="boolean")return res.status(400).json({error:"Active value required."});const ref=db.collection("aiGurus").doc(id),snap=await ref.get();if(!snap.exists)return res.status(404).json({error:"Guru not found."});await ref.set({active:req.body.active,updatedAt:admin.firestore.FieldValue.serverTimestamp()},{merge:true});res.json({ok:true,id,active:req.body.active})}catch(e){res.status(500).json({error:e.message||"Unable to update guru status."})}
 });
 app.post("/api/admin/plan",guard,async(req,res)=>{try{const id=clean(req.body.id,80);if(!id)return res.status(400).json({error:"Plan ID required."});await db.collection("plans").doc(id).set({name:clean(req.body.name,80),price:Number(req.body.price),durationMinutes:req.body.durationMinutes===null||req.body.durationMinutes===""?null:Number(req.body.durationMinutes),durationDays:req.body.durationDays===null||req.body.durationDays===""?null:Number(req.body.durationDays),description:clean(req.body.description,300),active:req.body.active!==false,featured:req.body.featured===true,sortOrder:Number(req.body.sortOrder)||Date.now(),updatedAt:admin.firestore.FieldValue.serverTimestamp()},{merge:true});res.json({ok:true,id})}catch(e){res.status(500).json({error:e.message})}});
 app.post("/api/admin/review",guard,async(req,res)=>{try{const id=clean(req.body.id,120),data={name:clean(req.body.name,80),rating:clean(req.body.rating,10)||"★★★★★",review:clean(req.body.review,600),active:req.body.active!==false,updatedAt:admin.firestore.FieldValue.serverTimestamp()};if(id)await db.collection("reviews").doc(id).set(data,{merge:true});else await db.collection("reviews").add({...data,createdAt:admin.firestore.FieldValue.serverTimestamp()});res.json({ok:true})}catch(e){res.status(500).json({error:e.message})}});

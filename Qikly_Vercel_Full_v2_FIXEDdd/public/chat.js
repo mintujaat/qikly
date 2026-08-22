@@ -24,10 +24,10 @@ async function startComplimentary(){
   localStorage.setItem(trialKey,"1");startSession(d.sessionId,d.seconds,customerName);
  }catch(e){toast(e.message)}
 }
-function startSession(id,s,name){sessionId=id;seconds=Number(s)||30;$("#plansBox").classList.add("hidden");$("#message").disabled=false;$("#sendBtn").disabled=false;addMsg("ai",`नमस्ते ${esc(name==="Guest"?"":name)} 🙏<br>अपनी बात आराम से बताइए। मैं ध्यान से सुन रहा हूँ।`);runTimer()}
+function startSession(id,s,name){hideTyping();sessionId=id;seconds=Number(s)||30;$("#plansBox").classList.add("hidden");$("#message").disabled=false;$("#sendBtn").disabled=false;addMsg("ai",`नमस्ते ${esc(name==="Guest"?"":name)} 🙏<br>अपनी बात आराम से बताइए। मैं ध्यान से सुन रहा हूँ।`);runTimer()}
 function runTimer(){clearInterval(timer);renderTimer();timer=setInterval(()=>{seconds--;renderTimer();if(seconds<=0){clearInterval(timer);endSession()}},1000)}
 function renderTimer(){$("#timer").textContent=`${String(Math.max(0,Math.floor(seconds/60))).padStart(2,"0")}:${String(Math.max(0,seconds%60)).padStart(2,"0")}`;$("#timer").classList.toggle("urgent",seconds<=10)}
-function endSession(){sessionId=null;$("#message").disabled=true;$("#sendBtn").disabled=true;$("#timer").textContent="00:00";setTimeout(showPlans,350);addMsg("system","समय पूरा हो गया। अगर आप बातचीत जारी रखना चाहते हैं, एक session चुनें।")}
+function endSession(){hideTyping();sessionId=null;$("#message").disabled=true;$("#sendBtn").disabled=true;$("#timer").textContent="00:00";setTimeout(showPlans,350);addMsg("system","समय पूरा हो गया। अगर आप बातचीत जारी रखना चाहते हैं, एक session चुनें।")}
 function showPlans(){
   $("#plansBox").classList.remove("hidden");
   $("#chatPlans").innerHTML=plans.length
@@ -38,17 +38,23 @@ function showPlans(){
 }
 
 function addMsg(type,text){const el=document.createElement("div");el.className=`bubble-row ${type}`;el.innerHTML=`<div class="bubble">${text}</div>`;$("#chatMessages").appendChild(el);$("#chatMessages").scrollTop=$("#chatMessages").scrollHeight}
-function typing(on){$("#typing").classList.toggle("hidden",!on)}
+function showTyping(){
+ const old=$("#typingBubble"); if(old)old.remove();
+ const el=document.createElement("div");el.id="typingBubble";el.className="bubble-row ai typing-row";
+ el.innerHTML='<div class="bubble typing-bubble"><span></span><span></span><span></span><em>गुरु लिख रहे हैं…</em></div>';
+ $("#chatMessages").appendChild(el);$("#chatMessages").scrollTop=$("#chatMessages").scrollHeight;
+}
+function hideTyping(){const el=$("#typingBubble");if(el)el.remove()}
 $("#chatForm").onsubmit=async e=>{
  e.preventDefault();if(!sessionId||seconds<=0)return;
- const input=$("#message"),msg=input.value.trim();if(!msg)return;input.value="";addMsg("user",esc(msg));$("#sendBtn").disabled=true;typing(true);
+ const input=$("#message"),msg=input.value.trim();if(!msg)return;input.value="";addMsg("user",esc(msg));$("#sendBtn").disabled=true;$("#message").disabled=true;showTyping();
  try{
    const d=await api("/api/ai/chat",{method:"POST",body:JSON.stringify({sessionId,guruId:guru.id,message:msg})});
    const answer=String(d.answer||"").trim();
    const delay=Math.min(2200,700+Math.max(0,answer.length)*10);
    await new Promise(r=>setTimeout(r,delay));
-   typing(false);addMsg("ai",esc(answer).replace(/\n/g,"<br>"));seconds=Number(d.remainingSeconds||seconds);renderTimer();if(seconds<=0)endSession();
- }catch(e){typing(false);addMsg("system",esc(e.message))}finally{$("#sendBtn").disabled=false}
+   hideTyping();addMsg("ai",esc(answer).replace(/\n/g,"<br>"));seconds=Number(d.remainingSeconds||seconds);renderTimer();if(seconds<=0)endSession();
+ }catch(e){hideTyping();addMsg("system",esc(e.message))}finally{$("#sendBtn").disabled=!sessionId||seconds<=0;$("#message").disabled=!sessionId||seconds<=0}
 };
 async function buy(planId){
  const p=plans.find(x=>x.id===planId);if(!p)return;
