@@ -13,6 +13,7 @@ async function init(){
   guru=gurus.find(g=>g.id===guruId)||gurus[0];if(!guru)throw Error("कोई गुरु उपलब्ध नहीं है।");
   $("#topGuru").innerHTML=`<div class="tiny-avatar">${avatar(guru)}</div><div><strong>${esc(guru.name)}</strong><small>${esc(guru.specialty||"AI मार्गदर्शक")}</small></div>`;
   customerName=localStorage.getItem("astrosage_name")||"Guest";
+  setComposer(false);
   const used=localStorage.getItem(trialKey)==="1";
   if(used){ addMsg("system","आपका complimentary session पहले इस्तेमाल हो चुका है। आगे बढ़ने के लिए नीचे से समय चुनें।"); setTimeout(showPlans,500); }
   else { await startComplimentary(); }
@@ -24,10 +25,11 @@ async function startComplimentary(){
   localStorage.setItem(trialKey,"1");startSession(d.sessionId,d.seconds,customerName);
  }catch(e){toast(e.message)}
 }
-function startSession(id,s,name){hideTyping();sessionId=id;seconds=Number(s)||30;$("#plansBox").classList.add("hidden");$("#message").disabled=false;$("#sendBtn").disabled=false;addMsg("ai",`नमस्ते ${esc(name==="Guest"?"":name)} 🙏<br>अपनी बात आराम से बताइए। मैं ध्यान से सुन रहा हूँ।`);runTimer()}
+function setComposer(show){const f=$("#chatForm");if(f)f.classList.toggle("composer-hidden",!show)}
+function startSession(id,s,name){hideTyping();sessionId=id;seconds=Number(s)||30;$("#plansBox").classList.add("hidden");setComposer(true);$("#message").disabled=false;$("#sendBtn").disabled=false;addMsg("ai",`नमस्ते ${esc(name==="Guest"?"":name)} 🙏<br>अपनी बात आराम से बताइए। मैं ध्यान से सुन रहा हूँ।`);runTimer()}
 function runTimer(){clearInterval(timer);renderTimer();timer=setInterval(()=>{seconds--;renderTimer();if(seconds<=0){clearInterval(timer);endSession()}},1000)}
 function renderTimer(){$("#timer").textContent=`${String(Math.max(0,Math.floor(seconds/60))).padStart(2,"0")}:${String(Math.max(0,seconds%60)).padStart(2,"0")}`;$("#timer").classList.toggle("urgent",seconds<=10)}
-function endSession(){hideTyping();sessionId=null;$("#message").disabled=true;$("#sendBtn").disabled=true;$("#timer").textContent="00:00";setTimeout(showPlans,350);addMsg("system","समय पूरा हो गया। अगर आप बातचीत जारी रखना चाहते हैं, एक session चुनें।")}
+function endSession(){hideTyping();sessionId=null;$("#message").disabled=true;$("#sendBtn").disabled=true;setComposer(false);$("#timer").textContent="00:00";setTimeout(showPlans,350);addMsg("system","समय पूरा हो गया। अगर आप बातचीत जारी रखना चाहते हैं, एक session चुनें।")}
 function showPlans(){
   $("#plansBox").classList.remove("hidden");
   $("#chatPlans").innerHTML=plans.length
