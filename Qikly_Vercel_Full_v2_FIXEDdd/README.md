@@ -34,3 +34,6 @@ Use a separate webhook secret in Razorpay and the same value in `RAZORPAY_WEBHOO
 
 ## Important
 Never expose Razorpay Key Secret or Firebase service-account JSON in public files.
+
+
+UI update: saffron Hindi-first homepage, Guru reviews/FAQ rendering, WhatsApp-style chat, plan popup, typing indicator, and premium admin theme. Marquee/reviews/FAQ remain managed from Admin.

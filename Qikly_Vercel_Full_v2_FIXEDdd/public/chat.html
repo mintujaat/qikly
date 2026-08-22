@@ -1,6 +1,26 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Chat — AstroSage AI</title><link rel="stylesheet" href="/style.css"></head>
-<body class="chat-page"><header class="chat-top"><a href="/" class="back-chat">←</a><div id="topGuru"><div class="tiny-avatar">🔮</div><div><strong>Guru</strong><small>AI Guide</small></div></div><div class="chat-timer" id="timer">00:30</div></header>
-<main class="chat-main"><div id="chatMessages" class="chat-messages"></div><div id="plansBox" class="plans-box hidden"><div class="paywall-title">Your session has ended</div><p>Choose how much time you want to continue.</p><div id="chatPlans"></div></div></main>
-<form id="chatForm" class="chat-input"><input id="message" maxlength="2000" placeholder="Type your message…" autocomplete="off"><button id="sendBtn" type="submit">➤</button></form>
-<div id="nameModal" class="name-modal hidden"><div class="name-card"><div class="small-gold">BEFORE WE BEGIN</div><h2>What should your Guru call you?</h2><p>Your name is only used to personalize this chat.</p><input id="customerName" maxlength="80" placeholder="Your name"><button id="startBtn">Start chat →</button></div></div>
-<div id="toast" class="toast"></div><script src="https://checkout.razorpay.com/v1/checkout.js"></script><script src="/chat.js"></script></body></html>
+<!doctype html><html lang="hi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Chat — AstroSage AI</title><link rel="stylesheet" href="/style.css"></head>
+<body class="chat-page">
+<header class="chat-top">
+ <a href="/" class="back-chat">←</a>
+ <div id="topGuru" class="chat-guru-head"><div class="tiny-avatar">🔮</div><div><strong>गुरु</strong><small>AI मार्गदर्शक</small></div></div>
+ <div class="timer-wrap"><span>SESSION</span><div class="chat-timer" id="timer">00:30</div></div>
+</header>
+<main class="chat-main">
+ <div id="chatMessages" class="chat-messages"></div>
+ <div id="plansBox" class="plans-box hidden">
+   <div class="plans-overlay"></div>
+   <div class="plans-modal">
+    <button id="closePlans" class="modal-x">×</button>
+    <div class="plan-lotus">🪷</div>
+    <div class="small-gold">आगे की बातचीत</div>
+    <h2>थोड़ा और समय चाहिए?</h2>
+    <p>अपनी जरूरत के हिसाब से एक private session चुनिए।</p>
+    <div id="chatPlans"></div>
+   </div>
+ </div>
+</main>
+<div id="typing" class="typing-indicator hidden"><span></span><span></span><span></span><em>गुरु लिख रहे हैं…</em></div>
+<form id="chatForm" class="chat-input"><input id="message" maxlength="1200" placeholder="अपनी बात लिखें…" autocomplete="off"><button id="sendBtn" type="submit">➤</button></form>
+<div id="nameModal" class="name-modal hidden"><div class="name-card"><div class="small-gold">शुरू करने से पहले</div><h2>गुरु आपको किस नाम से बुलाएँ?</h2><p>नाम सिर्फ बातचीत को थोड़ा personal बनाने के लिए है।</p><input id="customerName" maxlength="80" placeholder="आपका नाम"><button id="startBtn">बात शुरू करें →</button></div></div>
+<div id="toast" class="toast"></div>
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script><script src="/chat.js"></script></body></html>
