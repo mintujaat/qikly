@@ -29,3 +29,17 @@ body.astro-body{background:radial-gradient(circle at 50% -10%,#9f4d1022,transpar
 .toast{position:fixed;right:18px;bottom:90px;z-index:80;background:#2b1709;color:#fff2dc;border:1px solid #e6a33b;padding:11px 14px;border-radius:12px;opacity:0;transform:translateY(10px);pointer-events:none;transition:.2s}.toast.show{opacity:1;transform:none}
 @media(max-width:850px){.guru-list,.review-grid{grid-template-columns:1fr 1fr}.astro-how{grid-template-columns:1fr}.mini-steps{grid-template-columns:1fr}.support-banner{align-items:flex-start;flex-direction:column}.support-banner div{align-items:flex-start}.astro-footer div{margin-left:0}}
 @media(max-width:600px){.astro-header nav a{padding:8px;font-size:11px}.astro-header{height:65px}.astro-hero{padding:45px 0 50px}.astro-hero h1{font-size:42px}.guru-list,.review-grid{grid-template-columns:1fr}.guru-card{padding:16px}.guru-avatar{width:68px;height:68px;flex-basis:68px}.guru-section h2,.reviews-home h2,.faq-home h2,.astro-how h2{font-size:34px}.chat-main{padding-bottom:110px!important}.bubble{max-width:88%}}
+
+/* Inline chat plans: no blocking popup */
+.chat-plans-inline{width:min(720px,calc(100% - 24px));margin:18px auto 120px;padding:18px;border:1px solid rgba(190,130,20,.28);border-radius:22px;background:linear-gradient(145deg,rgba(255,248,224,.98),rgba(255,239,190,.96));box-shadow:0 12px 35px rgba(74,42,8,.12);position:relative;z-index:2}
+.chat-plans-inline.hidden{display:none!important}
+.plans-inline-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}
+.plans-inline-head h2{margin:4px 0;color:#5d3608;font-size:20px}
+.plans-inline-head p{margin:0;color:#765d39;font-size:13px}
+.chat-plans-list{display:grid;gap:10px}
+.chat-plans-inline .chat-plan{width:100%;display:flex;align-items:center;justify-content:space-between;gap:16px;border:1px solid rgba(160,105,15,.22);border-radius:16px;padding:13px 15px;background:#fffdf7;color:#4d2d08;cursor:pointer;text-align:left;transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease}
+.chat-plans-inline .chat-plan:hover{transform:translateY(-2px);box-shadow:0 8px 20px rgba(70,40,5,.12);border-color:rgba(160,105,15,.5)}
+.chat-plans-inline .chat-plan.featured{border-color:#c88619;box-shadow:0 5px 18px rgba(200,134,25,.15)}
+.chat-plans-inline .chat-plan span{display:flex;flex-direction:column;gap:3px}
+.chat-plans-inline .chat-plan b{font-size:15px}.chat-plans-inline .chat-plan small{font-size:12px;color:#806443}.chat-plans-inline .chat-plan strong{font-size:17px;white-space:nowrap;color:#a35d00}
+@media(max-width:600px){.chat-plans-inline{width:calc(100% - 16px);padding:14px;margin-bottom:110px}.plans-inline-head h2{font-size:18px}}

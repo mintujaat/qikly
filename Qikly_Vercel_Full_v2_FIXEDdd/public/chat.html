@@ -7,17 +7,17 @@
 </header>
 <main class="chat-main">
  <div id="chatMessages" class="chat-messages"></div>
- <div id="plansBox" class="plans-box hidden">
-   <div class="plans-overlay"></div>
-   <div class="plans-modal">
-    <button id="closePlans" class="modal-x">×</button>
-    <div class="plan-lotus">🪷</div>
-    <div class="small-gold">आगे की बातचीत</div>
-    <h2>थोड़ा और समय चाहिए?</h2>
-    <p>अपनी जरूरत के हिसाब से एक private session चुनिए।</p>
-    <div id="chatPlans"></div>
+ <section id="plansBox" class="plans-box chat-plans-inline hidden" aria-label="चैट प्लान">
+   <div class="plans-inline-head">
+    <div>
+      <span class="small-gold">आगे की बातचीत</span>
+      <h2>थोड़ा और समय चाहिए?</h2>
+      <p>अपनी जरूरत के हिसाब से चैट का समय चुनें।</p>
+    </div>
+    <span class="plan-lotus">🪷</span>
    </div>
- </div>
+   <div id="chatPlans" class="chat-plans-list"></div>
+  </section>
 </main>
 <div id="typing" class="typing-indicator hidden"><span></span><span></span><span></span><em>गुरु लिख रहे हैं…</em></div>
 <form id="chatForm" class="chat-input"><input id="message" maxlength="1200" placeholder="अपनी बात लिखें…" autocomplete="off"><button id="sendBtn" type="submit">➤</button></form>

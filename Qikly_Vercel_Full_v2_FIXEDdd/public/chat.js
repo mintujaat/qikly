@@ -28,8 +28,15 @@ function startSession(id,s,name){sessionId=id;seconds=Number(s)||30;$("#plansBox
 function runTimer(){clearInterval(timer);renderTimer();timer=setInterval(()=>{seconds--;renderTimer();if(seconds<=0){clearInterval(timer);endSession()}},1000)}
 function renderTimer(){$("#timer").textContent=`${String(Math.max(0,Math.floor(seconds/60))).padStart(2,"0")}:${String(Math.max(0,seconds%60)).padStart(2,"0")}`;$("#timer").classList.toggle("urgent",seconds<=10)}
 function endSession(){sessionId=null;$("#message").disabled=true;$("#sendBtn").disabled=true;$("#timer").textContent="00:00";setTimeout(showPlans,350);addMsg("system","समय पूरा हो गया। अगर आप बातचीत जारी रखना चाहते हैं, एक session चुनें।")}
-function showPlans(){$("#plansBox").classList.remove("hidden");$("#chatPlans").innerHTML=plans.length?plans.map((p,i)=>`<button class="chat-plan ${i===1?"featured":""}" data-id="${esc(p.id)}"><span><b>${esc(p.name)}</b><small>${Number(p.durationMinutes)} मिनट private chat</small></span><strong>₹${Number(p.price).toLocaleString("en-IN")}</strong></button>`).join(""):`<p class="muted">अभी कोई session plan उपलब्ध नहीं है।</p>`;document.querySelectorAll(".chat-plan").forEach(b=>b.onclick=()=>buy(b.dataset.id))}
-$("#closePlans").onclick=()=>$("#plansBox").classList.add("hidden");
+function showPlans(){
+  $("#plansBox").classList.remove("hidden");
+  $("#chatPlans").innerHTML=plans.length
+    ? plans.map((p,i)=>`<button class="chat-plan ${i===1?"featured":""}" data-id="${esc(p.id)}"><span><b>${esc(p.name)}</b><small>${Number(p.durationMinutes)} मिनट चैट</small></span><strong>₹${Number(p.price).toLocaleString("en-IN")}</strong></button>`).join("")
+    : `<p class="muted">अभी कोई session plan उपलब्ध नहीं है।</p>`;
+  document.querySelectorAll(".chat-plan").forEach(b=>b.onclick=()=>buy(b.dataset.id));
+  setTimeout(()=>$("#plansBox").scrollIntoView({behavior:"smooth",block:"nearest"}),60);
+}
+
 function addMsg(type,text){const el=document.createElement("div");el.className=`bubble-row ${type}`;el.innerHTML=`<div class="bubble">${text}</div>`;$("#chatMessages").appendChild(el);$("#chatMessages").scrollTop=$("#chatMessages").scrollHeight}
 function typing(on){$("#typing").classList.toggle("hidden",!on)}
 $("#chatForm").onsubmit=async e=>{
@@ -48,7 +55,11 @@ async function buy(planId){
  try{
   const o=await api("/api/ai/create-order",{method:"POST",body:JSON.stringify({planId,guruId:guru.id,customerName})});
   const rzp=new Razorpay({key:razorpayKey,amount:o.amount,currency:o.currency||"INR",name:"AstroSage AI",description:`${p.name} — ${guru.name}`,order_id:o.orderId,prefill:{name:customerName},theme:{color:"#d58a17"},handler:async response=>{
-   try{const v=await api("/api/ai/verify-payment",{method:"POST",body:JSON.stringify(response)});$("#plansBox").classList.add("hidden");addMsg("system","Payment verified. आपका session शुरू हो रहा है 🙏");startSession(v.sessionId,v.seconds,customerName)}
+   try{const v=await api("/api/ai/verify-payment",{method:"POST",body:JSON.stringify(response)});
+   $("#plansBox").classList.add("hidden");
+   $("#chatPlans").innerHTML="";
+   addMsg("system","Payment verified. आपका session शुरू हो रहा है 🙏");
+   startSession(v.sessionId,v.seconds,customerName)}
    catch(e){toast(e.message)}
   },modal:{ondismiss:()=>{}}});rzp.open();
  }catch(e){toast(e.message)}
