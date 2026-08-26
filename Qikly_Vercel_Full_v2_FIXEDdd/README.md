@@ -12,3 +12,7 @@
 
 ## Deployment
 Keep existing Vercel environment variables. No new secret is required by this fix.
+
+
+## Free test plan
+Set `ENABLE_FREE_TEST_PLAN=true` in Vercel while testing. It adds a ₹0 `Free Test` report plan without requiring Razorpay. Set it back to `false` (or remove it) after testing.
