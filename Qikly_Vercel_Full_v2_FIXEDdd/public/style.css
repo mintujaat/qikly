@@ -40,3 +40,5 @@
 .theme-demo strong{font-size:13px}.theme-demo span{font-size:10px}.theme-demo button{grid-column:2;grid-row:1 / span 2;border:0;border-radius:10px;padding:9px 12px;font-weight:900;font-size:10px}
 .chatbot-saved-card,.theme-saved-card{grid-column:1/-1}
 @media(max-width:900px){.saved-grid{grid-template-columns:1fr}.upload-row{grid-template-columns:1fr}.theme-preview-swatches{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+.error-state{border:1px solid #efcdc5;background:#fff8f5;border-radius:14px}.error-state small{display:inline-block;margin:7px 0 10px;line-height:1.5}.admin-data-status{display:block;margin-top:6px;max-width:820px;line-height:1.5}

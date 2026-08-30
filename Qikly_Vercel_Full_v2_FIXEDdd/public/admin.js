@@ -165,29 +165,51 @@ function renderRecent() {
 }
 
 async function load() {
-  const loaded = await api("/api/admin/data");
-  DATA = {
-    settings: loaded?.settings || {},
-    chatbot: loaded?.chatbot || {},
-    banners: Array.isArray(loaded?.banners) ? loaded.banners : [],
-    faqs: Array.isArray(loaded?.faqs) ? loaded.faqs : [],
-    donations: Array.isArray(loaded?.donations) ? loaded.donations : [],
-    stats: loaded?.stats || { donorCount: 0, totalRaised: 0, todayAmount: 0, monthAmount: 0, seedCount: 0 },
-    publicDonorCount: Number(loaded?.publicDonorCount || 0),
-  };
-  $("#adminNgoName").textContent = DATA.settings.ngoName || "Qikly Support NGO";
-  $("#statRaised").textContent = money(DATA.stats.totalRaised);
-  $("#statDonors").textContent = DATA.stats.donorCount;
-  $("#statToday").textContent = money(DATA.stats.todayAmount);
-  $("#statMonth").textContent = money(DATA.stats.monthAmount);
-  fillForms();
-  renderBanners();
-  renderFaqs();
-  renderContentPreview();
-  renderChatbotPreview();
-  renderThemePreview();
-  renderDonations();
-  renderRecent();
+  setMsg("#adminDataStatus", "Loading saved data…");
+  try {
+    const loaded = await api(`/api/admin/data?ts=${Date.now()}`);
+    if (!loaded || typeof loaded !== "object") throw new Error("Admin data response was empty.");
+
+    DATA = {
+      settings: loaded.settings && typeof loaded.settings === "object" ? loaded.settings : {},
+      chatbot: loaded.chatbot && typeof loaded.chatbot === "object" ? loaded.chatbot : {},
+      banners: Array.isArray(loaded.banners) ? loaded.banners : [],
+      faqs: Array.isArray(loaded.faqs) ? loaded.faqs : [],
+      donations: Array.isArray(loaded.donations) ? loaded.donations : [],
+      stats: loaded.stats && typeof loaded.stats === "object" ? loaded.stats : { donorCount: 0, totalRaised: 0, todayAmount: 0, monthAmount: 0, seedCount: 0 },
+      publicDonorCount: Number(loaded.publicDonorCount || 0),
+    };
+
+    // Always paint saved previews even if one form/widget has a malformed value.
+    const steps = [
+      ["header", () => { $("#adminNgoName").textContent = DATA.settings.ngoName || "Qikly Support NGO"; }],
+      ["stats", () => { $("#statRaised").textContent = money(DATA.stats.totalRaised); $("#statDonors").textContent = Number(DATA.stats.donorCount || 0); $("#statToday").textContent = money(DATA.stats.todayAmount); $("#statMonth").textContent = money(DATA.stats.monthAmount); }],
+      ["forms", fillForms],
+      ["banners", renderBanners],
+      ["faqs", renderFaqs],
+      ["content", renderContentPreview],
+      ["chatbot", renderChatbotPreview],
+      ["theme", renderThemePreview],
+      ["donations", renderDonations],
+      ["recent", renderRecent],
+    ];
+
+    const failed = [];
+    for (const [name, fn] of steps) {
+      try { fn(); } catch (err) { console.error(`Admin ${name} render failed:`, err); failed.push(`${name}: ${err.message || err}`); }
+    }
+
+    const loadedMsg = `Loaded ${DATA.banners.length} banner${DATA.banners.length === 1 ? "" : "s"}, ${DATA.faqs.length} FAQ${DATA.faqs.length === 1 ? "" : "s"}, ${DATA.donations.length} donor record${DATA.donations.length === 1 ? "" : "s"}.`;
+    setMsg("#adminDataStatus", failed.length ? `${loadedMsg} Some UI fields failed: ${failed.join(" | ")}` : loadedMsg);
+  } catch (e) {
+    console.error("Admin data load failed:", e);
+    const msg = e?.message || "Unable to load saved admin data.";
+    setMsg("#adminDataStatus", `ERROR: ${msg}`);
+    ["#bannerTable", "#faqTable", "#contentPreview", "#chatbotPreview", "#themePreview", "#donationsTable", "#recentDonations"].forEach(sel => {
+      const el = $(sel);
+      if (el) el.innerHTML = `<div class="empty error-state">Saved data could not be loaded.<br><small>${esc(msg)}</small><br><button class="btn small retry-admin-data" type="button">Retry</button></div>`;
+    });
+  }
 }
 
 function resetBanner() {
@@ -291,6 +313,10 @@ $("#themePreview").onclick=async(e)=>{
 };
 
 $("#loginForm").onsubmit=async(e)=>{e.preventDefault();$("#loginError").textContent="";try{await api("/api/admin/login",{method:"POST",body:JSON.stringify({password:$("#password").value})});$("#loginView").classList.add("hidden");$("#adminView").classList.remove("hidden");await load();}catch(e){$("#loginError").textContent=e.message}};
+document.addEventListener("click", e => {
+  if (e.target.closest(".retry-admin-data")) load();
+});
+
 $("#logout").onclick=async()=>{await api("/api/admin/logout",{method:"POST",body:"{}"});location.reload();};
 
 (async()=>{try{const me=await api("/api/admin/me");if(me.authenticated){$("#loginView").classList.add("hidden");$("#adminView").classList.remove("hidden");await load();}}catch(e){}})();

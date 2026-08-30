@@ -357,8 +357,7 @@ app.get("/api/admin/me", (req, res) => res.json({ authenticated: isAdmin(req) })
 app.get("/api/admin/data", guard, async (req, res) => {
   res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   try {
-    const [publicData, settings, chatbot, bannersSnap, faqSnap, donationsSnap] = await Promise.all([
-      getPublicData(),
+    const [settings, chatbot, bannersSnap, faqSnap, donationsSnap] = await Promise.all([
       getDoc("settings", "main", defaults.settings),
       getDoc("chatbot", "main", defaults.chatbot),
       db.collection("banners").get(),
@@ -385,9 +384,13 @@ app.get("/api/admin/data", guard, async (req, res) => {
         monthAmount: month.reduce((s, x) => s + num(x.amount), 0),
         seedCount: paid.filter(x => x.seed === true).length,
       },
-      publicDonorCount: publicData.donorCount,
+      publicDonorCount: paid.length,
+      _source: "firestore-admin-v3",
     });
-  } catch (e) { console.error(e); res.status(500).json({ error: e.message || "Unable to load admin data." }); }
+  } catch (e) {
+    console.error("Admin data error:", e);
+    res.status(500).json({ error: e.message || "Unable to load admin data." });
+  }
 });
 
 app.post("/api/admin/settings", guard, async (req, res) => {

@@ -4,7 +4,7 @@
   <div id="loginView" class="login-card card"><span class="eyebrow">CONTROL PANEL</span><h1>Admin access</h1><p>Manage your NGO website from one place.</p><form id="loginForm"><label>Password<input id="password" type="password" autocomplete="current-password" required></label><button class="btn primary full">Login</button><div id="loginError" class="error"></div></form></div>
   <div id="adminView" class="admin-shell hidden">
     <aside class="admin-side"><div class="admin-brand"><span>♥</span><strong id="adminNgoName">NGO Admin</strong></div><button class="side-btn active" data-section="dashboard">Dashboard</button><button class="side-btn" data-section="banners">Banners / Ads</button><button class="side-btn" data-section="content">Website Content</button><button class="side-btn" data-section="faqAdmin">FAQ</button><button class="side-btn" data-section="donations">Donations</button><button class="side-btn" data-section="chatbotAdmin">AI Chatbot</button><button class="side-btn" data-section="themeAdmin">Theme</button><button id="logout" class="side-btn">Logout</button></aside>
-    <main class="admin-main"><header class="admin-top"><div><span class="eyebrow">ADMIN PANEL</span><h1 id="pageTitle">Dashboard</h1></div><a class="btn" href="/" target="_blank">Open Website ↗</a></header>
+    <main class="admin-main"><header class="admin-top"><div><span class="eyebrow">ADMIN PANEL</span><h1 id="pageTitle">Dashboard</h1><span id="adminDataStatus" class="muted" aria-live="polite"></span></div><a class="btn" href="/" target="_blank">Open Website ↗</a></header>
       <div class="admin-content">
         <section id="dashboard" class="active"><div class="stats-grid"><div class="stat card"><span>Raised</span><strong id="statRaised">₹0</strong></div><div class="stat card"><span>Supporters</span><strong id="statDonors">0</strong></div><div class="stat card"><span>Today</span><strong id="statToday">₹0</strong></div><div class="stat card"><span>This Month</span><strong id="statMonth">₹0</strong></div></div><div class="panel card"><div class="panel-head"><div><span class="eyebrow">DEMO DATA</span><h3>Seed supporter leaderboard</h3><p>Creates exactly 450 clearly-generated sample supporter rows. Real paid donations are not deleted.</p></div><button id="seedSupporters" class="btn primary">Generate 450 Samples</button></div><div id="seedMsg" class="muted"></div></div><div class="panel card"><div class="panel-head"><div><span class="eyebrow">QUICK VIEW</span><h3>Latest donations</h3></div></div><div id="recentDonations"></div></div></section>
 
@@ -55,5 +55,5 @@
       </div>
     </main>
   </div>
-  <script src="/admin.js?v=20260830-2" defer></script>
+  <script src="/admin.js?v=20260830-3" defer></script>
 </body></html>
