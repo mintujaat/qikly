@@ -4,7 +4,7 @@ const Razorpay = require("razorpay");
 const admin = require("firebase-admin");
 
 const app = express();
-app.use(express.json({ limit: "200kb" }));
+app.use(express.json({ limit: "12mb" }));
 
 if (!admin.apps.length) {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
@@ -427,6 +427,57 @@ app.post("/api/admin/chatbot", guard, async (req, res) => {
     }, { merge: true });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message || "Unable to save chatbot settings." }); }
+});
+
+app.post("/api/admin/upload-image", guard, async (req, res) => {
+  try {
+    const key = String(process.env.IMGBB_API_KEY || "").trim();
+    if (!key) return res.status(503).json({ error: "ImgBB API is not configured on the server." });
+    const raw = String(req.body?.image || "");
+    if (!raw) return res.status(400).json({ error: "Please select an image first." });
+    const base64 = raw.includes(",") ? raw.split(",").slice(1).join(",") : raw;
+    if (!/^[A-Za-z0-9+/=\r\n]+$/.test(base64)) return res.status(400).json({ error: "Invalid image data." });
+    const bytes = Math.floor((base64.replace(/\s/g, "").length * 3) / 4);
+    if (bytes > 8 * 1024 * 1024) return res.status(413).json({ error: "Image is too large. Please use an image under 8 MB." });
+
+    const params = new URLSearchParams();
+    params.set("image", base64.replace(/\s/g, ""));
+    if (req.body?.name) params.set("name", clean(req.body.name, 120));
+    const r = await fetch(`https://api.imgbb.com/1/upload?key=${encodeURIComponent(key)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: params,
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d?.success || !d?.data?.url) {
+      return res.status(502).json({ error: d?.error?.message || "ImgBB upload failed." });
+    }
+    res.json({ ok: true, imageUrl: d.data.url, displayUrl: d.data.display_url || d.data.url });
+  } catch (e) {
+    console.error(e); res.status(500).json({ error: e.message || "Unable to upload image." });
+  }
+});
+
+app.post("/api/admin/reset-section", guard, async (req, res) => {
+  try {
+    const section = clean(req.body?.section, 80);
+    const contentFields = new Set(["ngoName", "supportEmail", "tagline", "heroTitle", "heroText", "marqueeText", "about", "terms", "privacy", "refund"]);
+    if (contentFields.has(section)) {
+      await db.collection("settings").doc("main").set({ [section]: defaults.settings[section] }, { merge: true });
+      return res.json({ ok: true });
+    }
+    if (section === "chatbot") {
+      await db.collection("chatbot").doc("main").set({ ...defaults.chatbot, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      return res.json({ ok: true });
+    }
+    if (section === "theme") {
+      await db.collection("settings").doc("main").set({ theme: { ...defaults.settings.theme } }, { merge: true });
+      return res.json({ ok: true });
+    }
+    return res.status(400).json({ error: "Invalid section." });
+  } catch (e) {
+    console.error(e); res.status(500).json({ error: e.message || "Unable to reset section." });
+  }
 });
 
 app.post("/api/admin/banner", guard, async (req, res) => {
