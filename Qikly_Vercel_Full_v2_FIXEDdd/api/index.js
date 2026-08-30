@@ -182,6 +182,41 @@ function randomSeedName(index) {
   return `${f} ${l}${suffix ? ` ${suffix + 1}` : ""}`;
 }
 
+async function deleteAllDonations() {
+  const snap = await db.collection("donations").get();
+  let deleted = 0;
+  let batch = db.batch();
+  let inBatch = 0;
+  for (const doc of snap.docs) {
+    batch.delete(doc.ref);
+    inBatch++;
+    deleted++;
+    if (inBatch === 450) {
+      await batch.commit();
+      batch = db.batch();
+      inBatch = 0;
+    }
+  }
+  if (inBatch) await batch.commit();
+  return { count: deleted };
+}
+
+async function addManualDonation(name, amount) {
+  const ref = db.collection("donations").doc(`manual_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`);
+  await ref.set({
+    name,
+    amount,
+    status: "paid",
+    seed: false,
+    source: "manual",
+    paymentId: null,
+    orderId: null,
+    createdAt: FieldValue.serverTimestamp(),
+    verifiedAt: FieldValue.serverTimestamp(),
+  });
+  return { id: ref.id };
+}
+
 async function seedSupporters() {
   const snap = await db.collection("donations").where("seed", "==", true).get();
   const batchDelete = db.batch();
@@ -426,6 +461,27 @@ app.post("/api/admin/delete", guard, async (req, res) => {
     await db.collection(collection).doc(id).delete();
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message || "Unable to delete record." }); }
+});
+
+app.post("/api/admin/donations/delete-all", guard, async (req, res) => {
+  try {
+    res.json({ ok: true, ...(await deleteAllDonations()) });
+  } catch (e) {
+    console.error(e); res.status(500).json({ error: e.message || "Unable to delete donations." });
+  }
+});
+
+app.post("/api/admin/donations/manual", guard, async (req, res) => {
+  try {
+    const name = clean(req.body.name, 100);
+    const amount = Math.round(num(req.body.amount));
+    if (!name || name.length < 2) return res.status(400).json({ error: "Please enter a donor name." });
+    if (!Number.isInteger(amount) || amount < 1 || amount > 10000000) return res.status(400).json({ error: "Enter a valid amount between ₹1 and ₹1,00,00,000." });
+    const result = await addManualDonation(name, amount);
+    res.json({ ok: true, ...result, name, amount });
+  } catch (e) {
+    console.error(e); res.status(500).json({ error: e.message || "Unable to add manual donor." });
+  }
 });
 
 app.post("/api/admin/seed-supporters", guard, async (req, res) => {

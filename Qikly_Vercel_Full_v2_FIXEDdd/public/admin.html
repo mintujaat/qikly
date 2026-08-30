@@ -14,7 +14,17 @@
 
         <section id="faqAdmin"><div class="panel card"><span class="eyebrow">HELP CENTER</span><h3>Add / edit FAQ</h3><div class="form-grid"><input type="hidden" id="faqId"><label class="span-2">Question<input id="faqQuestion"></label><label class="span-2">Answer<textarea id="faqAnswer" rows="4"></textarea></label><label>Sort order<input id="faqSort" type="number" placeholder="1"></label><label class="check"><input id="faqActive" type="checkbox" checked> Show on website</label></div><div class="form-actions"><button id="saveFaq" class="btn primary">Save FAQ</button><button id="resetFaq" class="btn">Clear</button></div></div><div class="panel card"><div id="faqTable"></div></div></section>
 
-        <section id="donations"><div class="panel card"><div class="panel-head"><div><span class="eyebrow">PAYMENTS</span><h3>All donations</h3><p>Amount and paid status are payment-provider verified and read-only here.</p></div></div><div id="donationsTable"></div></div></section>
+        <section id="donations">
+          <div class="panel card">
+            <div class="panel-head"><div><span class="eyebrow">MANUAL / CASH</span><h3>Add donor manually</h3><p>Cash, cheque, bank transfer ya offline contribution ko donor wall mein add karein.</p></div></div>
+            <div class="form-grid"><label>Donor name<input id="manualDonorName" maxlength="100" placeholder="Enter donor name"></label><label>Donation amount (₹)<input id="manualDonorAmount" type="number" min="1" step="1" placeholder="501"></label></div>
+            <div class="form-actions"><button id="addManualDonor" class="btn primary">Add Manual Donor</button></div><div id="manualDonorMsg" class="muted"></div>
+          </div>
+          <div class="panel card">
+            <div class="panel-head"><div><span class="eyebrow">PAYMENTS</span><h3>All donors</h3><p>Real payments, manual/offline donors aur sample supporters yahan dikhte hain.</p></div><button id="deleteAllDonors" class="btn danger">Delete All Donors</button></div>
+            <div id="donationsTable"></div>
+          </div>
+        </section>
 
         <section id="chatbotAdmin"><div class="panel card"><span class="eyebrow">GEMINI ASSISTANT</span><h3>Donation chatbot controls</h3><p>Chatbot donation ko explain/encourage karega. False claims ya guilt-based messaging use nahi karta.</p><div class="form-grid"><label>Bot name<input id="botName"></label><label class="span-2">Opening message<textarea id="botIntro" rows="3"></textarea></label><label class="span-2">Admin topic / objective<textarea id="botTopic" rows="5" placeholder="What should the bot focus on?"></textarea></label><label class="span-2">Behavior prompt<textarea id="botPrompt" rows="6"></textarea></label></div><button id="saveChatbot" class="btn primary">Save Chatbot Settings</button><div id="botMsg" class="muted"></div></div></section>
 

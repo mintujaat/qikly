@@ -16,7 +16,7 @@ function fillForms() {
 }
 function renderBanners() { $("#bannerTable").innerHTML = DATA.banners.length ? `<div class="table-wrap"><table><thead><tr><th>Preview</th><th>Title</th><th>Order</th><th>Active</th><th>Actions</th></tr></thead><tbody>${DATA.banners.map(x => `<tr><td><img class="thumb" src="${esc(x.imageUrl)}" alt=""></td><td>${esc(x.title || "—")}</td><td>${Number(x.sortOrder || 0)}</td><td>${x.active !== false ? "Yes" : "No"}</td><td><div class="actions"><button class="btn small edit-banner" data-id="${esc(x.id)}">Edit</button><button class="btn small danger del-banner" data-id="${esc(x.id)}">Delete</button></div></td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No banners yet.</div>`; }
 function renderFaqs() { $("#faqTable").innerHTML = DATA.faqs.length ? `<div class="table-wrap"><table><thead><tr><th>Question</th><th>Order</th><th>Active</th><th>Actions</th></tr></thead><tbody>${DATA.faqs.map(x => `<tr><td>${esc(x.question)}</td><td>${Number(x.sortOrder || 0)}</td><td>${x.active !== false ? "Yes" : "No"}</td><td><div class="actions"><button class="btn small edit-faq" data-id="${esc(x.id)}">Edit</button><button class="btn small danger del-faq" data-id="${esc(x.id)}">Delete</button></div></td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No FAQs yet.</div>`; }
-function renderDonations() { $("#donationsTable").innerHTML = `<div class="table-wrap"><table><thead><tr><th>Rank</th><th>Name</th><th>Amount</th><th>Status</th><th>Seed</th><th>Payment</th><th>Date</th></tr></thead><tbody>${DATA.donations.map((x, i) => `<tr><td>#${i+1}</td><td>${esc(x.name || "—")}</td><td>${money(x.amount)}</td><td><span class="status ${x.status}">${esc(x.status)}</span></td><td>${x.seed ? "Sample" : "Real"}</td><td>${esc(x.paymentId || "—")}</td><td>${formatDate(x.verifiedAt || x.createdAt)}</td></tr>`).join("")}</tbody></table></div>`; }
+function renderDonations() { $("#donationsTable").innerHTML = `<div class="table-wrap"><table><thead><tr><th>Rank</th><th>Name</th><th>Amount</th><th>Status</th><th>Type</th><th>Payment</th><th>Date</th></tr></thead><tbody>${DATA.donations.map((x, i) => `<tr><td>#${i+1}</td><td>${esc(x.name || "—")}</td><td>${money(x.amount)}</td><td><span class="status ${x.status}">${esc(x.status)}</span></td><td>${x.seed ? "Sample" : (x.source === "manual" ? "Manual / Cash" : "Razorpay")}</td><td>${esc(x.paymentId || "—")}</td><td>${formatDate(x.verifiedAt || x.createdAt)}</td></tr>`).join("")}</tbody></table></div>`; }
 function renderRecent() { const paid = DATA.donations.filter(x => x.status === "paid").slice(0, 8); $("#recentDonations").innerHTML = paid.length ? `<div class="mini-list">${paid.map(x => `<div><span>${esc(x.name)} <small>${x.seed ? "sample" : "paid"}</small></span><strong>${money(x.amount)}</strong></div>`).join("")}</div>` : `<div class="empty">No donations yet.</div>`; }
 function formatDate(v) { try { const d = v?.seconds ? new Date(Number(v.seconds) * 1000) : new Date(v); return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString("en-IN", { dateStyle:"medium", timeStyle:"short" }); } catch { return "—"; } }
 async function load() { DATA = await api("/api/admin/data"); $("#adminNgoName").textContent = DATA.settings.ngoName; $("#statRaised").textContent = money(DATA.stats.totalRaised); $("#statDonors").textContent = DATA.stats.donorCount; $("#statToday").textContent = money(DATA.stats.todayAmount); $("#statMonth").textContent = money(DATA.stats.monthAmount); fillForms(); renderBanners(); renderFaqs(); renderDonations(); renderRecent(); }
@@ -34,6 +34,31 @@ $("#resetFaq").onclick=resetFaq;
 $("#faqTable").onclick=async(e)=>{const edit=e.target.closest(".edit-faq"),del=e.target.closest(".del-faq"); if(edit){const x=DATA.faqs.find(f=>f.id===edit.dataset.id);$("#faqId").value=x.id;$("#faqQuestion").value=x.question;$("#faqAnswer").value=x.answer;$("#faqSort").value=x.sortOrder||1;$("#faqActive").checked=x.active!==false;switchSection("faqAdmin");scrollTo(0,0);} if(del&&confirm("Delete this FAQ?")){await api("/api/admin/delete",{method:"POST",body:JSON.stringify({collection:"faq",id:del.dataset.id})});await load();}};
 
 $("#seedSupporters").onclick = async () => { if(!confirm("Replace existing sample supporters with 450 generated sample rows? Real paid donations will stay safe.")) return; const b=$("#seedSupporters"); b.disabled=true; setMsg("#seedMsg","Generating 450 sample supporters…"); try { const d=await api("/api/admin/seed-supporters",{method:"POST",body:"{}"}); setMsg("#seedMsg",`Done — ${d.count} sample supporters added.`); await load(); } catch(e){setMsg("#seedMsg",e.message)} finally{b.disabled=false;} };
+
+$("#addManualDonor").onclick = async () => {
+  const name = $("#manualDonorName").value.trim();
+  const amount = Number($("#manualDonorAmount").value);
+  const b = $("#addManualDonor");
+  b.disabled = true;
+  setMsg("#manualDonorMsg", "Adding donor…");
+  try {
+    const d = await api("/api/admin/donations/manual", { method:"POST", body:JSON.stringify({ name, amount }) });
+    $("#manualDonorName").value = ""; $("#manualDonorAmount").value = "";
+    setMsg("#manualDonorMsg", `Added ${d.name} — ${money(d.amount)}.`);
+    await load();
+  } catch(e) { setMsg("#manualDonorMsg", e.message); } finally { b.disabled=false; }
+};
+
+$("#deleteAllDonors").onclick = async () => {
+  if (!confirm("Delete ALL donor records, including real, manual and sample donors? This cannot be undone.")) return;
+  const b = $("#deleteAllDonors");
+  b.disabled = true;
+  try {
+    const d = await api("/api/admin/donations/delete-all", { method:"POST", body:"{}" });
+    setMsg("#manualDonorMsg", `Deleted ${d.count} donor records.`);
+    await load();
+  } catch(e) { alert(e.message); } finally { b.disabled=false; }
+};
 
 $("#saveChatbot").onclick = async()=>{try{await api("/api/admin/chatbot",{method:"POST",body:JSON.stringify({name:$("#botName").value,intro:$("#botIntro").value,topic:$("#botTopic").value,prompt:$("#botPrompt").value})});setMsg("#botMsg","Chatbot settings saved.");await load();}catch(e){setMsg("#botMsg",e.message)}};
 $("#saveTheme").onclick = async()=>{try{const theme={primary:$("#themePrimary").value,secondary:$("#themeSecondary").value,background:$("#themeBackground").value,surface:$("#themeSurface").value,text:$("#themeText").value,muted:$("#themeMuted").value,accent:$("#themeAccent").value}; const s=DATA.settings; await api("/api/admin/settings",{method:"POST",body:JSON.stringify({...s,theme})});setMsg("#themeMsg","Theme saved.");await load();}catch(e){setMsg("#themeMsg",e.message)}};
