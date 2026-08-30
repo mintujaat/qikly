@@ -1,58 +1,93 @@
 <!doctype html>
-<html lang="hi">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AstroSage AI — आपकी बात, आपकी राह</title>
-<meta name="description" content="AstroSage AI पर अलग-अलग AI गुरुओं से निजी बातचीत करें।">
-<link rel="stylesheet" href="/style.css"></head>
-<body class="astro-body">
-<div class="bg-particles"></div>
-<header class="astro-header">
-  <a class="astro-logo" href="/">ASTRO<span>SAGE</span><small>AI</small></a>
-  <nav><a href="/#gurus">गुरु</a><a href="/donate.html">❤️ सहयोग</a><a class="admin-link" href="/admin.html">Admin</a></nav>
-</header>
-<div class="marquee"><div id="marqueeText">🕉️ अपने मन की बात कहिए • अपने पसंदीदा गुरु से बात कीजिए • आपकी बातचीत निजी है •</div></div>
-<main class="astro-home">
-<section class="astro-hero">
-  <div class="hero-symbol">ॐ</div>
-  <div class="hero-badge">✦ AI मार्गदर्शन • निजी बातचीत</div>
-  <h1>कुछ सवाल ऐसे होते हैं,<br><em>जिनका जवाब दिल चाहता है।</em></h1>
-  <p>अपना पसंदीदा गुरु चुनिए, मन की बात लिखिए और एक शांत, सहज AI बातचीत शुरू कीजिए। हर गुरु की अपनी अलग सोच और शैली है।</p>
-  <a class="hero-cta" href="#gurus">गुरु चुनें <span>↓</span></a>
-  <div class="hero-note">🔒 निजी चैट &nbsp;•&nbsp; ⚡ तुरंत जवाब &nbsp;•&nbsp; 🪷 हिंदी / Hinglish</div>
-</section>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>NGO Donation</title>
+  <meta name="description" content="Support a meaningful cause through a secure donation.">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="site" class="site">
+    <header class="header">
+      <a class="brand" href="#home"><span id="brandMark">♥</span><span id="ngoName">Seva Jyoti Foundation</span></a>
+      <nav class="nav">
+        <a href="#donate">Donate</a><a href="#supporters">Supporters</a><a href="#about">About</a><a href="#faq">FAQ</a>
+      </nav>
+    </header>
 
-<section id="gurus" class="guru-section">
-  <div class="section-kicker">🕉️ हमारे गुरु</div>
-  <h2>किससे बात करना चाहेंगे?</h2>
-  <p class="section-lead">हर गुरु की अपनी personality है। जिसे सही लगे, उस पर tap कीजिए।</p>
-  <div id="guruList" class="guru-list"><div class="loading-card">गुरुओं को बुलाया जा रहा है…</div></div>
-</section>
+    <div class="marquee"><div id="marqueeText">❤️ Aapka har donation kisi ki umeed ko mazboot banata hai.</div></div>
 
-<section class="reviews-home">
-  <div class="section-kicker">⭐ लोगों की राय</div>
-  <h2>बातचीत के बाद कैसा लगा?</h2>
-  <div id="reviewList" class="review-grid"><div class="loading-card">Reviews loading…</div></div>
-</section>
+    <main>
+      <section id="home" class="hero wrap">
+        <div class="hero-copy">
+          <span class="eyebrow">MAKE A DIFFERENCE</span>
+          <h1 id="heroTitle">Milkar kisi ki zindagi mein roshni laayein</h1>
+          <p id="heroText">Aapka donation education, food, healthcare aur emergency support jaise ground-level kaamon ko fund karne mein madad karta hai.</p>
+          <div class="hero-actions"><a class="btn primary" href="#donate">Donate Now <span>→</span></a><a class="text-link" href="#about">Know our mission ↓</a></div>
+          <div class="trust-row"><span>🔒 Secure payment</span><span>⚡ Razorpay checkout</span><span>❤️ Every contribution counts</span></div>
+        </div>
+        <div class="banner-card">
+          <div id="bannerTrack" class="banner-track"></div>
+          <div id="bannerDots" class="banner-dots"></div>
+        </div>
+      </section>
 
-<section class="astro-how">
-  <div><div class="section-kicker">सरल प्रक्रिया</div><h2>बस तीन कदम।</h2></div>
-  <div class="mini-steps">
-    <div><b>01</b><strong>गुरु चुनें</strong><p>अपनी पसंद की personality चुनिए।</p></div>
-    <div><b>02</b><strong>बात शुरू करें</strong><p>Chat में timer के साथ बातचीत शुरू होगी।</p></div>
-    <div><b>03</b><strong>समय बढ़ाएँ</strong><p>समय पूरा होने पर अपनी जरूरत के अनुसार session चुनें।</p></div>
+      <section id="donate" class="wrap donate-section">
+        <div class="section-heading"><span class="eyebrow">YOUR SUPPORT</span><h2>Donate what feels right.</h2><p>Apni marzi se amount enter karein. Koi fixed plan nahi hai.</p></div>
+        <div class="donation-grid">
+          <div class="donation-card card">
+            <form id="donationForm">
+              <label>Your name<input id="donorName" maxlength="100" placeholder="Enter your name" required></label>
+              <label>Donation amount (₹)<input id="donorAmount" inputmode="numeric" type="number" min="1" step="1" placeholder="501" required></label>
+              <div class="quick-amounts"><button type="button" data-amount="101">₹101</button><button type="button" data-amount="501">₹501</button><button type="button" data-amount="1001">₹1,001</button><button type="button" data-amount="2501">₹2,501</button></div>
+              <button id="donateBtn" class="btn primary full" type="submit">Donate Securely <span>↗</span></button>
+              <p class="tiny-note">Payment Razorpay ke secure checkout par complete hoga. Payment details humare server par store nahi hote.</p>
+              <div id="donateError" class="error"></div><div id="donateSuccess" class="success"></div>
+            </form>
+          </div>
+          <aside class="impact-card card">
+            <div class="impact-top"><div><span class="eyebrow">COMMUNITY</span><h3>We grow together.</h3></div><div class="heart-badge">♥</div></div>
+            <div class="impact-stats"><div><strong id="totalRaised">₹0</strong><span>raised</span></div><div><strong id="donorCount">0</strong><span>supporters</span></div></div>
+            <div class="rank-box"><div><span>Your donation can appear here</span><strong id="myRank">#—</strong></div><small>Payment ke baad aapka live donor rank yahin dikhega.</small></div>
+            <p id="tagline">Aapki chhoti si madad kisi ki badi zarurat ban sakti hai.</p>
+          </aside>
+        </div>
+      </section>
+
+      <section id="supporters" class="wrap supporters-section">
+        <div class="section-heading row-heading"><div><span class="eyebrow">DONOR WALL</span><h2>Our supporters</h2><p>Jo log is cause ko support kar rahe hain, unki leaderboard yahan dikhti hai.</p></div><div class="live-pill">● LIVE</div></div>
+        <div id="donorList" class="donor-grid"><div class="loading">Loading supporters…</div></div>
+      </section>
+
+      <section id="about" class="wrap content-section">
+        <div class="content-card card"><span class="eyebrow">ABOUT US</span><h2>Why we do this</h2><p id="aboutText" class="long-copy"></p></div>
+        <div class="content-card card"><span class="eyebrow">TRANSPARENCY</span><h2>Our promise</h2><p class="long-copy">Hum donation experience ko simple, secure aur honest rakhne ki koshish karte hain. Public donor wall social recognition ke liye hai; impact claims wahi honge jo verified information par based hain.</p></div>
+      </section>
+
+      <section id="faq" class="wrap faq-section">
+        <div class="section-heading"><span class="eyebrow">FAQ</span><h2>Common questions</h2><p>Donation se pehle jo jaana zaruri ho, woh yahan mil jayega.</p></div>
+        <div id="faqList" class="faq-list"></div>
+      </section>
+
+      <section class="wrap legal-grid">
+        <details class="legal-card card"><summary>Terms & Conditions</summary><p id="termsText" class="long-copy"></p></details>
+        <details class="legal-card card"><summary>Privacy Policy</summary><p id="privacyText" class="long-copy"></p></details>
+        <details class="legal-card card"><summary>Refund Policy</summary><p id="refundText" class="long-copy"></p></details>
+      </section>
+    </main>
+
+    <footer class="footer wrap"><div><strong id="footerName">Seva Jyoti Foundation</strong><p id="footerTag">Aapki madad, kisi ki umeed.</p></div><div class="footer-links"><a href="#donate">Donate</a><a href="#about">About</a><a href="#faq">FAQ</a><a href="mailto:support@example.org" id="supportEmail">Email</a><a href="/admin.html">Admin</a></div></footer>
+
+    <button id="chatOpen" class="chat-fab" aria-label="Open donation assistant"><span>✦</span><em id="chatNameShort">Sakhi</em></button>
+    <div id="chatWidget" class="chat-widget hidden">
+      <div class="chat-head"><div><span class="eyebrow">DONATION ASSISTANT</span><strong id="chatName">Sakhi</strong></div><button id="chatClose" aria-label="Close">×</button></div>
+      <div id="chatMessages" class="chat-messages"></div>
+      <form id="chatForm" class="chat-form"><input id="chatInput" maxlength="1200" placeholder="Ask about the donation…" autocomplete="off"><button aria-label="Send">➤</button></form>
+    </div>
   </div>
-</section>
-
-<section class="faq-home">
-  <div class="section-kicker">अक्सर पूछे जाने वाले सवाल</div><h2>मन में सवाल है?</h2>
-  <div id="faqList" class="faq-list"></div>
-</section>
-
-<section class="support-banner">
-  <div><span>🪔</span><h3>AstroSage को सहयोग करें</h3><p>अगर आपको यह छोटा सा platform पसंद आया, तो अपनी इच्छा से support कर सकते हैं।</p></div>
-  <a href="/donate.html">❤️ सहयोग करें</a>
-</section>
-
-<footer class="astro-footer"><strong>ASTROSAGE AI</strong><span>यह एक fictional AI guidance experience है। जवाब मनोरंजन और self-reflection के लिए हैं; इन्हें भविष्य की गारंटी या professional advice न मानें।</span><div><a href="/terms.html">Terms</a><a href="/privacy.html">Privacy</a><a href="/refund.html">Refund</a></div></footer>
-</main>
-<script src="/app.js"></script></body></html>
+  <div id="toast" class="toast"></div>
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

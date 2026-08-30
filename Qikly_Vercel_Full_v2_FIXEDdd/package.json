@@ -1,14 +1,12 @@
 {
-  "name": "qikly",
-  "version": "2.0.0",
+  "name": "ngo-donation-platform",
+  "version": "1.0.0",
   "private": true,
-  "engines": {
-    "node": ">=20"
-  },
+  "engines": {"node": ">=20"},
   "dependencies": {
     "@vercel/node": "latest",
     "express": "^5.1.0",
-    "razorpay": "^2.9.6",
-    "firebase-admin": "^13.4.0"
+    "firebase-admin": "^13.4.0",
+    "razorpay": "^2.9.6"
   }
 }

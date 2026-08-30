@@ -1,11 +1,6 @@
 {
   "rules": {
-    "qikly_presence": {
-      "$sessionId": {
-        ".read": false,
-        ".write": true,
-        ".validate": "newData.hasChildren(['onlineAt']) && newData.child('onlineAt').isNumber()"
-      }
-    }
+    ".read": false,
+    ".write": false
   }
 }

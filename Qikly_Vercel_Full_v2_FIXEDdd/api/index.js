@@ -1,124 +1,443 @@
-const express=require("express"),crypto=require("crypto"),Razorpay=require("razorpay"),admin=require("firebase-admin");
-const app=express();
-app.use((req,res,next)=>req.path==="/api/webhook/razorpay"?express.raw({type:"application/json",limit:"300kb"})(req,res,next):express.json({limit:"150kb"})(req,res,next));
-if(!admin.apps.length){const raw=process.env.FIREBASE_SERVICE_ACCOUNT_JSON;if(!raw)throw new Error("Missing FIREBASE_SERVICE_ACCOUNT_JSON");admin.initializeApp({credential:admin.credential.cert(JSON.parse(raw)),databaseURL:process.env.FIREBASE_DATABASE_URL||"https://ziro-tournament-default-rtdb.firebaseio.com"});}
-const db=admin.firestore(),rtdb=admin.database();
-const razorpay=new Razorpay({key_id:process.env.RAZORPAY_KEY_ID,key_secret:process.env.RAZORPAY_KEY_SECRET});
-const ADMIN_PASSWORD=process.env.ADMIN_PASSWORD||"mintu@admin.in",COOKIE_NAME="qikly_admin";
-const clean=(v,m=160)=>String(v??"").trim().slice(0,m);
-function normalizeUsername(v){let s=clean(v,80).replace(/^https?:\/\/(www\.)?t\.me\//i,"").replace(/^@/,"").trim();return s?"@"+s:""}
-function validUsername(v){return /^@?[A-Za-z0-9_]{5,32}$/.test(clean(v,80));}
-function cookies(req){const o={};(req.headers.cookie||"").split(";").forEach(x=>{const i=x.indexOf("=");if(i>-1)o[x.slice(0,i).trim()]=decodeURIComponent(x.slice(i+1).trim())});return o}
-function token(){const exp=Date.now()+43200000,body=`admin.${exp}`,sig=crypto.createHmac("sha256",ADMIN_PASSWORD).update(body).digest("hex");return `${body}.${sig}`}
-function isAdmin(req){const p=(cookies(req)[COOKIE_NAME]||"").split(".");if(p.length!==3||p[0]!=="admin"||Number(p[1])<Date.now())return false;const s=crypto.createHmac("sha256",ADMIN_PASSWORD).update(`admin.${p[1]}`).digest("hex"),b=Buffer.from(p[2]);return b.length===s.length&&crypto.timingSafeEqual(Buffer.from(s),b)}
-const guard=(req,res,next)=>isAdmin(req)?next():res.status(401).json({error:"Admin login required."});
-async function getPlan(id){const s=await db.collection("plans").doc(clean(id,80)).get();if(!s.exists||s.data().active!==true)throw Error("Selected plan is unavailable.");const p=s.data();if(typeof p.price!=="number"||p.price<=0)throw Error("Invalid plan price.");return{id:s.id,...p}}
-function dateFromInput(v){if(v===null||v===""||v===undefined)return null;const d=new Date(v);if(Number.isNaN(d.getTime()))throw Error("Invalid date.");return admin.firestore.Timestamp.fromDate(d)}
+const express = require("express");
+const crypto = require("crypto");
+const Razorpay = require("razorpay");
+const admin = require("firebase-admin");
 
-const telegramConfigured=()=>!!process.env.TELEGRAM_BOT_TOKEN&&!!process.env.TELEGRAM_CHANNEL_ID;
-async function tg(method,body={}){if(!process.env.TELEGRAM_BOT_TOKEN)throw Error("Telegram bot token is not configured.");const r=await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/${method}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});const d=await r.json().catch(()=>({}));if(!r.ok||!d.ok)throw Error(d.description||`Telegram API error (${r.status}).`);return d.result}
-function tgChatId(){const v=String(process.env.TELEGRAM_CHANNEL_ID||"").trim();if(!v)throw Error("Telegram channel ID is not configured.");return /^-?\d+$/.test(v)?Number(v):v}
-async function createMemberInvite(subscriptionId){const link=await tg("createChatInviteLink",{chat_id:tgChatId(),name:`Qikly-${String(subscriptionId).slice(0,20)}`,creates_join_request:true});return link.invite_link}
-async function safeUnban(userId){if(!telegramConfigured()||!userId)return;try{await tg("unbanChatMember",{chat_id:tgChatId(),user_id:Number(userId),only_if_banned:true})}catch(e){console.warn("Telegram unban:",e.message)}}
-async function removeMember(userId){if(!userId)throw Error("Telegram user ID is missing.");await tg("banChatMember",{chat_id:tgChatId(),user_id:Number(userId),revoke_messages:false});await tg("unbanChatMember",{chat_id:tgChatId(),user_id:Number(userId),only_if_banned:true})}
-function expiryDateOf(s){return s.expiryDate?.toDate?.()||null}
-function activeSubscription(s){const exp=expiryDateOf(s);return s.status==="active"&&(!exp||exp.getTime()>Date.now())}
+const app = express();
+app.use(express.json({ limit: "200kb" }));
 
-
-function aiModel(){return process.env.GEMINI_MODEL||"gemini-2.5-flash"}
-async function geminiGenerate(contents, systemInstruction=""){
-  const key=process.env.GEMINI_API_KEY;
-  if(!key) throw Error("Gemini API is not configured on the server.");
-  const body={contents, generationConfig:{temperature:0.8,maxOutputTokens:500}};
-  if(systemInstruction) body.systemInstruction={parts:[{text:systemInstruction}]};
-  const url=`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(aiModel())}:generateContent?key=${encodeURIComponent(key)}`;
-  const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-  const d=await r.json().catch(()=>({}));
-  if(!r.ok) throw Error(d.error?.message||`Gemini API error (${r.status})`);
-  return d.candidates?.[0]?.content?.parts?.map(x=>x.text||"").join("").trim()||"I couldn't generate a reply right now.";
+if (!admin.apps.length) {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  if (!raw) throw new Error("Missing FIREBASE_SERVICE_ACCOUNT_JSON");
+  const serviceAccount = typeof raw === "string" ? JSON.parse(raw) : raw;
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+    databaseURL: process.env.FIREBASE_DATABASE_URL || undefined,
+  });
 }
-const guruDefaults=[
-  {id:"aarav",name:"Guru Aarav",specialty:"Vedic Astrology",emoji:"🕉️",imageUrl:"",description:"Calm Vedic-style guidance for life questions.",prompt:"Be calm, reflective and practical. Use astrology-inspired language without claiming certainty."},
-  {id:"rudra",name:"Swami Rudra",specialty:"Career & Money",emoji:"🔱",imageUrl:"",description:"Practical guidance for career and money questions.",prompt:"Focus on career choices, goals, habits and practical reflection. Never promise financial outcomes."},
-  {id:"ved",name:"Acharya Ved",specialty:"Love & Relationships",emoji:"🌙",imageUrl:"",description:"Warm relationship-focused reflection and guidance.",prompt:"Be warm, empathetic and balanced. Encourage healthy communication and self-reflection."},
-  {id:"dev",name:"Rishi Dev",specialty:"Life & Future",emoji:"✨",imageUrl:"",description:"Reflective guidance for personal direction and choices.",prompt:"Help the user reflect on choices and possibilities without claiming supernatural certainty."},
-  {id:"naksh",name:"Guru Naksh",specialty:"Numerology",emoji:"🔢",imageUrl:"",description:"Numerology-inspired personality and life reflections.",prompt:"Use numerology as a playful reflective framework, clearly avoiding guaranteed predictions."},
-  {id:"shivaan",name:"Acharya Shivaan",specialty:"Tarot-style Reflection",emoji:"🔮",imageUrl:"",description:"Symbolic card-style reflection for questions and decisions.",prompt:"Use symbolic card-style storytelling as reflection and entertainment, never as certainty."}
-];
-async function getGurus(){
-  const snap=await db.collection("aiGurus").get();
-  if(snap.empty)return guruDefaults;
-  const rows=snap.docs.map(d=>({id:d.id,...d.data()})).filter(x=>x.active!==false);
-  return rows.sort((a,b)=>Number(a.sortOrder??0)-Number(b.sortOrder??0));
+
+const db = admin.firestore();
+const FieldValue = admin.firestore.FieldValue;
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET,
+});
+
+const ADMIN_COOKIE = "ngo_admin";
+const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || "change-this-password");
+
+const defaults = {
+  settings: {
+    ngoName: "Seva Jyoti Foundation",
+    tagline: "Aapki chhoti si madad kisi ki badi zarurat ban sakti hai.",
+    heroTitle: "Milkar kisi ki zindagi mein roshni laayein",
+    heroText: "Aapka donation education, food, healthcare aur emergency support jaise ground-level kaamon ko fund karne mein madad karta hai.",
+    marqueeText: "❤️ Aapka har donation kisi ki umeed ko mazboot banata hai • Thank you for supporting Seva Jyoti Foundation •",
+    about: "Seva Jyoti Foundation ek community-focused NGO hai jo zaruratmand parivaron aur bachchon tak practical support pahunchane par kaam karta hai.\n\nHum donations ko ground-level initiatives, education support, food assistance aur emergency help jaise projects mein use karte hain.",
+    terms: "Donation karne se pehle amount aur donor name carefully check karein. Payment Razorpay ke secure checkout ke through process hota hai.\n\nWebsite par dikhaya gaya donor ranking social recognition ke liye hai. Refund requests project policy aur applicable payment rules ke subject hain.",
+    privacy: "Hum donation complete karne ke liye zaruri information jaise donor name aur payment references process karte hain. Payment credentials humare server par store nahi hote; Razorpay payment processing handle karta hai.\n\nPublic donor wall par wahi donor name dikhaya jata hai jo donation ke waqt submit kiya gaya ho.",
+    refund: "Galat ya duplicate payment hone par support team se payment ID ke saath contact karein. Refund approval transaction details aur payment provider ke rules ke mutabik process kiya jayega.",
+    supportEmail: "support@example.org",
+    theme: {
+      primary: "#ff5a36",
+      secondary: "#ffb347",
+      background: "#fffaf5",
+      surface: "#ffffff",
+      text: "#202020",
+      muted: "#6b625b",
+      accent: "#0f8a65",
+    },
+  },
+  chatbot: {
+    name: "Sakhi",
+    topic: "Explain why a donation matters, answer common NGO questions, and encourage the visitor to donate without making false promises, guilt-tripping, or guaranteeing outcomes.",
+    intro: "Namaste ❤️ Main Sakhi hoon. Aap pooch sakte hain ki aapka donation kis tarah help kar sakta hai.",
+    prompt: "Be warm, concise, honest and donation-supportive. Encourage action only when appropriate. Never invent projects, statistics, tax benefits, beneficiary stories, government registrations, or impact numbers that are not provided. Never shame a user for not donating. Use Hindi/Hinglish unless the user uses another language.",
+  },
+};
+
+const clean = (v, max = 5000) => String(v ?? "").trim().slice(0, max);
+const cleanHex = (v, fallback) => /^#[0-9a-f]{6}$/i.test(String(v || "")) ? String(v) : fallback;
+const num = (v) => Number(v);
+
+function parseCookies(req) {
+  const out = {};
+  String(req.headers.cookie || "").split(";").forEach((part) => {
+    const i = part.indexOf("=");
+    if (i >= 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+  });
+  return out;
 }
-app.get("/api/ai/gurus",async(req,res)=>{try{res.json({gurus:await getGurus()})}catch(e){res.status(500).json({error:e.message||"Unable to load gurus."})}});
-app.post("/api/ai/trial",async(req,res)=>{try{const guru=clean(req.body.guruId,40)||"aarav",id=crypto.randomBytes(16).toString("hex");await db.collection("aiSessions").doc(id).set({type:"trial",guruId:guru,remainingSeconds:30,durationSeconds:30,startedAt:admin.firestore.FieldValue.serverTimestamp(),createdAt:admin.firestore.FieldValue.serverTimestamp(),status:"active"});res.json({ok:true,sessionId:id,seconds:30})}catch(e){res.status(500).json({error:e.message||"Unable to start session."})}});
-app.post("/api/ai/create-order",async(req,res)=>{try{const planId=clean(req.body.planId,80),guruId=clean(req.body.guruId,40)||"aarav",customerName=clean(req.body.customerName,100)||"Guest";const p=await getPlan(planId);const minutes=Number(p.durationMinutes||p.durationDays||0);if(!minutes)throw Error("This plan has no valid duration.");const o=await razorpay.orders.create({amount:Math.round(Number(p.price)*100),currency:"INR",receipt:`ai_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`,notes:{planId:p.id,guruId,customerName}});await db.collection("aiOrders").doc(o.id).set({orderId:o.id,planId:p.id,planName:p.name,amount:Number(p.price),durationMinutes:minutes,guruId,customerName,status:"created",createdAt:admin.firestore.FieldValue.serverTimestamp()});res.json({ok:true,orderId:o.id,amount:o.amount,currency:o.currency})}catch(e){console.error(e);res.status(500).json({error:e.message||"Unable to create order."})}});
-app.post("/api/ai/verify-payment",async(req,res)=>{try{const{razorpay_order_id,razorpay_payment_id,razorpay_signature}=req.body;if(!razorpay_order_id||!razorpay_payment_id||!razorpay_signature)throw Error("Incomplete payment response.");const expected=crypto.createHmac("sha256",process.env.RAZORPAY_KEY_SECRET).update(`${razorpay_order_id}|${razorpay_payment_id}`).digest("hex");if(expected.length!==String(razorpay_signature).length||!crypto.timingSafeEqual(Buffer.from(expected),Buffer.from(String(razorpay_signature))))throw Error("Payment signature verification failed.");const ref=db.collection("aiOrders").doc(razorpay_order_id),os=await ref.get();if(!os.exists)throw Error("AI order not found.");const order=os.data();const pay=await razorpay.payments.fetch(razorpay_payment_id);if(pay.status!=="captured")throw Error("Payment has not been captured.");if(Number(pay.amount)!==Math.round(Number(order.amount)*100))throw Error("Payment amount does not match.");if(order.status==="paid"&&order.sessionId){const ss=await db.collection("aiSessions").doc(order.sessionId).get();if(ss.exists)return res.json({ok:true,sessionId:order.sessionId,seconds:ss.data().remainingSeconds||0});}const sessionId=crypto.randomBytes(16).toString("hex"),seconds=Math.max(60,Math.round(Number(order.durationMinutes)*60));await db.collection("aiSessions").doc(sessionId).set({type:"paid",guruId:order.guruId,remainingSeconds:seconds,durationSeconds:seconds,customerName:order.customerName,planId:order.planId,planName:order.planName,orderId:razorpay_order_id,paymentId:razorpay_payment_id,startedAt:admin.firestore.FieldValue.serverTimestamp(),createdAt:admin.firestore.FieldValue.serverTimestamp(),status:"active"});await ref.update({status:"paid",paymentId:razorpay_payment_id,sessionId,verifiedAt:admin.firestore.FieldValue.serverTimestamp()});res.json({ok:true,sessionId,seconds})}catch(e){console.error(e);res.status(500).json({error:e.message||"Payment verification failed."})}});
-app.post("/api/ai/chat",async(req,res)=>{try{const sessionId=clean(req.body.sessionId,100),message=clean(req.body.message,2000),guruId=clean(req.body.guruId,40)||"aarav";if(!sessionId||!message)return res.status(400).json({error:"Session and message are required."});const ref=db.collection("aiSessions").doc(sessionId),snap=await ref.get();if(!snap.exists)return res.status(404).json({error:"Session not found."});const s=snap.data();if(s.status!=="active"||Number(s.remainingSeconds||0)<=0)return res.status(402).json({error:"Your session has ended. Please choose a plan to continue."});const guru=(await getGurus()).find(x=>x.id===guruId)||guruDefaults[0];const system=`You are ${guru.name}, a fictional AI guide specializing in ${guru.specialty}. ${guru.description} ${guru.prompt||""} Speak naturally in Hindi/Hinglish unless the user uses another language. Give reflective, entertainment-oriented guidance, not guaranteed predictions. Never claim supernatural certainty. Do not present medical, legal, financial, or safety-critical advice as certain. Be concise and warm. The user is currently in a timed consultation.`;const history=(s.messages||[]).slice(-8).flatMap(x=>[{role:"user",parts:[{text:x.user}]},{role:"model",parts:[{text:x.ai}]}]);const answer=await geminiGenerate([...history,{role:"user",parts:[{text:message}]}],system);const started=s.startedAt?.toMillis?s.startedAt.toMillis():(s.startedAt?new Date(s.startedAt).getTime():Date.now());const duration=Number(s.durationSeconds||s.remainingSeconds||0);const elapsed=Math.max(0,Math.floor((Date.now()-started)/1000));const next=Math.max(0,duration-elapsed);await ref.update({remainingSeconds:next,updatedAt:admin.firestore.FieldValue.serverTimestamp(),messages:admin.firestore.FieldValue.arrayUnion({user:message,ai:answer,at:new Date().toISOString()})});res.json({ok:true,answer,remainingSeconds:next})}catch(e){console.error(e);res.status(500).json({error:e.message||"Unable to generate response."})}});
-app.get("/api/public/data",async(req,res)=>{try{const [plans,reviews,faqs,gurus]=await Promise.all([db.collection("plans").get(),db.collection("reviews").get(),db.collection("faq").get(),getGurus()]);const sort=(a,b)=>Number(a.sortOrder??0)-Number(b.sortOrder??0);const [donationSnap,settingsSnap]=await Promise.all([db.collection("donations").where("status","==","paid").get(),db.collection("settings").doc("main").get()]);const donors=donationSnap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>Number(b.amount||0)-Number(a.amount||0)).slice(0,10);res.json({gurus,plans:plans.docs.map(d=>({id:d.id,...d.data()})).filter(x=>x.active!==false).sort(sort),reviews:reviews.docs.map(d=>({id:d.id,...d.data()})).filter(x=>x.active!==false).sort((a,b)=>{const ta=a.createdAt?Number(a.createdAt._seconds||0):0,tb=b.createdAt?Number(b.createdAt._seconds||0):0;return tb-ta}).slice(0,6),faqs:faqs.docs.map(d=>({id:d.id,...d.data()})).filter(x=>x.active!==false).sort(sort),topDonors:donors.map(x=>({name:x.name,amount:Number(x.amount||0)})),supportTelegram:settingsSnap.exists?settingsSnap.data().supportTelegram||"":"" ,marqueeText:settingsSnap.exists?settingsSnap.data().marqueeText||"":""});}catch(e){console.error(e);res.status(500).json({error:e.message||"Unable to load public data."})}});
 
-app.get("/api/public/config",(req,res)=>res.json({razorpayKeyId:process.env.RAZORPAY_KEY_ID||""}));
-app.get("/api/health",(q,r)=>r.json({ok:true,service:"qikly",razorpayConfigured:!!process.env.RAZORPAY_KEY_ID&&!!process.env.RAZORPAY_KEY_SECRET,firebaseConfigured:!!process.env.FIREBASE_SERVICE_ACCOUNT_JSON,telegramConfigured:telegramConfigured(),geminiConfigured:!!process.env.GEMINI_API_KEY}));
+function timingSafeEqualText(a, b) {
+  const aa = Buffer.from(String(a));
+  const bb = Buffer.from(String(b));
+  return aa.length === bb.length && crypto.timingSafeEqual(aa, bb);
+}
 
-app.post("/api/create-order",async(req,res)=>{try{const telegramUsername=normalizeUsername(req.body.telegramUsername),telegramName=clean(req.body.telegramName),planId=clean(req.body.planId,80);if(!validUsername(telegramUsername))return res.status(400).json({error:"Enter a valid Telegram username, e.g. @mintu_123. Use 5–32 letters, numbers or underscore only."});if(!telegramName)return res.status(400).json({error:"Enter your Telegram name."});const p=await getPlan(planId),o=await razorpay.orders.create({amount:Math.round(p.price*100),currency:"INR",receipt:`qikly_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`,notes:{planId:p.id,telegramUsername,telegramName}});await db.collection("orders").doc(o.id).set({orderId:o.id,planId:p.id,planName:p.name,amount:p.price,telegramUsername,telegramName,status:"created",createdAt:admin.firestore.FieldValue.serverTimestamp()});res.json({ok:true,orderId:o.id,amount:o.amount,currency:o.currency})}catch(e){console.error(e);res.status(500).json({error:e.message||"Unable to create payment order."})}});
+function createAdminToken() {
+  const exp = Date.now() + 12 * 60 * 60 * 1000;
+  const body = `admin.${exp}`;
+  const sig = crypto.createHmac("sha256", ADMIN_PASSWORD).update(body).digest("hex");
+  return `${body}.${sig}`;
+}
 
-app.post("/api/verify-payment",async(req,res)=>{try{const{razorpay_order_id,razorpay_payment_id,razorpay_signature}=req.body,telegramUsername=normalizeUsername(req.body.telegramUsername),telegramName=clean(req.body.telegramName),planId=clean(req.body.planId,80);if(!razorpay_order_id||!razorpay_payment_id||!razorpay_signature)return res.status(400).json({error:"Incomplete Razorpay response."});if(!validUsername(telegramUsername)||!telegramName)return res.status(400).json({error:"Invalid Telegram details."});const expected=crypto.createHmac("sha256",process.env.RAZORPAY_KEY_SECRET).update(`${razorpay_order_id}|${razorpay_payment_id}`).digest("hex"),a=Buffer.from(expected),b=Buffer.from(razorpay_signature);if(a.length!==b.length||!crypto.timingSafeEqual(a,b))return res.status(400).json({error:"Payment signature verification failed."});const or=db.collection("orders").doc(razorpay_order_id),os=await or.get();if(!os.exists)return res.status(404).json({error:"Order not found."});const order=os.data();if(order.planId!==planId||normalizeUsername(order.telegramUsername)!==telegramUsername||clean(order.telegramName)!==telegramName)return res.status(400).json({error:"Payment details do not match the order."});const p=await getPlan(order.planId),pay=await razorpay.payments.fetch(razorpay_payment_id);if(pay.status!=="captured")return res.status(400).json({error:"Payment has not been captured."});if(pay.order_id!==razorpay_order_id||Number(pay.amount)!==Math.round(p.price*100))return res.status(400).json({error:"Payment amount does not match the plan."});if(order.status==="paid"&&order.subscriptionId){const old=await db.collection("subscriptions").doc(order.subscriptionId).get();if(old.exists){const s=old.data();return res.json({success:true,subscription:{subscriptionId:old.id,planName:s.planName,telegramUsername:s.telegramUsername,telegramName:s.telegramName,expiryDate:s.expiryDate?.toDate?.()?.toISOString?.()||null,telegramLink:s.telegramInviteLink||s.telegramLink||""}})}}
-if(!telegramConfigured())return res.status(500).json({error:"Payment verified, but Telegram bot is not configured on the server."});
-const now=new Date(),expiry=p.durationDays?new Date(now.getTime()+Number(p.durationDays)*86400000):null,sr=db.collection("subscriptions").doc();
-const oldSnap=await db.collection("subscriptions").where("telegramUsername","==",telegramUsername).get();for(const d of oldSnap.docs){const old=d.data();if(old.telegramUserId)await safeUnban(old.telegramUserId)}
-const invite=await createMemberInvite(sr.id);
-await sr.set({subscriptionId:sr.id,orderId:razorpay_order_id,paymentId:razorpay_payment_id,telegramUsername,telegramName,planId:p.id,planName:p.name,amount:p.price,startDate:admin.firestore.Timestamp.fromDate(now),expiryDate:expiry?admin.firestore.Timestamp.fromDate(expiry):null,status:"active",telegramInviteLink:invite,telegramUserId:null,telegramMembershipStatus:"awaiting_join",createdAt:admin.firestore.FieldValue.serverTimestamp()});
-await or.update({status:"paid",paymentId:razorpay_payment_id,subscriptionId:sr.id,verifiedAt:admin.firestore.FieldValue.serverTimestamp()});
-res.json({success:true,subscription:{subscriptionId:sr.id,planName:p.name,telegramUsername,telegramName,expiryDate:expiry?expiry.toISOString():null,telegramLink:invite}})}catch(e){console.error(e);res.status(500).json({error:e.message||"Payment verification failed."})}});
+function isAdmin(req) {
+  const token = String(parseCookies(req)[ADMIN_COOKIE] || "").split(".");
+  if (token.length !== 3 || token[0] !== "admin" || Number(token[1]) < Date.now()) return false;
+  const expected = crypto.createHmac("sha256", ADMIN_PASSWORD).update(`admin.${token[1]}`).digest("hex");
+  return timingSafeEqualText(expected, token[2]);
+}
 
-app.post("/api/create-donation",async(req,res)=>{try{const name=clean(req.body.name,100),amount=Math.round(Number(req.body.amount)*100)/100;if(!name)return res.status(400).json({error:"Enter your name."});if(!Number.isFinite(amount)||amount<1||amount>1000000)return res.status(400).json({error:"Enter an amount between ₹1 and ₹10,00,000."});const o=await razorpay.orders.create({amount:Math.round(amount*100),currency:"INR",receipt:`qikly_d_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`,notes:{type:"donation",name}});await db.collection("donations").doc(o.id).set({donationId:o.id,name,amount,status:"created",createdAt:admin.firestore.FieldValue.serverTimestamp()});res.json({ok:true,orderId:o.id,amount:o.amount,currency:o.currency})}catch(e){console.error(e);res.status(500).json({error:e.message||"Unable to create donation."})}});
-app.post("/api/verify-donation",async(req,res)=>{try{const{razorpay_order_id,razorpay_payment_id,razorpay_signature}=req.body;if(!razorpay_order_id||!razorpay_payment_id||!razorpay_signature)return res.status(400).json({error:"Incomplete Razorpay response."});const expected=crypto.createHmac("sha256",process.env.RAZORPAY_KEY_SECRET).update(`${razorpay_order_id}|${razorpay_payment_id}`).digest("hex"),a=Buffer.from(expected),b=Buffer.from(razorpay_signature);if(a.length!==b.length||!crypto.timingSafeEqual(a,b))return res.status(400).json({error:"Payment signature verification failed."});const ref=db.collection("donations").doc(razorpay_order_id),snap=await ref.get();if(!snap.exists)return res.status(404).json({error:"Donation not found."});const d=snap.data(),pay=await razorpay.payments.fetch(razorpay_payment_id);if(pay.status!=="captured")return res.status(400).json({error:"Payment has not been captured."});if(pay.order_id!==razorpay_order_id||Number(pay.amount)!==Math.round(Number(d.amount)*100))return res.status(400).json({error:"Donation amount does not match."});await ref.update({status:"paid",paymentId:razorpay_payment_id,verifiedAt:admin.firestore.FieldValue.serverTimestamp()});res.json({success:true,name:d.name,amount:d.amount})}catch(e){console.error(e);res.status(500).json({error:e.message||"Donation verification failed."})}});
+function setAdminCookie(res, token) {
+  res.setHeader("Set-Cookie", `${ADMIN_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200${process.env.NODE_ENV === "production" ? "; Secure" : ""}`);
+}
 
-app.post("/api/webhook/razorpay",async(req,res)=>{try{const sig=req.headers["x-razorpay-signature"],raw=Buffer.isBuffer(req.body)?req.body:Buffer.from(JSON.stringify(req.body||{})),exp=crypto.createHmac("sha256",process.env.RAZORPAY_WEBHOOK_SECRET||"").update(raw).digest("hex");if(!sig||!crypto.timingSafeEqual(Buffer.from(sig),Buffer.from(exp)))return res.status(400).send("Invalid webhook signature");const payload=JSON.parse(raw.toString("utf8"));await db.collection("webhookEvents").add({event:payload.event||"unknown",payload,receivedAt:admin.firestore.FieldValue.serverTimestamp()});res.json({received:true})}catch(e){console.error(e);res.status(500).send("Webhook error")}});
+const guard = (req, res, next) => isAdmin(req) ? next() : res.status(401).json({ error: "Admin login required." });
 
-app.post("/api/webhook/telegram",async(req,res)=>{try{const secret=process.env.TELEGRAM_WEBHOOK_SECRET;if(secret&&req.headers["x-telegram-bot-api-secret-token"]!==secret)return res.status(401).send("Unauthorized");const u=req.body||{};const jr=u.chat_join_request;if(!jr)return res.json({ok:true,ignored:true});if(String(jr.chat?.id)!==String(tgChatId()))return res.json({ok:true,ignored:true});const invite=jr.invite_link?.invite_link||"";const userId=Number(jr.from?.id);if(!userId||!invite)return res.json({ok:true,ignored:true});const snap=await db.collection("subscriptions").where("telegramInviteLink","==",invite).get();if(snap.empty){await tg("declineChatJoinRequest",{chat_id:tgChatId(),user_id:userId});return res.json({ok:true,approved:false,reason:"invite_not_found"})}let approved=false;for(const doc of snap.docs){const s=doc.data();if(activeSubscription(s)){await db.collection("subscriptions").doc(doc.id).update({telegramUserId:userId,telegramUsername:jr.from.username?"@"+jr.from.username:s.telegramUsername,telegramName:[jr.from.first_name,jr.from.last_name].filter(Boolean).join(" ")||s.telegramName,telegramMembershipStatus:"active",joinedAt:admin.firestore.FieldValue.serverTimestamp()});await tg("approveChatJoinRequest",{chat_id:tgChatId(),user_id:userId});approved=true;break}}if(!approved)await tg("declineChatJoinRequest",{chat_id:tgChatId(),user_id:userId});res.json({ok:true,approved})}catch(e){console.error(e);res.status(500).json({error:e.message||"Telegram webhook failed."})}});
+function publicSettings(data = {}) {
+  const s = { ...defaults.settings, ...data };
+  s.theme = { ...defaults.settings.theme, ...(data.theme || {}) };
+  return s;
+}
 
-app.post("/api/admin/login",(req,res)=>{if(String(req.body.password||"")!==ADMIN_PASSWORD)return res.status(401).json({error:"Wrong admin password."});res.setHeader("Set-Cookie",`${COOKIE_NAME}=${encodeURIComponent(token())}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=43200`);res.json({ok:true})});
-app.post("/api/admin/logout",(req,res)=>{res.setHeader("Set-Cookie",`${COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`);res.json({ok:true})});
-app.get("/api/admin/me",guard,(req,res)=>res.json({ok:true}));
-app.get("/api/admin/live",guard,async(req,res)=>{try{const snap=await rtdb.ref("qikly_presence").get();const now=Date.now(),cutoff=now-90000,val=snap.val()||{};const live=Object.values(val).filter(x=>Number(x?.onlineAt||0)>=cutoff).length;res.json({ok:true,live,updatedAt:now})}catch(e){console.error(e);res.status(500).json({error:e.message||"Unable to read live visitors."})}});
+async function getDoc(collection, id, fallback) {
+  const snap = await db.collection(collection).doc(id).get();
+  return snap.exists ? { id: snap.id, ...snap.data() } : fallback;
+}
 
-app.get("/api/admin/data",guard,async(req,res)=>{try{const[plans,reviews,faqs,orders,subs,donations,settings,guruSnap]=await Promise.all([db.collection("plans").get(),db.collection("reviews").get(),db.collection("faq").get(),db.collection("orders").get(),db.collection("subscriptions").get(),db.collection("donations").get(),db.collection("settings").doc("main").get(),db.collection("aiGurus").get()]);const rows=c=>c.docs.map(d=>({id:d.id,...d.data()}));const byCreated=(a,b)=>Number(b.createdAt?._seconds||0)-Number(a.createdAt?._seconds||0);const planRows=rows(plans),reviewRows=rows(reviews),faqRows=rows(faqs),orderRows=rows(orders),subRows=rows(subs),donationRows=rows(donations);
-const userKeys=new Set(subRows.map(x=>String(x.telegramUsername||x.telegramUserId||x.id)).filter(Boolean));
-const startOfDay=new Date();startOfDay.setHours(0,0,0,0);
-const startOfMonth=new Date(startOfDay.getFullYear(),startOfDay.getMonth(),1);
-const tsDate=x=>x?.toDate?.()||(x?._seconds?new Date(x._seconds*1000):null);
-const todaySubs=subRows.filter(x=>{const d=tsDate(x.startDate);return d&&d>=startOfDay}).length;
-const monthSubs=subRows.filter(x=>{const d=tsDate(x.startDate);return d&&d>=startOfMonth}).length;
-const revenueAll=orderRows.filter(x=>x.status==="paid").reduce((n,x)=>n+Number(x.amount||0),0);
-const revenueToday=orderRows.filter(x=>x.status==="paid"&&((tsDate(x.verifiedAt)||tsDate(x.createdAt))>=startOfDay)).reduce((n,x)=>n+Number(x.amount||0),0);
-const revenueMonth=orderRows.filter(x=>x.status==="paid"&&((tsDate(x.verifiedAt)||tsDate(x.createdAt))>=startOfMonth)).reduce((n,x)=>n+Number(x.amount||0),0);
-res.json({gurus:guruSnap.empty?guruDefaults:guruSnap.docs.map(d=>({id:d.id,...d.data()})),plans:planRows.sort((a,b)=>Number(a.sortOrder??0)-Number(b.sortOrder??0)),reviews:reviewRows.sort(byCreated),faqs:faqRows.sort((a,b)=>Number(a.sortOrder??0)-Number(b.sortOrder??0)),orders:orderRows.sort(byCreated),subscriptions:subRows.sort(byCreated),donations:donationRows.sort(byCreated),settings:settings.exists?settings.data():{},analytics:{totalUsers:userKeys.size,todayUsers:todaySubs,monthUsers:monthSubs,activeMembers:subRows.filter(x=>x.status==="active").length,expiredMembers:subRows.filter(x=>x.status==="expired").length,totalRevenue:revenueAll,todayRevenue:revenueToday,monthRevenue:revenueMonth},telegram:{configured:telegramConfigured(),webhookSecretConfigured:!!process.env.TELEGRAM_WEBHOOK_SECRET,cronConfigured:!!process.env.CRON_SECRET}})}catch(e){console.error(e);res.status(500).json({error:e.message})}});
+async function getPublicData() {
+  const [settings, chatbot, bannersSnap, faqSnap, donationsSnap] = await Promise.all([
+    getDoc("settings", "main", defaults.settings),
+    getDoc("chatbot", "main", defaults.chatbot),
+    db.collection("banners").get(),
+    db.collection("faq").get(),
+    db.collection("donations").get(),
+  ]);
 
-app.post("/api/admin/telegram/setup",guard,async(req,res)=>{try{if(!telegramConfigured())return res.status(400).json({error:"Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHANNEL_ID in Vercel first."});const base=`${req.headers["x-forwarded-proto"]||"https"}://${req.headers.host}`,url=`${base}/api/webhook/telegram`,result=await tg("setWebhook",{url,allowed_updates:["chat_join_request"],secret_token:process.env.TELEGRAM_WEBHOOK_SECRET||undefined});res.json({ok:result===true,url})}catch(e){res.status(500).json({error:e.message})}});
-app.get("/api/admin/telegram/status",guard,async(req,res)=>{try{const me=await tg("getMe"),chat=await tg("getChat",{chat_id:tgChatId()}),wh=await tg("getWebhookInfo");res.json({ok:true,bot:{id:me.id,username:me.username,name:me.first_name},channel:{id:chat.id,title:chat.title,type:chat.type},webhook:{url:wh.url||"",pending:wh.pending_update_count||0,lastError:wh.last_error_message||""}})}catch(e){res.status(500).json({error:e.message})}});
+  const banners = bannersSnap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(x => x.active !== false)
+    .sort((a, b) => num(a.sortOrder) - num(b.sortOrder));
 
-app.post("/api/admin/guru",guard,async(req,res)=>{
-  try{
-    const id=clean(req.body.id,60).toLowerCase().replace(/[^a-z0-9_-]/g,"");
-    if(!id)return res.status(400).json({error:"Guru ID required."});
-    const data={name:clean(req.body.name,100)||"AI Guru",specialty:clean(req.body.specialty,100)||"Guidance",emoji:clean(req.body.emoji,10)||"🔮",imageUrl:clean(req.body.imageUrl,600),description:clean(req.body.description,400),prompt:clean(req.body.prompt,1500),active:req.body.active!==false,sortOrder:Number(req.body.sortOrder)||Date.now(),updatedAt:admin.firestore.FieldValue.serverTimestamp()};
-    await db.collection("aiGurus").doc(id).set(data,{merge:true});res.json({ok:true,id});
-  }catch(e){res.status(500).json({error:e.message||"Unable to save guru."})}
+  const faqs = faqSnap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(x => x.active !== false)
+    .sort((a, b) => num(a.sortOrder) - num(b.sortOrder));
+
+  const donations = donationsSnap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(x => x.status === "paid")
+    .sort((a, b) => num(b.amount) - num(a.amount) || String(a.name).localeCompare(String(b.name)))
+    .map((x, index) => ({
+      id: x.id,
+      name: clean(x.name, 100) || "Anonymous",
+      amount: num(x.amount) || 0,
+      rank: index + 1,
+      createdAt: x.createdAt || null,
+    }));
+
+  const totalRaised = donations.reduce((sum, d) => sum + d.amount, 0);
+
+  return {
+    settings: publicSettings(settings),
+    banners,
+    faqs,
+    topDonors: donations.slice(0, 500),
+    donorCount: donations.length,
+    totalRaised,
+    chatbot: {
+      name: clean(chatbot.name, 80) || defaults.chatbot.name,
+      intro: clean(chatbot.intro, 500) || defaults.chatbot.intro,
+    },
+  };
+}
+
+async function getRankForDonation(name, amount, donationId) {
+  const donations = (await db.collection("donations").get()).docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(x => x.status === "paid")
+    .sort((a, b) => num(b.amount) - num(a.amount) || String(a.name).localeCompare(String(b.name)));
+  const index = donations.findIndex(x => x.id === donationId);
+  return {
+    rank: index >= 0 ? index + 1 : donations.filter(x => num(x.amount) > amount).length + 1,
+    totalDonors: donations.length,
+    name,
+    amount,
+  };
+}
+
+function randomSeedName(index) {
+  const first = [
+    "Aarav","Aditi","Aditya","Aisha","Aman","Ananya","Aniket","Anjali","Arjun","Avni",
+    "Bhavya","Chirag","Diya","Dev","Divya","Eshan","Gauri","Harsh","Isha","Ishaan",
+    "Kabir","Kajal","Karan","Kavya","Krish","Kriti","Manav","Meera","Mohit","Naina",
+    "Naman","Neha","Nikhil","Nisha","Pooja","Pranav","Priya","Rahul","Riya","Rohan",
+    "Sahil","Sakshi","Sameer","Simran","Sneha","Sonam","Tanya","Varun","Vansh","Yash",
+  ];
+  const last = ["Sharma","Verma","Gupta","Singh","Mehta","Jain","Malhotra","Kapoor","Kumar","Bansal","Saini","Yadav","Joshi","Chauhan","Patel","Agarwal","Mishra","Rana","Arora","Nair"];
+  const f = first[index % first.length];
+  const l = last[Math.floor(index / first.length) % last.length];
+  const suffix = Math.floor(index / (first.length * last.length));
+  return `${f} ${l}${suffix ? ` ${suffix + 1}` : ""}`;
+}
+
+async function seedSupporters() {
+  const snap = await db.collection("donations").where("seed", "==", true).get();
+  const batchDelete = db.batch();
+  snap.docs.forEach(d => batchDelete.delete(d.ref));
+  if (snap.docs.length) await batchDelete.commit();
+
+  const count = 450;
+  let batch = db.batch();
+  let written = 0;
+  for (let i = 0; i < count; i++) {
+    const ref = db.collection("donations").doc(`seed_${String(i + 1).padStart(3, "0")}`);
+    const amount = [101, 151, 251, 501, 751, 1001, 1501, 2101, 2501, 3101][i % 10] + (i % 7) * 10;
+    batch.set(ref, {
+      name: randomSeedName(i),
+      amount,
+      status: "paid",
+      seed: true,
+      paymentId: `seed_payment_${i + 1}`,
+      orderId: `seed_order_${i + 1}`,
+      createdAt: new Date(Date.now() - i * 7 * 60 * 1000),
+    });
+    written++;
+    if (written === 450) await batch.commit();
+  }
+  return { count };
+}
+
+async function geminiGenerate(contents, systemInstruction) {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) throw new Error("Gemini API is not configured on the server.");
+  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  const body = {
+    contents,
+    systemInstruction: { parts: [{ text: systemInstruction }] },
+    generationConfig: { temperature: 0.7, maxOutputTokens: 450 },
+  };
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error?.message || `Gemini API error (${r.status})`);
+  return d.candidates?.[0]?.content?.parts?.map(x => x.text || "").join("").trim() || "Main abhi jawab generate nahi kar pa raha hoon. Aap directly donation box se bhi support kar sakte hain. ❤️";
+}
+
+app.get("/api/public/data", async (req, res) => {
+  try { res.json(await getPublicData()); }
+  catch (e) { console.error(e); res.status(500).json({ error: e.message || "Unable to load public data." }); }
 });
-app.post("/api/admin/guru/toggle",guard,async(req,res)=>{
-  try{const id=clean(req.body.id,60).toLowerCase().replace(/[^a-z0-9_-]/g,"");if(!id)return res.status(400).json({error:"Guru ID required."});if(typeof req.body.active!=="boolean")return res.status(400).json({error:"Active value required."});const ref=db.collection("aiGurus").doc(id),snap=await ref.get();if(!snap.exists)return res.status(404).json({error:"Guru not found."});await ref.set({active:req.body.active,updatedAt:admin.firestore.FieldValue.serverTimestamp()},{merge:true});res.json({ok:true,id,active:req.body.active})}catch(e){res.status(500).json({error:e.message||"Unable to update guru status."})}
+
+app.get("/api/public/config", (req, res) => res.json({ razorpayKeyId: process.env.RAZORPAY_KEY_ID || "" }));
+
+app.post("/api/donation/create-order", async (req, res) => {
+  try {
+    const name = clean(req.body.name, 100);
+    const amount = Math.round(num(req.body.amount));
+    if (!name || name.length < 2) return res.status(400).json({ error: "Please enter your name." });
+    if (!Number.isInteger(amount) || amount < 1 || amount > 10000000) return res.status(400).json({ error: "Enter a valid donation amount between ₹1 and ₹1,00,00,000." });
+    const order = await razorpay.orders.create({
+      amount: amount * 100,
+      currency: "INR",
+      receipt: `ngo_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`,
+      notes: { donorName: name },
+    });
+    await db.collection("donations").doc(order.id).set({
+      orderId: order.id,
+      name,
+      amount,
+      status: "created",
+      seed: false,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    res.json({ ok: true, orderId: order.id, amount: order.amount, currency: order.currency, name });
+  } catch (e) {
+    console.error(e); res.status(500).json({ error: e.message || "Unable to create donation order." });
+  }
 });
-app.post("/api/admin/plan",guard,async(req,res)=>{try{const id=clean(req.body.id,80);if(!id)return res.status(400).json({error:"Plan ID required."});await db.collection("plans").doc(id).set({name:clean(req.body.name,80),price:Number(req.body.price),durationMinutes:req.body.durationMinutes===null||req.body.durationMinutes===""?null:Number(req.body.durationMinutes),durationDays:req.body.durationDays===null||req.body.durationDays===""?null:Number(req.body.durationDays),description:clean(req.body.description,300),active:req.body.active!==false,featured:req.body.featured===true,sortOrder:Number(req.body.sortOrder)||Date.now(),updatedAt:admin.firestore.FieldValue.serverTimestamp()},{merge:true});res.json({ok:true,id})}catch(e){res.status(500).json({error:e.message})}});
-app.post("/api/admin/review",guard,async(req,res)=>{try{const id=clean(req.body.id,120),data={name:clean(req.body.name,80),rating:clean(req.body.rating,10)||"★★★★★",review:clean(req.body.review,600),active:req.body.active!==false,updatedAt:admin.firestore.FieldValue.serverTimestamp()};if(id)await db.collection("reviews").doc(id).set(data,{merge:true});else await db.collection("reviews").add({...data,createdAt:admin.firestore.FieldValue.serverTimestamp()});res.json({ok:true})}catch(e){res.status(500).json({error:e.message})}});
-app.post("/api/admin/faq",guard,async(req,res)=>{try{const id=clean(req.body.id,120),data={question:clean(req.body.question,250),answer:clean(req.body.answer,1000),active:req.body.active!==false,sortOrder:Number(req.body.sortOrder)||Date.now(),updatedAt:admin.firestore.FieldValue.serverTimestamp()};if(id)await db.collection("faq").doc(id).set(data,{merge:true});else await db.collection("faq").add({...data,createdAt:admin.firestore.FieldValue.serverTimestamp()});res.json({ok:true})}catch(e){res.status(500).json({error:e.message})}});
-app.post("/api/admin/order",guard,async(req,res)=>{try{const id=clean(req.body.id,120);if(!id)return res.status(400).json({error:"Order ID required."});const data={telegramUsername:normalizeUsername(req.body.telegramUsername),telegramName:clean(req.body.telegramName),updatedAt:admin.firestore.FieldValue.serverTimestamp()};if(!validUsername(data.telegramUsername))return res.status(400).json({error:"Invalid Telegram username."});await db.collection("orders").doc(id).set(data,{merge:true});res.json({ok:true})}catch(e){res.status(500).json({error:e.message})}});
-app.post("/api/admin/subscription",guard,async(req,res)=>{try{const id=clean(req.body.id,120);if(!id)return res.status(400).json({error:"Subscription ID required."});const data={telegramUsername:normalizeUsername(req.body.telegramUsername),telegramName:clean(req.body.telegramName),planName:clean(req.body.planName,80),status:["active","expired","cancelled"].includes(req.body.status)?req.body.status:"active",updatedAt:admin.firestore.FieldValue.serverTimestamp()};if(req.body.expiryDate!==undefined)data.expiryDate=dateFromInput(req.body.expiryDate);if(!validUsername(data.telegramUsername))return res.status(400).json({error:"Invalid Telegram username."});await db.collection("subscriptions").doc(id).set(data,{merge:true});res.json({ok:true})}catch(e){res.status(500).json({error:e.message})}});
-app.post("/api/admin/donation",guard,async(req,res)=>{try{const id=clean(req.body.id,120);if(!id)return res.status(400).json({error:"Donation ID required."});const data={name:clean(req.body.name,100),updatedAt:admin.firestore.FieldValue.serverTimestamp()};if(!data.name)return res.status(400).json({error:"Name required."});await db.collection("donations").doc(id).set(data,{merge:true});res.json({ok:true})}catch(e){res.status(500).json({error:e.message})}});
-app.post("/api/admin/delete",guard,async(req,res)=>{try{const allowed=["plans","reviews","faq","orders","subscriptions","donations","aiGurus"],collection=clean(req.body.collection,40),id=clean(req.body.id,160);if(!allowed.includes(collection)||!id)return res.status(400).json({error:"Invalid delete request."});await db.collection(collection).doc(id).delete();res.json({ok:true})}catch(e){res.status(500).json({error:e.message})}});
-app.post("/api/admin/settings",guard,async(req,res)=>{try{await db.collection("settings").doc("main").set({telegramLink:clean(req.body.telegramLink,500),supportTelegram:clean(req.body.supportTelegram,100),supportEmail:clean(req.body.supportEmail,180),marqueeText:clean(req.body.marqueeText,500),updatedAt:admin.firestore.FieldValue.serverTimestamp()},{merge:true});res.json({ok:true})}catch(e){res.status(500).json({error:e.message})}});
 
-app.get("/api/cron/telegram-expiry",async(req,res)=>{try{if(process.env.CRON_SECRET&&req.headers.authorization!==`Bearer ${process.env.CRON_SECRET}`)return res.status(401).json({error:"Unauthorized"});if(!telegramConfigured())return res.status(503).json({error:"Telegram is not configured."});const snap=await db.collection("subscriptions").where("status","==","active").get();let removed=0,expired=0;for(const doc of snap.docs){const s=doc.data(),exp=expiryDateOf(s);if(!exp||exp.getTime()>Date.now())continue;try{if(s.telegramUserId){await removeMember(s.telegramUserId);removed++}}catch(e){console.warn("Remove member failed",doc.id,e.message)}await doc.ref.update({status:"expired",telegramMembershipStatus:s.telegramUserId?"removed":"expired",expiredAt:admin.firestore.FieldValue.serverTimestamp()});expired++}res.json({ok:true,expired,removed})}catch(e){console.error(e);res.status(500).json({error:e.message||"Expiry job failed."})}});
+app.post("/api/donation/verify-payment", async (req, res) => {
+  try {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body || {};
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) return res.status(400).json({ error: "Incomplete Razorpay response." });
+    const expected = crypto.createHmac("sha256", process.env.RAZORPAY_KEY_SECRET).update(`${razorpay_order_id}|${razorpay_payment_id}`).digest("hex");
+    if (!timingSafeEqualText(expected, razorpay_signature)) return res.status(400).json({ error: "Payment signature verification failed." });
 
-module.exports=app;
+    const ref = db.collection("donations").doc(razorpay_order_id);
+    const snap = await ref.get();
+    if (!snap.exists) return res.status(404).json({ error: "Donation order not found." });
+    const donation = snap.data();
+    const payment = await razorpay.payments.fetch(razorpay_payment_id);
+    if (payment.status !== "captured") return res.status(400).json({ error: "Payment has not been captured." });
+    if (payment.order_id !== razorpay_order_id) return res.status(400).json({ error: "Payment order does not match." });
+    if (num(payment.amount) !== Math.round(num(donation.amount) * 100)) return res.status(400).json({ error: "Payment amount does not match the donation." });
+
+    if (donation.status !== "paid") {
+      await ref.update({ status: "paid", paymentId: razorpay_payment_id, verifiedAt: FieldValue.serverTimestamp() });
+    }
+    const result = await getRankForDonation(donation.name, donation.amount, razorpay_order_id);
+    res.json({ success: true, ...result });
+  } catch (e) {
+    console.error(e); res.status(500).json({ error: e.message || "Payment verification failed." });
+  }
+});
+
+app.post("/api/chatbot", async (req, res) => {
+  try {
+    const chatbot = await getDoc("chatbot", "main", defaults.chatbot);
+    const settings = await getDoc("settings", "main", defaults.settings);
+    const message = clean(req.body.message, 1200);
+    if (!message) return res.status(400).json({ error: "Message is required." });
+    const history = Array.isArray(req.body.history) ? req.body.history.slice(-8) : [];
+    const contents = [];
+    history.forEach(item => {
+      if (item?.role === "user" || item?.role === "model") contents.push({ role: item.role, parts: [{ text: clean(item.text, 1200) }] });
+    });
+    contents.push({ role: "user", parts: [{ text: message }] });
+    const context = publicSettings(settings);
+    const system = `You are ${clean(chatbot.name, 80) || defaults.chatbot.name}, the donation-support assistant for ${clean(context.ngoName, 120)}.\nTopic controlled by admin: ${clean(chatbot.topic, 1800)}\nAdmin behavior instructions: ${clean(chatbot.prompt, 1800)}\nNGO summary: ${clean(context.heroText, 1200)}\nAbout: ${clean(context.about, 2200)}\n\nDo not fabricate facts. Do not guilt-trip the visitor. Do not promise guaranteed outcomes. You may explain why donating can help and invite the visitor to use the donation box. Keep replies conversational and concise.`;
+    const answer = await geminiGenerate(contents, system);
+    res.json({ ok: true, name: clean(chatbot.name, 80) || defaults.chatbot.name, answer });
+  } catch (e) {
+    console.error(e); res.status(500).json({ error: e.message || "Chatbot is unavailable right now." });
+  }
+});
+
+app.post("/api/admin/login", (req, res) => {
+  const password = String(req.body.password || "");
+  if (!timingSafeEqualText(password, ADMIN_PASSWORD)) return res.status(401).json({ error: "Wrong password." });
+  setAdminCookie(res, createAdminToken());
+  res.json({ ok: true });
+});
+
+app.post("/api/admin/logout", (req, res) => {
+  res.setHeader("Set-Cookie", `${ADMIN_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${process.env.NODE_ENV === "production" ? "; Secure" : ""}`);
+  res.json({ ok: true });
+});
+
+app.get("/api/admin/me", (req, res) => res.json({ authenticated: isAdmin(req) }));
+
+app.get("/api/admin/data", guard, async (req, res) => {
+  try {
+    const [publicData, settings, chatbot, bannersSnap, faqSnap, donationsSnap] = await Promise.all([
+      getPublicData(),
+      getDoc("settings", "main", defaults.settings),
+      getDoc("chatbot", "main", defaults.chatbot),
+      db.collection("banners").get(),
+      db.collection("faq").get(),
+      db.collection("donations").get(),
+    ]);
+    const donations = donationsSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => num(b.amount) - num(a.amount));
+    const paid = donations.filter(x => x.status === "paid");
+    const now = new Date();
+    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const toMs = x => x?.toDate?.()?.getTime?.() || new Date(x?.createdAt || x).getTime();
+    const today = paid.filter(x => toMs(x.verifiedAt || x.createdAt) >= dayStart);
+    const month = paid.filter(x => toMs(x.verifiedAt || x.createdAt) >= monthStart);
+    res.json({
+      settings: publicSettings(settings), chatbot,
+      banners: bannersSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => num(a.sortOrder) - num(b.sortOrder)),
+      faqs: faqSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => num(a.sortOrder) - num(b.sortOrder)),
+      donations,
+      stats: {
+        donorCount: paid.length,
+        totalRaised: paid.reduce((s, x) => s + num(x.amount), 0),
+        todayAmount: today.reduce((s, x) => s + num(x.amount), 0),
+        monthAmount: month.reduce((s, x) => s + num(x.amount), 0),
+        seedCount: paid.filter(x => x.seed === true).length,
+      },
+      publicDonorCount: publicData.donorCount,
+    });
+  } catch (e) { console.error(e); res.status(500).json({ error: e.message || "Unable to load admin data." }); }
+});
+
+app.post("/api/admin/settings", guard, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const theme = b.theme || {};
+    const payload = {
+      ngoName: clean(b.ngoName, 120) || defaults.settings.ngoName,
+      tagline: clean(b.tagline, 240),
+      heroTitle: clean(b.heroTitle, 240),
+      heroText: clean(b.heroText, 1500),
+      marqueeText: clean(b.marqueeText, 700),
+      about: clean(b.about, 6000), terms: clean(b.terms, 6000), privacy: clean(b.privacy, 6000), refund: clean(b.refund, 6000),
+      supportEmail: clean(b.supportEmail, 180),
+      theme: {
+        primary: cleanHex(theme.primary, defaults.settings.theme.primary),
+        secondary: cleanHex(theme.secondary, defaults.settings.theme.secondary),
+        background: cleanHex(theme.background, defaults.settings.theme.background),
+        surface: cleanHex(theme.surface, defaults.settings.theme.surface),
+        text: cleanHex(theme.text, defaults.settings.theme.text),
+        muted: cleanHex(theme.muted, defaults.settings.theme.muted),
+        accent: cleanHex(theme.accent, defaults.settings.theme.accent),
+      },
+    };
+    await db.collection("settings").doc("main").set(payload, { merge: true });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message || "Unable to save settings." }); }
+});
+
+app.post("/api/admin/chatbot", guard, async (req, res) => {
+  try {
+    await db.collection("chatbot").doc("main").set({
+      name: clean(req.body.name, 80) || defaults.chatbot.name,
+      topic: clean(req.body.topic, 2500),
+      intro: clean(req.body.intro, 700),
+      prompt: clean(req.body.prompt, 2500),
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message || "Unable to save chatbot settings." }); }
+});
+
+app.post("/api/admin/banner", guard, async (req, res) => {
+  try {
+    const id = clean(req.body.id, 80) || `banner_${Date.now()}`;
+    const imageUrl = clean(req.body.imageUrl, 1200);
+    if (!/^https:\/\//i.test(imageUrl)) return res.status(400).json({ error: "Banner image must use an HTTPS URL." });
+    await db.collection("banners").doc(id).set({
+      title: clean(req.body.title, 160), imageUrl, linkUrl: clean(req.body.linkUrl, 1200),
+      active: req.body.active !== false, sortOrder: num(req.body.sortOrder) || Date.now(), updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message || "Unable to save banner." }); }
+});
+
+app.post("/api/admin/faq", guard, async (req, res) => {
+  try {
+    const id = clean(req.body.id, 80) || `faq_${Date.now()}`;
+    await db.collection("faq").doc(id).set({
+      question: clean(req.body.question, 300), answer: clean(req.body.answer, 2500),
+      active: req.body.active !== false, sortOrder: num(req.body.sortOrder) || Date.now(), updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message || "Unable to save FAQ." }); }
+});
+
+app.post("/api/admin/delete", guard, async (req, res) => {
+  try {
+    const collection = ["banners", "faq"].includes(String(req.body.collection)) ? String(req.body.collection) : "";
+    const id = clean(req.body.id, 120);
+    if (!collection || !id) return res.status(400).json({ error: "Invalid delete request." });
+    await db.collection(collection).doc(id).delete();
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message || "Unable to delete record." }); }
+});
+
+app.post("/api/admin/seed-supporters", guard, async (req, res) => {
+  try { res.json({ ok: true, ...(await seedSupporters()) }); }
+  catch (e) { console.error(e); res.status(500).json({ error: e.message || "Unable to seed supporters." }); }
+});
+
+app.get("/api/health", (req, res) => res.json({
+  ok: true,
+  firebaseConfigured: !!process.env.FIREBASE_SERVICE_ACCOUNT_JSON,
+  razorpayConfigured: !!process.env.RAZORPAY_KEY_ID && !!process.env.RAZORPAY_KEY_SECRET,
+  geminiConfigured: !!process.env.GEMINI_API_KEY,
+}));
+
+module.exports = app;

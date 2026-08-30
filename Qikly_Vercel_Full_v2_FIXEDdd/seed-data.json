@@ -1,36 +1,29 @@
 {
-  "plans": {
-    "1month": {
-      "name": "1 Month",
-      "price": 99,
-      "durationDays": 30,
-      "description": "30 days access",
-      "active": true,
-      "featured": false,
-      "sortOrder": 1
-    },
-    "2months": {
-      "name": "2 Months",
-      "price": 149,
-      "durationDays": 60,
-      "description": "60 days access",
-      "active": true,
-      "featured": true,
-      "sortOrder": 2
-    },
-    "permanent": {
-      "name": "Permanent",
-      "price": 299,
-      "durationDays": null,
-      "description": "Lifetime access",
-      "active": true,
-      "featured": false,
-      "sortOrder": 3
+  "settings/main": {
+    "ngoName": "Seva Jyoti Foundation",
+    "tagline": "Aapki chhoti si madad kisi ki badi zarurat ban sakti hai.",
+    "heroTitle": "Milkar kisi ki zindagi mein roshni laayein",
+    "heroText": "Aapka donation education, food, healthcare aur emergency support jaise ground-level kaamon ko fund karne mein madad karta hai.",
+    "marqueeText": "❤️ Aapka har donation kisi ki umeed ko mazboot banata hai • Thank you for supporting Seva Jyoti Foundation •",
+    "supportEmail": "support@example.org",
+    "theme": {
+      "primary": "#ff5a36",
+      "secondary": "#ffb347",
+      "background": "#fffaf5",
+      "surface": "#ffffff",
+      "text": "#202020",
+      "muted": "#6b625b",
+      "accent": "#0f8a65"
     }
   },
-  "settings/main": {
-    "telegramLink": "PUT_PRIVATE_TELEGRAM_INVITE_LINK_HERE",
-    "supportTelegram": "@your_support",
-    "supportEmail": "support@example.com"
+  "chatbot/main": {
+    "name": "Sakhi",
+    "topic": "Explain why a donation matters and encourage honest, non-guilt-based donation action.",
+    "intro": "Namaste ❤️ Main Sakhi hoon. Aap donation ya NGO ke baare mein kuch bhi pooch sakte hain.",
+    "prompt": "Be warm, concise and truthful. Never fabricate impact numbers or make guaranteed claims."
+  },
+  "admin-seed": {
+    "sampleSupporters": 450,
+    "note": "The admin button generates these rows directly in Firestore with seed=true. Real paid donations are preserved."
   }
 }
