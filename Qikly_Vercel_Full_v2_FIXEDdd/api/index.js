@@ -355,6 +355,7 @@ app.post("/api/admin/logout", (req, res) => {
 app.get("/api/admin/me", (req, res) => res.json({ authenticated: isAdmin(req) }));
 
 app.get("/api/admin/data", guard, async (req, res) => {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   try {
     const [publicData, settings, chatbot, bannersSnap, faqSnap, donationsSnap] = await Promise.all([
       getPublicData(),

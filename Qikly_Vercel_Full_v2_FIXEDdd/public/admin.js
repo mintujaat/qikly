@@ -165,14 +165,29 @@ function renderRecent() {
 }
 
 async function load() {
-  DATA = await api("/api/admin/data");
-  $("#adminNgoName").textContent = DATA.settings.ngoName;
+  const loaded = await api("/api/admin/data");
+  DATA = {
+    settings: loaded?.settings || {},
+    chatbot: loaded?.chatbot || {},
+    banners: Array.isArray(loaded?.banners) ? loaded.banners : [],
+    faqs: Array.isArray(loaded?.faqs) ? loaded.faqs : [],
+    donations: Array.isArray(loaded?.donations) ? loaded.donations : [],
+    stats: loaded?.stats || { donorCount: 0, totalRaised: 0, todayAmount: 0, monthAmount: 0, seedCount: 0 },
+    publicDonorCount: Number(loaded?.publicDonorCount || 0),
+  };
+  $("#adminNgoName").textContent = DATA.settings.ngoName || "Qikly Support NGO";
   $("#statRaised").textContent = money(DATA.stats.totalRaised);
   $("#statDonors").textContent = DATA.stats.donorCount;
   $("#statToday").textContent = money(DATA.stats.todayAmount);
   $("#statMonth").textContent = money(DATA.stats.monthAmount);
   fillForms();
-  renderBanners(); renderFaqs(); renderContentPreview(); renderChatbotPreview(); renderThemePreview(); renderDonations(); renderRecent();
+  renderBanners();
+  renderFaqs();
+  renderContentPreview();
+  renderChatbotPreview();
+  renderThemePreview();
+  renderDonations();
+  renderRecent();
 }
 
 function resetBanner() {
