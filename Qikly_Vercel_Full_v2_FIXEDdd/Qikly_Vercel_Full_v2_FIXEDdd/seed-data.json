@@ -1,0 +1,14 @@
+{
+  "settings/main": {
+    "siteName": "Qikly Invest",
+    "tagline": "Simple investing, transparent tracking.",
+    "minWithdrawal": 450,
+    "riskDisclosure": "Investment involves risk. Daily credit figures are configurable and are not guaranteed returns."
+  },
+  "investmentPlans": [
+    {"id":"starter","title":"Starter Plan","amount":1000,"days":10,"dailyIncrease":35,"active":true},
+    {"id":"growth","title":"Growth Plan","amount":5000,"days":20,"dailyIncrease":220,"active":true},
+    {"id":"premium","title":"Premium Plan","amount":10000,"days":30,"dailyIncrease":520,"active":true}
+  ],
+  "note": "The application also creates a starter AI chat configuration in memory when no aiGurus/aiPlans documents exist. Admin can save permanent versions from /admin.html."
+}
