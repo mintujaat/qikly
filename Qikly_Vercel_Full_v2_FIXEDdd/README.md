@@ -1,40 +1,58 @@
-# NGO Donation Platform
+# Qikly Invest
 
-This build replaces the old AstroSage/Qikly experience with a two-page NGO donation website:
+This version converts the old Qikly/NGO website into an account-first investment-management style platform while keeping the existing Razorpay-powered AI chat flow available separately.
 
-- `/` — public donation website
-- `/admin.html` — protected admin panel
-- Firebase Firestore — banners, FAQs, NGO content, theme, chatbot settings and donations
-- Razorpay — donation checkout + server-side signature/payment verification
-- Gemini — donation-support chatbot whose name/topic/prompt are controlled from admin
+## User flow
+
+1. User opens `/` and is sent to `/auth.html` until logged in.
+2. Signup creates a Firebase-backed user profile and an empty wallet.
+3. User can add money to the wallet using Razorpay. The server verifies the Razorpay signature, payment status, order and amount before crediting the wallet.
+4. Home shows active investment plans managed from `/admin.html`. Each plan supports:
+   - photo
+   - title
+   - amount
+   - duration in days
+   - daily credit amount
+   - description
+5. User activates plans from their wallet balance.
+6. Daily credits are calculated from the plan start date and are settled into the wallet on dashboard/transaction/withdrawal operations.
+7. User can request a withdrawal. Default minimum is ₹450; the admin can change the minimum from Website Content settings.
+8. Withdrawals are held as `pending` until admin manually completes the payout. Rejecting a request returns the reserved amount to the wallet.
+9. `/profile.html` shows balance, active/completed plans, profile details, deposit/top-up, withdrawal request and recent activity.
+10. `/transactions.html` shows the full transaction history.
+
+## Admin panel
+
+`/admin.html` includes:
+
+- dashboard KPIs
+- investment plan builder + ImgBB image upload
+- withdrawal approval/rejection queue
+- user list, wallet balance and enable/disable controls
+- manual wallet balance adjustments
+- site name, hero copy, legal text, risk disclosure and minimum withdrawal
+- Gemini support chatbot name/topic/prompt
+- legacy AI chat plans/guides for the existing paid AI chat flow
 
 ## Firestore collections
 
 - `settings/main`
-- `banners/*`
-- `faq/*`
-- `donations/*`
+- `users/*`
+- `wallets/*`
+- `investmentPlans/*`
+- `investments/*`
+- `transactions/*`
+- `withdrawals/*`
 - `chatbot/main`
+- `aiGurus/*`
+- `aiPlans/*`
+- `aiOrders/*`
+- `aiSessions/*`
 
-## First setup
+## Environment variables
 
-1. Create a Firebase project and enable Firestore.
-2. Put the Firebase service-account JSON into `FIREBASE_SERVICE_ACCOUNT_JSON` in Vercel.
-3. Put Razorpay live/test key values into `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET`.
-4. Put your ImgBB API key into `IMGBB_API_KEY` for banner image uploads.
-5. Put your Gemini API key into `GEMINI_API_KEY` and optionally set `GEMINI_MODEL`.
-6. Set a strong `ADMIN_PASSWORD`.
-7. Deploy to Vercel.
-8. Open `/admin.html`, log in, save NGO settings, add banners and FAQs, then use the sample-supporter seeder if you want 400–500 demo leaderboard rows.
+See `.env.example`. Keep the Razorpay secret, Firebase service account, Gemini key, ImgBB key and session secret server-side only.
 
-## Banner images
+## Important production note
 
-Banner images can be added either with a public HTTPS image URL or by uploading a local image through ImgBB. The ImgBB upload returns the hosted image URL, which is placed into the banner form and is saved with the banner in Firestore. Images are limited to 8 MB per upload. Add as many banners as you need; the public site rotates them every 3 seconds.
-
-## Notes
-
-- Seed supporters are stored with `seed: true` and can be replaced from the admin panel.
-- Real paid donations are `seed: false` and are never deleted by the sample-supporter seeder.
-- Donation amount and payment status are server-controlled.
-- Never expose `RAZORPAY_KEY_SECRET`, Firebase service-account JSON, `GEMINI_API_KEY`, or `IMGBB_API_KEY` in client-side code.
-- Admin preview cards show the currently saved banners, FAQs, website-content sections, chatbot settings and theme palette, with Edit/Delete or Reset actions where appropriate.
+The displayed plan amounts and daily credits are administrator-configured values. They should not be marketed as guaranteed investment returns. Before processing real user money, the operator should complete the applicable business, KYC, taxation, payment, consumer-protection and financial/regulatory requirements for the jurisdiction in which the service operates.

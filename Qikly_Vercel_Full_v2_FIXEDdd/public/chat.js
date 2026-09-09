@@ -15,7 +15,7 @@ async function init(){
   gurus=d.gurus||[];plans=(d.plans||[]).filter(p=>p.active!==false&&Number(p.price)>0&&Number(p.durationMinutes||0)>0);razorpayKey=c.razorpayKeyId||"";
   guru=gurus.find(g=>g.id===guruId)||gurus[0];if(!guru)throw Error("कोई गुरु उपलब्ध नहीं है।");
   $("#topGuru").innerHTML=`<div class="tiny-avatar">${avatar(guru)}</div><div><strong>${esc(guru.name)}</strong><small>${esc(guru.specialty||"AI मार्गदर्शक")}</small></div>`;
-  customerName=localStorage.getItem("astrosage_name")||"Guest";
+  customerName=localStorage.getItem("qikly_ai_name")||"Guest";
   setComposer(false);
   restoreChatHistory();
   const restored=restoreActiveSession();
@@ -136,7 +136,7 @@ async function buy(planId){
  const p=plans.find(x=>x.id===planId);if(!p)return;
  try{
   const o=await api("/api/ai/create-order",{method:"POST",body:JSON.stringify({planId,guruId:guru.id,customerName})});
-  const rzp=new Razorpay({key:razorpayKey,amount:o.amount,currency:o.currency||"INR",name:"AstroSage AI",description:`${p.name} — ${guru.name}`,order_id:o.orderId,prefill:{name:customerName},theme:{color:"#d58a17"},handler:async response=>{
+  const rzp=new Razorpay({key:razorpayKey,amount:o.amount,currency:o.currency||"INR",name:"Qikly AI",description:`${p.name} — ${guru.name}`,order_id:o.orderId,prefill:{name:customerName},theme:{color:"#d58a17"},handler:async response=>{
    try{const v=await api("/api/ai/verify-payment",{method:"POST",body:JSON.stringify(response)});
    $("#plansBox").classList.add("hidden");
    $("#chatPlans").innerHTML="";

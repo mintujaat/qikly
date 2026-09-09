@@ -1,29 +1,14 @@
 {
   "settings/main": {
-    "ngoName": "Seva Jyoti Foundation",
-    "tagline": "Aapki chhoti si madad kisi ki badi zarurat ban sakti hai.",
-    "heroTitle": "Milkar kisi ki zindagi mein roshni laayein",
-    "heroText": "Aapka donation education, food, healthcare aur emergency support jaise ground-level kaamon ko fund karne mein madad karta hai.",
-    "marqueeText": "❤️ Aapka har donation kisi ki umeed ko mazboot banata hai • Thank you for supporting Seva Jyoti Foundation •",
-    "supportEmail": "support@example.org",
-    "theme": {
-      "primary": "#ff5a36",
-      "secondary": "#ffb347",
-      "background": "#fffaf5",
-      "surface": "#ffffff",
-      "text": "#202020",
-      "muted": "#6b625b",
-      "accent": "#0f8a65"
-    }
+    "siteName": "Qikly Invest",
+    "tagline": "Simple investing, transparent tracking.",
+    "minWithdrawal": 450,
+    "riskDisclosure": "Investment involves risk. Daily credit figures are configurable and are not guaranteed returns."
   },
-  "chatbot/main": {
-    "name": "Sakhi",
-    "topic": "Explain why a donation matters and encourage honest, non-guilt-based donation action.",
-    "intro": "Namaste ❤️ Main Sakhi hoon. Aap donation ya NGO ke baare mein kuch bhi pooch sakte hain.",
-    "prompt": "Be warm, concise and truthful. Never fabricate impact numbers or make guaranteed claims."
-  },
-  "admin-seed": {
-    "sampleSupporters": 450,
-    "note": "The admin button generates these rows directly in Firestore with seed=true. Real paid donations are preserved."
-  }
+  "investmentPlans": [
+    {"id":"starter","title":"Starter Plan","amount":1000,"days":10,"dailyIncrease":35,"active":true},
+    {"id":"growth","title":"Growth Plan","amount":5000,"days":20,"dailyIncrease":220,"active":true},
+    {"id":"premium","title":"Premium Plan","amount":10000,"days":30,"dailyIncrease":520,"active":true}
+  ],
+  "note": "The application also creates a starter AI chat configuration in memory when no aiGurus/aiPlans documents exist. Admin can save permanent versions from /admin.html."
 }
