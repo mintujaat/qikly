@@ -305,7 +305,7 @@ async function getReferralInfo(uid) {
     const u = rs.exists ? rs.data() : {};
     return { ...r, name:clean(u.name,100)||"Member", email:cleanEmail(u.email) };
   }));
-  return {code,link:`${process.env.PUBLIC_BASE_URL || ""}/auth.html?ref=${encodeURIComponent(code)}`,count:users.length,users};
+  return {code,count:users.length,users};
 }
 async function geminiGenerate(contents, systemInstruction) {
   const key = process.env.GEMINI_API_KEY;
