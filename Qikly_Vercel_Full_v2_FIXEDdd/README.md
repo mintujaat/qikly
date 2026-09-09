@@ -56,3 +56,6 @@ See `.env.example`. Keep the Razorpay secret, Firebase service account, Gemini k
 ## Important production note
 
 The displayed plan amounts and daily credits are administrator-configured values. They should not be marketed as guaranteed investment returns. Before processing real user money, the operator should complete the applicable business, KYC, taxation, payment, consumer-protection and financial/regulatory requirements for the jurisdiction in which the service operates.
+
+## Latest UI navigation update
+The user-facing investment pages now include a premium floating quick-navigation dock with Home, Active Plans, Transactions, Withdrawal and My Account. The dock is responsive, theme-aware, and stays clear of the floating AI support button. Separate `active-plans.html` and `withdrawal.html` pages were added.
