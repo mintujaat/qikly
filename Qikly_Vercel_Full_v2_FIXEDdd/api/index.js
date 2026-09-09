@@ -272,10 +272,41 @@ async function userDashboard(uid) {
   const user = { id: userSnap.id, ...userSnap.data() };
   const investments = invSnap.docs.map(d => jsonSafe({ id: d.id, ...d.data() })).sort((a,b)=>dateMs(b.startAt)-dateMs(a.startAt));
   const transactions = txSnap.docs.map(d => jsonSafe({ id:d.id, ...d.data() })).sort((a,b)=>dateMs(b.createdAt)-dateMs(a.createdAt)).slice(0,200);
-  return jsonSafe({ user: sanitizeUser(user), wallet: money(walletSnap.exists ? walletSnap.data().balance : 0), investments, transactions, minWithdrawal: Math.max(1, money(savedSettings.minWithdrawal) || MIN_WITHDRAWAL) });
+  const referral = await getReferralInfo(uid);
+  return jsonSafe({ user: sanitizeUser({...user,referralCode:referral.code}), wallet: money(walletSnap.exists ? walletSnap.data().balance : 0), investments, transactions, minWithdrawal: Math.max(1, money(savedSettings.minWithdrawal) || MIN_WITHDRAWAL), referral });
 }
 function sanitizeUser(user) { const { passwordHash, ...safe } = user || {}; return safe; }
 
+async function createReferralCode() {
+  for (let i=0;i<8;i++) {
+    const code = `QIKLY${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
+    const snap = await db.collection("users").where("referralCode","==",code).limit(1).get();
+    if (snap.empty) return code;
+  }
+  return `QIKLY${Date.now().toString(36).toUpperCase()}`;
+}
+async function ensureReferralCode(uid) {
+  const ref = db.collection("users").doc(uid), snap = await ref.get();
+  if (!snap.exists) return "";
+  const current = clean(snap.data().referralCode,40).toUpperCase();
+  if (current) return current;
+  const code = await createReferralCode();
+  await ref.set({referralCode:code,updatedAt:FieldValue.serverTimestamp()},{merge:true});
+  return code;
+}
+async function getReferralInfo(uid) {
+  const userRef = db.collection("users").doc(uid);
+  const userSnap = await userRef.get();
+  const code = userSnap.exists ? (clean(userSnap.data().referralCode,40).toUpperCase() || await ensureReferralCode(uid)) : "";
+  const snap = await db.collection("referrals").where("referrerUid","==",uid).get();
+  const referrals = snap.docs.map(d=>jsonSafe({id:d.id,...d.data()})).sort((a,b)=>dateMs(b.createdAt)-dateMs(a.createdAt));
+  const users = await Promise.all(referrals.map(async r=>{
+    const rs = await db.collection("users").doc(r.referredUid).get();
+    const u = rs.exists ? rs.data() : {};
+    return { ...r, name:clean(u.name,100)||"Member", email:cleanEmail(u.email) };
+  }));
+  return {code,link:`${process.env.PUBLIC_BASE_URL || ""}/auth.html?ref=${encodeURIComponent(code)}`,count:users.length,users};
+}
 async function geminiGenerate(contents, systemInstruction) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("Gemini API is not configured on the server.");
@@ -301,17 +332,24 @@ app.get("/api/public/data", async (req,res)=>{
 // User authentication
 app.post("/api/auth/signup", async (req,res)=>{
   try {
-    const name=clean(req.body.name,100), email=cleanEmail(req.body.email), password=String(req.body.password||"");
+    const name=clean(req.body.name,100), email=cleanEmail(req.body.email), password=String(req.body.password||""), referralCode=clean(req.body.referralCode,40).toUpperCase();
     if(name.length<2) return res.status(400).json({error:"Name is required."});
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({error:"Enter a valid email."});
     if(password.length<6) return res.status(400).json({error:"Password must be at least 6 characters."});
     const existing=await db.collection("users").where("email","==",email).limit(1).get();
     if(!existing.empty) return res.status(409).json({error:"An account with this email already exists."});
+    let referrer=null;
+    if(referralCode){
+      const rs=await db.collection("users").where("referralCode","==",referralCode).limit(1).get();
+      if(!rs.empty) referrer={id:rs.docs[0].id,...rs.docs[0].data()};
+    }
     const ref=db.collection("users").doc();
-    await ref.set({name,email,passwordHash:await hashPassword(password),active:true,upiId:"",phone:"",createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
+    const newReferralCode=await createReferralCode();
+    await ref.set({name,email,passwordHash:await hashPassword(password),active:true,upiId:"",phone:"",referralCode:newReferralCode,referredBy:referrer?.id||"",createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
     await db.collection("wallets").doc(ref.id).set({uid:ref.id,balance:0,updatedAt:FieldValue.serverTimestamp()});
+    if(referrer) await db.collection("referrals").doc(ref.id).set({referrerUid:referrer.id,referredUid:ref.id,referralCode,createdAt:FieldValue.serverTimestamp(),status:"joined"});
     setCookie(res,SESSION_COOKIE,createToken("user",ref.id,168,SESSION_SECRET),7*24*60*60);
-    res.json({ok:true,user:{id:ref.id,name,email,balance:0}});
+    res.json({ok:true,user:{id:ref.id,name,email,balance:0,referralCode:newReferralCode}});
   } catch(e){res.status(500).json({error:e.message||"Unable to create account."});}
 });
 app.post("/api/auth/login", async (req,res)=>{
@@ -325,7 +363,7 @@ app.post("/api/auth/login", async (req,res)=>{
   } catch(e){res.status(500).json({error:e.message||"Login failed."});}
 });
 app.post("/api/auth/logout",(req,res)=>{clearCookie(res,SESSION_COOKIE);res.json({ok:true});});
-app.get("/api/auth/me",async(req,res)=>{try{const u=await currentUser(req);if(!u)return res.json({authenticated:false});res.json({authenticated:true,user:sanitizeUser(u),balance:await getWallet(u.id)});}catch(e){res.status(500).json({error:e.message});}});
+app.get("/api/auth/me",async(req,res)=>{try{const u=await currentUser(req);if(!u)return res.json({authenticated:false});const referralCode=await ensureReferralCode(u.id);const safe=sanitizeUser({...u,referralCode});res.json({authenticated:true,user:safe,balance:await getWallet(u.id)});}catch(e){res.status(500).json({error:e.message});}});
 
 // User dashboard/profile
 app.get("/api/user/dashboard",guardUser,async(req,res)=>{try{res.json(await userDashboard(req.user.id));}catch(e){res.status(500).json({error:e.message||"Unable to load dashboard."});}});
@@ -338,6 +376,7 @@ app.post("/api/user/profile",guardUser,async(req,res)=>{
   } catch(e){res.status(500).json({error:e.message||"Unable to save profile."});}
 });
 app.get("/api/user/transactions",guardUser,async(req,res)=>{try{await settleEarnings(req.user.id);const snap=await db.collection("transactions").where("uid","==",req.user.id).get();res.json({transactions:snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>dateMs(b.createdAt)-dateMs(a.createdAt)).slice(0,300)});}catch(e){res.status(500).json({error:e.message});}});
+app.get("/api/user/referrals",guardUser,async(req,res)=>{try{res.json(await getReferralInfo(req.user.id));}catch(e){res.status(500).json({error:e.message||"Unable to load referrals."});}});
 
 // Wallet / Razorpay deposits
 app.post("/api/wallet/create-order",guardUser,async(req,res)=>{
@@ -432,14 +471,14 @@ app.get("/api/admin/me",(req,res)=>res.json({authenticated:isAdmin(req)}));
 
 app.get("/api/admin/data",guardAdmin,async(req,res)=>{
   try {
-    const [settings,chatbot,plans,withdrawals,users,transactions,aiGurus,aiPlans]=await Promise.all([getDoc("settings","main",defaults.settings),getDoc("chatbot","main",defaults.chatbot),listCollection("investmentPlans"),listCollection("withdrawals"),listCollection("users"),listCollection("transactions"),listCollection("aiGurus"),listCollection("aiPlans")]);
+    const [settings,chatbot,plans,withdrawals,users,transactions,aiGurus,aiPlans,referrals]=await Promise.all([getDoc("settings","main",defaults.settings),getDoc("chatbot","main",defaults.chatbot),listCollection("investmentPlans"),listCollection("withdrawals"),listCollection("users"),listCollection("transactions"),listCollection("aiGurus"),listCollection("aiPlans"),listCollection("referrals")]);
     const activePlans=plans.length?plans:defaultInvestmentPlans;
     const paidDeposits=transactions.filter(t=>t.type==="deposit"&&t.status==="completed");
     const pendingW=withdrawals.filter(w=>w.status==="pending");
     const usersWithBalances = await Promise.all(users.map(async u => ({...sanitizeUser(u), balance: await getWallet(u.id)})));
-    const stats={users:users.length,depositTotal:paidDeposits.reduce((s,x)=>s+money(x.amount),0),pendingWithdrawals:pendingW.reduce((s,x)=>s+money(x.amount),0),pendingWithdrawalCount:pendingW.length,activePlans:activePlans.filter(x=>x.active!==false).length};
+    const stats={users:users.length,depositTotal:paidDeposits.reduce((s,x)=>s+money(x.amount),0),pendingWithdrawals:pendingW.reduce((s,x)=>s+money(x.amount),0),pendingWithdrawalCount:pendingW.length,activePlans:activePlans.filter(x=>x.active!==false).length,referrals:referrals.length};
     res.set("Cache-Control","no-store");
-    res.json(jsonSafe({settings:publicSettings(settings),chatbot,plans:activePlans.sort((a,b)=>num(a.sortOrder)-num(b.sortOrder)),withdrawals:withdrawals.sort((a,b)=>dateMs(b.requestedAt)-dateMs(a.requestedAt)),users:usersWithBalances.sort((a,b)=>dateMs(b.createdAt)-dateMs(a.createdAt)),transactions:transactions.sort((a,b)=>dateMs(b.createdAt)-dateMs(a.createdAt)).slice(0,500),aiGurus:aiGurus.length?aiGurus:defaultAiGurus,aiPlans:aiPlans.length?aiPlans:defaultAiPlans,stats}));
+    res.json(jsonSafe({settings:publicSettings(settings),chatbot,plans:activePlans.sort((a,b)=>num(a.sortOrder)-num(b.sortOrder)),withdrawals:withdrawals.sort((a,b)=>dateMs(b.requestedAt)-dateMs(a.requestedAt)),users:usersWithBalances.sort((a,b)=>dateMs(b.createdAt)-dateMs(a.createdAt)),transactions:transactions.sort((a,b)=>dateMs(b.createdAt)-dateMs(a.createdAt)).slice(0,500),referrals:referrals.sort((a,b)=>dateMs(b.createdAt)-dateMs(a.createdAt)),aiGurus:aiGurus.length?aiGurus:defaultAiGurus,aiPlans:aiPlans.length?aiPlans:defaultAiPlans,stats}));
   } catch(e){res.status(500).json({error:e.message||"Unable to load admin data."});}
 });
 app.post("/api/admin/settings",guardAdmin,async(req,res)=>{
