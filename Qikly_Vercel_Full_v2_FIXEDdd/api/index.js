@@ -345,7 +345,7 @@ app.post("/api/auth/signup", async (req,res)=>{
     }
     const ref=db.collection("users").doc();
     const newReferralCode=await createReferralCode();
-    await ref.set({name,email,passwordHash:await hashPassword(password),active:true,upiId:"",phone:"",referralCode:newReferralCode,referredBy:referrer?.id||"",createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
+    await ref.set({name,email,passwordHash:await hashPassword(password),active:true,upiId:"",phone:"",profileImage:"",referralCode:newReferralCode,referredBy:referrer?.id||"",createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
     await db.collection("wallets").doc(ref.id).set({uid:ref.id,balance:0,updatedAt:FieldValue.serverTimestamp()});
     if(referrer) await db.collection("referrals").doc(ref.id).set({referrerUid:referrer.id,referredUid:ref.id,referralCode,createdAt:FieldValue.serverTimestamp(),status:"joined"});
     setCookie(res,SESSION_COOKIE,createToken("user",ref.id,168,SESSION_SECRET),7*24*60*60);
@@ -369,14 +369,47 @@ app.get("/api/auth/me",async(req,res)=>{try{const u=await currentUser(req);if(!u
 app.get("/api/user/dashboard",guardUser,async(req,res)=>{try{res.json(await userDashboard(req.user.id));}catch(e){res.status(500).json({error:e.message||"Unable to load dashboard."});}});
 app.post("/api/user/profile",guardUser,async(req,res)=>{
   try {
-    const patch={name:clean(req.body.name,100),phone:clean(req.body.phone,30),upiId:clean(req.body.upiId,120),updatedAt:FieldValue.serverTimestamp()};
-    if(patch.name.length<2) return res.status(400).json({error:"Name is required."});
+    const currentSnap=await db.collection("users").doc(req.user.id).get();
+    const current=currentSnap.exists?currentSnap.data():{};
+    const name=clean(req.body.name,100), phone=clean(req.body.phone,30), requestedUpi=clean(req.body.upiId,120);
+    if(name.length<2) return res.status(400).json({error:"Name is required."});
+    const existingUpi=clean(current.upiId,120);
+    if(existingUpi && requestedUpi && requestedUpi!==existingUpi) {
+      return res.status(409).json({error:"UPI ID can only be changed by admin after the first save."});
+    }
+    const upiId=existingUpi||requestedUpi;
+    const patch={name,phone,upiId,updatedAt:FieldValue.serverTimestamp()};
     await db.collection("users").doc(req.user.id).set(patch,{merge:true});
     res.json({ok:true,user:sanitizeUser({...req.user,...patch})});
   } catch(e){res.status(500).json({error:e.message||"Unable to save profile."});}
 });
 app.get("/api/user/transactions",guardUser,async(req,res)=>{try{await settleEarnings(req.user.id);const snap=await db.collection("transactions").where("uid","==",req.user.id).get();res.json({transactions:snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>dateMs(b.createdAt)-dateMs(a.createdAt)).slice(0,300)});}catch(e){res.status(500).json({error:e.message});}});
-app.get("/api/user/referrals",guardUser,async(req,res)=>{try{res.json(await getReferralInfo(req.user.id));}catch(e){res.status(500).json({error:e.message||"Unable to load referrals."});}});
+app.get("/api/user/referrals",guardUser,async(req,res)=>{
+  try{
+    const info=await getReferralInfo(req.user.id);
+    const forwardedProto=String(req.headers["x-forwarded-proto"]||"").split(",")[0].trim();
+    const proto=forwardedProto||req.protocol||"https";
+    const host=String(req.headers["x-forwarded-host"]||req.headers.host||"").split(",")[0].trim();
+    info.link=`${process.env.PUBLIC_BASE_URL||`${proto}://${host}`}/auth.html?ref=${encodeURIComponent(info.code||"")}`;
+    res.json(info);
+  }catch(e){res.status(500).json({error:e.message||"Unable to load referrals."});}
+});
+
+// User profile image upload (ImgBB)
+app.post("/api/user/profile-image",guardUser,async(req,res)=>{
+  try {
+    const key=String(process.env.IMGBB_API_KEY||"").trim(); if(!key)return res.status(503).json({error:"ImgBB API is not configured."});
+    const raw=String(req.body?.image||""); if(!raw)return res.status(400).json({error:"Please select an image first."});
+    const base64=raw.includes(",")?raw.split(",").slice(1).join(","):raw;
+    const bytes=Math.floor((base64.replace(/\s/g,"").length*3)/4); if(bytes>8*1024*1024)return res.status(413).json({error:"Image must be under 8 MB."});
+    const params=new URLSearchParams(); params.set("image",base64.replace(/\s/g,"")); params.set("name",`qikly_profile_${req.user.id}`);
+    const r=await fetch(`https://api.imgbb.com/1/upload?key=${encodeURIComponent(key)}`,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:params});
+    const d=await r.json().catch(()=>({})); if(!r.ok||!d?.success||!d?.data?.url)return res.status(502).json({error:d?.error?.message||"ImgBB upload failed."});
+    const profileImage=d.data.url;
+    await db.collection("users").doc(req.user.id).set({profileImage,updatedAt:FieldValue.serverTimestamp()},{merge:true});
+    res.json({ok:true,profileImage});
+  }catch(e){res.status(500).json({error:e.message||"Unable to upload profile image."});}
+});
 
 // Wallet / Razorpay deposits
 app.post("/api/wallet/create-order",guardUser,async(req,res)=>{
@@ -524,6 +557,15 @@ app.post("/api/admin/withdrawal/action",guardAdmin,async(req,res)=>{
   } catch(e){res.status(400).json({error:e.message||"Unable to process withdrawal."});}
 });
 
+app.post("/api/admin/user/update-upi",guardAdmin,async(req,res)=>{
+  try{
+    const uid=clean(req.body.uid,120), upiId=clean(req.body.upiId,120);
+    if(!uid)return res.status(400).json({error:"User id required."});
+    if(upiId && !/^[^\s@]+@[^\s@]+$/i.test(upiId)) return res.status(400).json({error:"Enter a valid UPI ID."});
+    await db.collection("users").doc(uid).set({upiId,updatedAt:FieldValue.serverTimestamp()},{merge:true});
+    res.json({ok:true,upiId});
+  }catch(e){res.status(500).json({error:e.message||"Unable to update UPI ID."});}
+});
 app.post("/api/admin/user/toggle",guardAdmin,async(req,res)=>{try{const uid=clean(req.body.uid,120),active=req.body.active!==false;if(!uid)return res.status(400).json({error:"User id required."});await db.collection("users").doc(uid).set({active,updatedAt:FieldValue.serverTimestamp()},{merge:true});res.json({ok:true});}catch(e){res.status(500).json({error:e.message});}});
 
 // AI compatibility layer: preserves the old paid AI chat flow.
