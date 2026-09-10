@@ -214,7 +214,55 @@ function jsonSafe(value) {
   if (typeof value === "object") { const out = {}; Object.entries(value).forEach(([k,v]) => { out[k] = jsonSafe(v); }); return out; }
   return value;
 }
+async function ensureWalletBuckets(uid) {
+  const ref = db.collection("wallets").doc(uid);
+  const snap = await ref.get();
+  const data = snap.exists ? snap.data() : {};
+  if (data && Number.isFinite(Number(data.depositBalance)) && Number.isFinite(Number(data.earningsBalance)) && Number.isFinite(Number(data.bonusBalance)) && Number(data.balanceSourceVersion || 0) >= 2) {
+    return { total: money(data.balance), deposit: money(data.depositBalance), earnings: money(data.earningsBalance), bonus: money(data.bonusBalance) };
+  }
+  const txSnap = await db.collection("transactions").where("uid", "==", uid).get();
+  const rows = txSnap.docs.map(d => d.data()).sort((a,b) => dateMs(a.createdAt)-dateMs(b.createdAt));
+  let deposit = 0, earnings = 0, bonus = 0;
+  for (const tx of rows) {
+    const amount = money(tx.amount);
+    const status = String(tx.status || "");
+    if (status === "rejected") continue;
+    if (tx.type === "deposit" && status === "completed") deposit += amount;
+    else if (tx.type === "return" && status === "completed") earnings += amount;
+    else if (tx.type === "referral_bonus" && status === "completed") bonus += amount;
+    else if (tx.type === "admin_adjustment" && status === "completed") {
+      if (amount >= 0) deposit += amount;
+      else {
+        let need = Math.abs(amount);
+        const a=Math.min(deposit,need); deposit-=a; need-=a;
+        const b=Math.min(bonus,need); bonus-=b; need-=b;
+        const c=Math.min(earnings,need); earnings-=c; need-=c;
+      }
+    } else if (tx.type === "investment" && amount < 0 && status === "completed") {
+      let need = Math.abs(amount);
+      const a=Math.min(deposit,need); deposit-=a; need-=a;
+      const b=Math.min(bonus,need); bonus-=b; need-=b;
+      const c=Math.min(earnings,need); earnings-=c; need-=c;
+    } else if (tx.type === "withdrawal" && status !== "rejected") {
+      earnings = Math.max(0, earnings - Math.abs(amount));
+    }
+  }
+  const currentTotal = money(snap.exists ? data.balance : (deposit + earnings + bonus));
+  const diff = money(currentTotal - money(deposit + earnings + bonus));
+  if (diff > 0) deposit += diff;
+  else if (diff < 0) {
+    let need=Math.abs(diff);
+    const a=Math.min(earnings,need); earnings-=a; need-=a;
+    const b=Math.min(bonus,need); bonus-=b; need-=b;
+    deposit=Math.max(0,deposit-need);
+  }
+  await ref.set({uid,balance:money(currentTotal),depositBalance:money(deposit),earningsBalance:money(earnings),bonusBalance:money(bonus),balanceSourceVersion:2,updatedAt:FieldValue.serverTimestamp()},{merge:true});
+  return { total:money(currentTotal), deposit:money(deposit), earnings:money(earnings), bonus:money(bonus) };
+}
+
 async function settleEarnings(uid) {
+  await ensureWalletBuckets(uid);
   const invSnap = await db.collection("investments").where("uid", "==", uid).get();
   const walletRef = db.collection("wallets").doc(uid);
   let totalCredit = 0;
@@ -239,27 +287,34 @@ async function settleEarnings(uid) {
   if (!totalCredit && !updates.some(x=>x.complete)) return 0;
   await db.runTransaction(async tx => {
     const walletSnap = await tx.get(walletRef);
-    const currentBalance = money(walletSnap.exists ? walletSnap.data().balance : 0);
-    if (totalCredit) tx.set(walletRef, { uid, balance: currentBalance + totalCredit, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-    updates.forEach(u => {
-      const patch = {};
-      if (u.deltaDays) patch.creditedDays = admin.firestore.FieldValue.increment(u.deltaDays);
-      if (u.complete) { patch.status = "completed"; patch.completedAt = FieldValue.serverTimestamp(); }
-      if (Object.keys(patch).length) tx.set(u.ref, patch, { merge: true });
+    const wallet = walletSnap.exists ? walletSnap.data() : {};
+    const currentBalance = money(wallet.balance);
+    const currentEarnings = money(wallet.earningsBalance);
+    if (totalCredit) tx.set(walletRef,{uid,balance:currentBalance+totalCredit,earningsBalance:currentEarnings+totalCredit,depositBalance:money(wallet.depositBalance),bonusBalance:money(wallet.bonusBalance),balanceSourceVersion:2,updatedAt:FieldValue.serverTimestamp()},{merge:true});
+    updates.forEach(u=>{
+      const patch={};
+      if(u.deltaDays) patch.creditedDays=admin.firestore.FieldValue.increment(u.deltaDays);
+      if(u.complete){patch.status="completed";patch.completedAt=FieldValue.serverTimestamp();}
+      if(Object.keys(patch).length)tx.set(u.ref,patch,{merge:true});
     });
   });
-  if (totalCredit) {
-    const batch = db.batch();
-    updates.filter(x=>x.credit>0).forEach(u => batch.set(db.collection("transactions").doc(), {
-      uid, type: "return", amount: u.credit, status: "completed", title: "Daily plan credit", description: `Plan earnings credited (${u.deltaDays} day${u.deltaDays>1?'s':''}).`, referenceId: u.ref.id, createdAt: FieldValue.serverTimestamp()
-    }));
+  if(totalCredit){
+    const batch=db.batch();
+    updates.filter(x=>x.credit>0).forEach(u=>batch.set(db.collection("transactions").doc(),{uid,type:"return",amount:u.credit,status:"completed",title:"Daily plan credit",description:`Plan earnings credited (${u.deltaDays} day${u.deltaDays>1?'s':''}).`,referenceId:u.ref.id,createdAt:FieldValue.serverTimestamp(),source:"plan_earnings"}));
     await batch.commit();
   }
   return totalCredit;
 }
-async function getWallet(uid) {
+
+async function getWalletBreakdown(uid) {
+  await ensureWalletBuckets(uid);
   const snap = await db.collection("wallets").doc(uid).get();
-  return money(snap.exists ? snap.data().balance : 0);
+  const data = snap.exists ? snap.data() : {};
+  return { total: money(data.balance), deposit: money(data.depositBalance), earnings: money(data.earningsBalance), bonus: money(data.bonusBalance), withdrawable: money(data.earningsBalance) };
+}
+async function getWallet(uid) {
+  const b = await getWalletBreakdown(uid);
+  return b.total;
 }
 async function userDashboard(uid) {
   await settleEarnings(uid);
@@ -274,7 +329,8 @@ async function userDashboard(uid) {
   const investments = invSnap.docs.map(d => jsonSafe({ id: d.id, ...d.data() })).sort((a,b)=>dateMs(b.startAt)-dateMs(a.startAt));
   const transactions = txSnap.docs.map(d => jsonSafe({ id:d.id, ...d.data() })).sort((a,b)=>dateMs(b.createdAt)-dateMs(a.createdAt)).slice(0,200);
   const referral = await getReferralInfo(uid);
-  return jsonSafe({ user: sanitizeUser({...user,referralCode:referral.code}), wallet: money(walletSnap.exists ? walletSnap.data().balance : 0), investments, transactions, minWithdrawal: Math.max(1, money(savedSettings.minWithdrawal) || MIN_WITHDRAWAL), referral });
+  const wallet = walletSnap.exists ? walletSnap.data() : {};
+  return jsonSafe({ user: sanitizeUser({...user,referralCode:referral.code}), wallet: money(wallet.balance), walletBreakdown: { total: money(wallet.balance), deposit: money(wallet.depositBalance), earnings: money(wallet.earningsBalance), bonus: money(wallet.bonusBalance), withdrawable: money(wallet.earningsBalance) }, investments, transactions, minWithdrawal: Math.max(1, money(savedSettings.minWithdrawal) || MIN_WITHDRAWAL), referral });
 }
 function sanitizeUser(user) { const { passwordHash, ...safe } = user || {}; return safe; }
 
@@ -347,7 +403,7 @@ app.post("/api/auth/signup", async (req,res)=>{
     const ref=db.collection("users").doc();
     const newReferralCode=await createReferralCode();
     await ref.set({name,email,passwordHash:await hashPassword(password),active:true,upiId:"",phone:"",profileImage:"",referralCode:newReferralCode,referredBy:referrer?.id||"",createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
-    await db.collection("wallets").doc(ref.id).set({uid:ref.id,balance:0,updatedAt:FieldValue.serverTimestamp()});
+    await db.collection("wallets").doc(ref.id).set({uid:ref.id,balance:0,depositBalance:0,earningsBalance:0,bonusBalance:0,balanceSourceVersion:2,updatedAt:FieldValue.serverTimestamp()});
     if(referrer) await db.collection("referrals").doc(ref.id).set({referrerUid:referrer.id,referredUid:ref.id,referralCode,createdAt:FieldValue.serverTimestamp(),status:"joined"});
     setCookie(res,SESSION_COOKIE,createToken("user",ref.id,168,SESSION_SECRET),7*24*60*60);
     res.json({ok:true,user:{id:ref.id,name,email,balance:0,referralCode:newReferralCode}});
@@ -387,11 +443,8 @@ app.post("/api/user/profile",guardUser,async(req,res)=>{
 app.get("/api/user/transactions",guardUser,async(req,res)=>{try{await settleEarnings(req.user.id);const snap=await db.collection("transactions").where("uid","==",req.user.id).get();res.json({transactions:snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>dateMs(b.createdAt)-dateMs(a.createdAt)).slice(0,300)});}catch(e){res.status(500).json({error:e.message});}});
 app.get("/api/user/referrals",guardUser,async(req,res)=>{
   try{
-    const info=await getReferralInfo(req.user.id);
-    const forwardedProto=String(req.headers["x-forwarded-proto"]||"").split(",")[0].trim();
-    const proto=forwardedProto||req.protocol||"https";
-    const host=String(req.headers["x-forwarded-host"]||req.headers.host||"").split(",")[0].trim();
-    info.link=`${process.env.PUBLIC_BASE_URL||`${proto}://${host}`}/auth.html?ref=${encodeURIComponent(info.code||"")}`;
+    const [info, settings] = await Promise.all([getReferralInfo(req.user.id), getDoc("settings","main",defaults.settings)]);
+    info.rewardAmount = Math.max(0, money(settings.referralReward));
     res.json(info);
   }catch(e){res.status(500).json({error:e.message||"Unable to load referrals."});}
 });
@@ -423,6 +476,7 @@ app.post("/api/wallet/create-order",guardUser,async(req,res)=>{
 });
 app.post("/api/wallet/verify-payment",guardUser,async(req,res)=>{
   try {
+    await ensureWalletBuckets(req.user.id);
     const {razorpay_order_id,razorpay_payment_id,razorpay_signature}=req.body||{};
     if(!razorpay_order_id||!razorpay_payment_id||!razorpay_signature)return res.status(400).json({error:"Incomplete Razorpay response."});
     const expected=crypto.createHmac("sha256",process.env.RAZORPAY_KEY_SECRET).update(`${razorpay_order_id}|${razorpay_payment_id}`).digest("hex");
@@ -435,8 +489,9 @@ app.post("/api/wallet/verify-payment",guardUser,async(req,res)=>{
     if(tx.status!=="completed"){
       await db.runTransaction(async t=>{
         const tr=await t.get(ref); if(tr.data()?.status==="completed")return;
-        const walletRef=db.collection("wallets").doc(req.user.id), ws=await t.get(walletRef), bal=money(ws.exists?ws.data().balance:0);
-        t.set(walletRef,{uid:req.user.id,balance:bal+money(tx.amount),updatedAt:FieldValue.serverTimestamp()},{merge:true});
+        const walletRef=db.collection("wallets").doc(req.user.id), ws=await t.get(walletRef), wd=ws.exists?ws.data():{};
+        const bal=money(wd.balance), deposit=money(wd.depositBalance);
+        t.set(walletRef,{uid:req.user.id,balance:bal+money(tx.amount),depositBalance:deposit+money(tx.amount),earningsBalance:money(wd.earningsBalance),bonusBalance:money(wd.bonusBalance),balanceSourceVersion:2,updatedAt:FieldValue.serverTimestamp()},{merge:true});
         t.set(ref,{status:"completed",paymentId:razorpay_payment_id,verifiedAt:FieldValue.serverTimestamp()},{merge:true});
       });
     }
@@ -455,11 +510,13 @@ app.post("/api/investments/buy",guardUser,async(req,res)=>{
     const referralReward=Math.max(0,money(settings.referralReward));
     const referralSnap=await db.collection("referrals").where("referredUid","==",req.user.id).limit(1).get();
     const referralRef=referralSnap.empty?null:referralSnap.docs[0].ref;
+    if(referralRef){const referralSeed=await referralRef.get();const referrerUid=referralSeed.exists?referralSeed.data().referrerUid:"";if(referrerUid)await ensureWalletBuckets(referrerUid);}
     const ref=db.collection("investments").doc();
     await db.runTransaction(async t=>{
       const walletRef=db.collection("wallets").doc(req.user.id);
       const ws=await t.get(walletRef);
-      const bal=money(ws.exists?ws.data().balance:0);
+      const wd=ws.exists?ws.data():{};
+      const bal=money(wd.balance), deposit=money(wd.depositBalance), bonus=money(wd.bonusBalance), earnings=money(wd.earningsBalance);
       if(bal<amount) throw new Error(`Insufficient balance. Add ${money(amount-bal).toLocaleString("en-IN")} more.`);
 
       const referralState=referralRef?await t.get(referralRef):null;
@@ -475,13 +532,19 @@ app.post("/api/investments/buy",guardUser,async(req,res)=>{
       }
 
       const start=new Date(), end=new Date(start.getTime()+money(plan.days)*DAY_MS);
-      t.set(walletRef,{uid:req.user.id,balance:bal-amount,updatedAt:FieldValue.serverTimestamp()},{merge:true});
+      let needToSpend=amount;
+      const spendDeposit=Math.min(deposit,needToSpend); needToSpend-=spendDeposit;
+      const spendBonus=Math.min(bonus,needToSpend); needToSpend-=spendBonus;
+      const spendEarnings=Math.min(earnings,needToSpend); needToSpend-=spendEarnings;
+      if(needToSpend>0) throw new Error("Insufficient balance.");
+      t.set(walletRef,{uid:req.user.id,balance:bal-amount,depositBalance:deposit-spendDeposit,bonusBalance:bonus-spendBonus,earningsBalance:earnings-spendEarnings,balanceSourceVersion:2,updatedAt:FieldValue.serverTimestamp()},{merge:true});
       t.set(ref,{uid:req.user.id,planId:plan.id,planTitle:clean(plan.title,160),amount,days:money(plan.days),dailyIncrease:money(plan.dailyIncrease),startAt:start,endAt:end,creditedDays:0,status:"active",createdAt:FieldValue.serverTimestamp()});
       t.set(db.collection("transactions").doc(),{uid:req.user.id,type:"investment",amount:-amount,status:"completed",title:`Plan activated: ${clean(plan.title,160)}`,description:`${money(plan.days)} day plan`,referenceId:ref.id,createdAt:FieldValue.serverTimestamp()});
 
       if(shouldProcessFirstPlan && referralData.referrerUid){
-        const currentReferrerBalance=money(referrerWalletSnap?.exists?referrerWalletSnap.data().balance:0);
-        t.set(referrerWalletRef,{uid:referralData.referrerUid,balance:currentReferrerBalance+reward,updatedAt:FieldValue.serverTimestamp()},{merge:true});
+        const referrerWalletData=referrerWalletSnap?.exists?referrerWalletSnap.data():{};
+        const currentReferrerBalance=money(referrerWalletData.balance), currentBonus=money(referrerWalletData.bonusBalance);
+        t.set(referrerWalletRef,{uid:referralData.referrerUid,balance:currentReferrerBalance+reward,bonusBalance:currentBonus+reward,depositBalance:money(referrerWalletData.depositBalance),earningsBalance:money(referrerWalletData.earningsBalance),balanceSourceVersion:2,updatedAt:FieldValue.serverTimestamp()},{merge:true});
         t.set(referralRef,{firstPlanPurchasedAt:FieldValue.serverTimestamp(),rewardPaid:true,rewardAmount:reward,rewardPaidAt:FieldValue.serverTimestamp(),status:reward>0?"rewarded":"qualified"},{merge:true});
         if(reward>0){
           t.set(db.collection("transactions").doc(),{uid:referralData.referrerUid,type:"referral_bonus",amount:reward,status:"completed",title:"Referral plan bonus",description:`One-time bonus for ${clean(req.user.name,100)||"a referred user"}'s first plan purchase.`,referenceId:ref.id,createdAt:FieldValue.serverTimestamp()});
@@ -502,14 +565,14 @@ app.post("/api/withdrawals",guardUser,async(req,res)=>{
     const amount=money(req.body.amount); await settleEarnings(req.user.id);
     if(amount<minWithdrawal)return res.status(400).json({error:`Minimum withdrawal is ₹${minWithdrawal}.`});
     const userSnap=await db.collection("users").doc(req.user.id).get(), user=userSnap.data()||{};
-    const upiId=clean(req.body.upiId||user.upiId,120); if(!upiId)return res.status(400).json({error:"Add a UPI ID in your profile first."});
+    const upiId=clean(user.upiId,120); if(!upiId)return res.status(400).json({error:"Add a UPI ID in your profile first."});
     const withdrawalRef=db.collection("withdrawals").doc(), txRef=db.collection("transactions").doc();
     await db.runTransaction(async t=>{
-      const walletRef=db.collection("wallets").doc(req.user.id), ws=await t.get(walletRef), bal=money(ws.exists?ws.data().balance:0);
-      if(bal<amount)throw new Error("Insufficient available balance.");
-      t.set(walletRef,{uid:req.user.id,balance:bal-amount,updatedAt:FieldValue.serverTimestamp()},{merge:true});
-      t.set(withdrawalRef,{uid:req.user.id,amount,upiId,status:"pending",requestedAt:FieldValue.serverTimestamp(),processedAt:null});
-      t.set(txRef,{uid:req.user.id,type:"withdrawal",amount:-amount,status:"pending",title:"Withdrawal request",description:`Requested to ${upiId}`,referenceId:withdrawalRef.id,createdAt:FieldValue.serverTimestamp()});
+      const walletRef=db.collection("wallets").doc(req.user.id), ws=await t.get(walletRef), wd=ws.exists?ws.data():{}, earnings=money(wd.earningsBalance), bal=money(wd.balance);
+      if(earnings<amount)throw new Error(`Only plan earnings can be withdrawn. Withdrawable earnings: ${money(earnings)}.`);
+      t.set(walletRef,{uid:req.user.id,balance:bal-amount,earningsBalance:earnings-amount,depositBalance:money(wd.depositBalance),bonusBalance:money(wd.bonusBalance),balanceSourceVersion:2,updatedAt:FieldValue.serverTimestamp()},{merge:true});
+      t.set(withdrawalRef,{uid:req.user.id,amount,upiId,status:"pending",requestedAt:FieldValue.serverTimestamp(),processedAt:null,source:"plan_earnings"});
+      t.set(txRef,{uid:req.user.id,type:"withdrawal",amount:-amount,status:"pending",title:"Withdrawal request",description:`Requested to ${upiId} from plan earnings`,referenceId:withdrawalRef.id,createdAt:FieldValue.serverTimestamp(),source:"plan_earnings"});
     });
     res.json({ok:true,message:"Withdrawal request submitted for admin review.",balance:await getWallet(req.user.id)});
   } catch(e){res.status(400).json({error:e.message||"Unable to create withdrawal request."});}
@@ -570,7 +633,7 @@ app.post("/api/admin/upload-image",guardAdmin,async(req,res)=>{
 app.post("/api/admin/plan",guardAdmin,async(req,res)=>{try{const id=clean(req.body.id,80)||`plan_${Date.now()}`;const payload={title:clean(req.body.title,160),amount:money(req.body.amount),days:money(req.body.days),dailyIncrease:money(req.body.dailyIncrease),imageUrl:clean(req.body.imageUrl,1200),description:clean(req.body.description,1200),active:req.body.active!==false,sortOrder:money(req.body.sortOrder)||Date.now(),updatedAt:FieldValue.serverTimestamp()};if(!payload.title||!payload.amount||!payload.days||!payload.dailyIncrease||!/^(https?:\/\/)/i.test(payload.imageUrl))return res.status(400).json({error:"Title, amount, days, daily credit and HTTPS image URL are required."});await db.collection("investmentPlans").doc(id).set(payload,{merge:true});res.json({ok:true});}catch(e){res.status(500).json({error:e.message||"Unable to save plan."});}});
 app.post("/api/admin/delete-plan",guardAdmin,async(req,res)=>{try{const id=clean(req.body.id,80);if(!id)return res.status(400).json({error:"Plan id required."});await db.collection("investmentPlans").doc(id).delete();res.json({ok:true});}catch(e){res.status(500).json({error:e.message});}});
 
-app.post("/api/admin/user/adjust-balance",guardAdmin,async(req,res)=>{try{const uid=clean(req.body.uid,120),delta=money(req.body.amount),direction=String(req.body.direction||"add")==="subtract"?"subtract":"add";if(!uid||delta<=0)return res.status(400).json({error:"Valid user and amount required."});const signed=direction==="add"?delta:-delta;await db.runTransaction(async t=>{const wr=db.collection("wallets").doc(uid),ws=await t.get(wr),bal=money(ws.exists?ws.data().balance:0);if(bal+signed<0)throw new Error("Balance cannot go below zero.");t.set(wr,{uid,balance:bal+signed,updatedAt:FieldValue.serverTimestamp()},{merge:true});t.set(db.collection("transactions").doc(),{uid,type:"admin_adjustment",amount:signed,status:"completed",title:direction==="add"?"Admin balance credit":"Admin balance debit",description:"Manual wallet adjustment by admin.",createdAt:FieldValue.serverTimestamp()});});res.json({ok:true,balance:await getWallet(uid)});}catch(e){res.status(400).json({error:e.message||"Unable to adjust balance."});}});
+app.post("/api/admin/user/adjust-balance",guardAdmin,async(req,res)=>{try{const uid=clean(req.body.uid,120),delta=money(req.body.amount),direction=String(req.body.direction||"add")==="subtract"?"subtract":"add";if(!uid||delta<=0)return res.status(400).json({error:"Valid user and amount required."});await ensureWalletBuckets(uid);const signed=direction==="add"?delta:-delta;await db.runTransaction(async t=>{const wr=db.collection("wallets").doc(uid),ws=await t.get(wr),wd=ws.exists?ws.data():{},bal=money(wd.balance),deposit=money(wd.depositBalance),bonus=money(wd.bonusBalance),earnings=money(wd.earningsBalance);if(bal+signed<0)throw new Error("Balance cannot go below zero.");let nd=deposit,nb=bonus,ne=earnings;if(signed>=0)nd+=signed;else{let need=-signed;const a=Math.min(nd,need);nd-=a;need-=a;const b=Math.min(nb,need);nb-=b;need-=b;const c=Math.min(ne,need);ne-=c;need-=c;if(need>0)throw new Error("Not enough balance to subtract that amount.");}t.set(wr,{uid,balance:bal+signed,depositBalance:nd,bonusBalance:nb,earningsBalance:ne,balanceSourceVersion:2,updatedAt:FieldValue.serverTimestamp()},{merge:true});t.set(db.collection("transactions").doc(),{uid,type:"admin_adjustment",amount:signed,status:"completed",title:direction==="add"?"Admin balance credit":"Admin balance debit",description:"Manual wallet adjustment by admin (principal-safe).",createdAt:FieldValue.serverTimestamp()});});res.json({ok:true,balance:await getWallet(uid)});}catch(e){res.status(400).json({error:e.message||"Unable to adjust balance."});}});
 
 app.post("/api/admin/withdrawal/action",guardAdmin,async(req,res)=>{
   try {
@@ -582,7 +645,7 @@ app.post("/api/admin/withdrawal/action",guardAdmin,async(req,res)=>{
       if(txSnap.empty)throw new Error("Linked transaction not found.");
       const txRef=txSnap.docs[0].ref;
       if(action==="approve") { t.set(ref,{status:"approved",processedAt:FieldValue.serverTimestamp()},{merge:true});t.set(txRef,{status:"completed",description:`Admin approved payout to ${w.upiId}`},{merge:true}); }
-      else { const wr=db.collection("wallets").doc(w.uid),wallet=await t.get(wr),bal=money(wallet.exists?wallet.data().balance:0);t.set(wr,{uid:w.uid,balance:bal+money(w.amount),updatedAt:FieldValue.serverTimestamp()},{merge:true});t.set(ref,{status:"rejected",processedAt:FieldValue.serverTimestamp()},{merge:true});t.set(txRef,{status:"rejected",description:"Withdrawal rejected; amount returned to wallet."},{merge:true}); }
+      else { const wr=db.collection("wallets").doc(w.uid),wallet=await t.get(wr),wd=wallet.exists?wallet.data():{},bal=money(wd.balance),earnings=money(wd.earningsBalance);t.set(wr,{uid:w.uid,balance:bal+money(w.amount),earningsBalance:earnings+money(w.amount),depositBalance:money(wd.depositBalance),bonusBalance:money(wd.bonusBalance),balanceSourceVersion:2,updatedAt:FieldValue.serverTimestamp()},{merge:true});t.set(ref,{status:"rejected",processedAt:FieldValue.serverTimestamp()},{merge:true});t.set(txRef,{status:"rejected",description:"Withdrawal rejected; amount returned to plan-earnings balance."},{merge:true}); }
     });
     res.json({ok:true});
   } catch(e){res.status(400).json({error:e.message||"Unable to process withdrawal."});}
