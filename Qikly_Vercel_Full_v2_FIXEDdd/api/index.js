@@ -46,6 +46,7 @@ const defaults = {
     riskDisclosure: "Investment involves risk. Displayed daily credit values are administrator-configured and should not be presented as guaranteed returns. Verify the business, applicable licenses, tax treatment and regulatory requirements before accepting real money.",
     supportEmail: "support@example.com",
     minWithdrawal: MIN_WITHDRAWAL,
+    referralReward: 0,
     currency: "INR",
     theme: {
       primary: "#7c3aed",
@@ -450,16 +451,46 @@ app.post("/api/investments/buy",guardUser,async(req,res)=>{
     if(!plan)return res.status(404).json({error:"Plan not found."});
     const amount=money(plan.amount); if(amount<=0||money(plan.days)<=0||money(plan.dailyIncrease)<=0)return res.status(400).json({error:"This plan is not configured correctly."});
     await settleEarnings(req.user.id);
+    const settings=await getDoc("settings","main",defaults.settings);
+    const referralReward=Math.max(0,money(settings.referralReward));
+    const referralSnap=await db.collection("referrals").where("referredUid","==",req.user.id).limit(1).get();
+    const referralRef=referralSnap.empty?null:referralSnap.docs[0].ref;
     const ref=db.collection("investments").doc();
     await db.runTransaction(async t=>{
-      const walletRef=db.collection("wallets").doc(req.user.id), ws=await t.get(walletRef), bal=money(ws.exists?ws.data().balance:0);
+      const walletRef=db.collection("wallets").doc(req.user.id);
+      const ws=await t.get(walletRef);
+      const bal=money(ws.exists?ws.data().balance:0);
       if(bal<amount) throw new Error(`Insufficient balance. Add ${money(amount-bal).toLocaleString("en-IN")} more.`);
+
+      const referralState=referralRef?await t.get(referralRef):null;
+      const referralData=referralState?.exists?referralState.data():null;
+      let referrerWalletRef=null, referrerWalletSnap=null, reward=0;
+      const shouldProcessFirstPlan=!!referralData && !referralData.firstPlanPurchasedAt;
+      if(shouldProcessFirstPlan){
+        reward=referralReward;
+        if(referralData.referrerUid){
+          referrerWalletRef=db.collection("wallets").doc(referralData.referrerUid);
+          referrerWalletSnap=await t.get(referrerWalletRef);
+        }
+      }
+
       const start=new Date(), end=new Date(start.getTime()+money(plan.days)*DAY_MS);
       t.set(walletRef,{uid:req.user.id,balance:bal-amount,updatedAt:FieldValue.serverTimestamp()},{merge:true});
       t.set(ref,{uid:req.user.id,planId:plan.id,planTitle:clean(plan.title,160),amount,days:money(plan.days),dailyIncrease:money(plan.dailyIncrease),startAt:start,endAt:end,creditedDays:0,status:"active",createdAt:FieldValue.serverTimestamp()});
       t.set(db.collection("transactions").doc(),{uid:req.user.id,type:"investment",amount:-amount,status:"completed",title:`Plan activated: ${clean(plan.title,160)}`,description:`${money(plan.days)} day plan`,referenceId:ref.id,createdAt:FieldValue.serverTimestamp()});
+
+      if(shouldProcessFirstPlan && referralData.referrerUid){
+        const currentReferrerBalance=money(referrerWalletSnap?.exists?referrerWalletSnap.data().balance:0);
+        t.set(referrerWalletRef,{uid:referralData.referrerUid,balance:currentReferrerBalance+reward,updatedAt:FieldValue.serverTimestamp()},{merge:true});
+        t.set(referralRef,{firstPlanPurchasedAt:FieldValue.serverTimestamp(),rewardPaid:true,rewardAmount:reward,rewardPaidAt:FieldValue.serverTimestamp(),status:reward>0?"rewarded":"qualified"},{merge:true});
+        if(reward>0){
+          t.set(db.collection("transactions").doc(),{uid:referralData.referrerUid,type:"referral_bonus",amount:reward,status:"completed",title:"Referral plan bonus",description:`One-time bonus for ${clean(req.user.name,100)||"a referred user"}'s first plan purchase.`,referenceId:ref.id,createdAt:FieldValue.serverTimestamp()});
+        }
+      } else if(referralData && !referralData.firstPlanPurchasedAt){
+        t.set(referralRef,{firstPlanPurchasedAt:FieldValue.serverTimestamp(),rewardPaid:true,rewardAmount:0,status:"qualified"},{merge:true});
+      }
     });
-    res.json({ok:true,balance:await getWallet(req.user.id)});
+    res.json({ok:true,balance:await getWallet(req.user.id),referralBonus:referralReward});
   } catch(e){res.status(400).json({error:e.message||"Unable to activate plan."});}
 });
 
@@ -517,7 +548,7 @@ app.get("/api/admin/data",guardAdmin,async(req,res)=>{
 app.post("/api/admin/settings",guardAdmin,async(req,res)=>{
   try {
     const b=req.body||{},theme=b.theme||{};
-    const payload={siteName:clean(b.siteName,120)||defaults.settings.siteName,tagline:clean(b.tagline,240),heroTitle:clean(b.heroTitle,240),heroText:clean(b.heroText,1800),marqueeText:clean(b.marqueeText,700),about:clean(b.about,6000),terms:clean(b.terms,8000),privacy:clean(b.privacy,8000),refund:clean(b.refund,8000),riskDisclosure:clean(b.riskDisclosure,2500),supportEmail:cleanEmail(b.supportEmail),minWithdrawal:Math.max(1,money(b.minWithdrawal)||MIN_WITHDRAWAL),currency:"INR",theme:{primary:cleanHex(theme.primary,defaults.settings.theme.primary),secondary:cleanHex(theme.secondary,defaults.settings.theme.secondary),background:cleanHex(theme.background,defaults.settings.theme.background),surface:cleanHex(theme.surface,defaults.settings.theme.surface),text:cleanHex(theme.text,defaults.settings.theme.text),muted:cleanHex(theme.muted,defaults.settings.theme.muted),accent:cleanHex(theme.accent,defaults.settings.theme.accent)}};
+    const payload={siteName:clean(b.siteName,120)||defaults.settings.siteName,tagline:clean(b.tagline,240),heroTitle:clean(b.heroTitle,240),heroText:clean(b.heroText,1800),marqueeText:clean(b.marqueeText,700),about:clean(b.about,6000),terms:clean(b.terms,8000),privacy:clean(b.privacy,8000),refund:clean(b.refund,8000),riskDisclosure:clean(b.riskDisclosure,2500),supportEmail:cleanEmail(b.supportEmail),minWithdrawal:Math.max(1,money(b.minWithdrawal)||MIN_WITHDRAWAL),referralReward:Math.max(0,money(b.referralReward)),currency:"INR",theme:{primary:cleanHex(theme.primary,defaults.settings.theme.primary),secondary:cleanHex(theme.secondary,defaults.settings.theme.secondary),background:cleanHex(theme.background,defaults.settings.theme.background),surface:cleanHex(theme.surface,defaults.settings.theme.surface),text:cleanHex(theme.text,defaults.settings.theme.text),muted:cleanHex(theme.muted,defaults.settings.theme.muted),accent:cleanHex(theme.accent,defaults.settings.theme.accent)}};
     await db.collection("settings").doc("main").set(payload,{merge:true});res.json({ok:true});
   } catch(e){res.status(500).json({error:e.message||"Unable to save settings."});}
 });
