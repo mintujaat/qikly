@@ -1,18 +1,51 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#7d0828"><meta name="description" content="Qikly Diwali Mega Sale — electronics, fashion, home, beauty, grocery, kids, sports and more."><title>Qikly — Diwali Mega Sale</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="/style.css"></head>
-<body data-active="home">
-<div data-shell-header></div>
-<main>
-  <section class="hero"><div class="container hero-grid"><div class="hero-copy"><span class="eyebrow">DIWALI MEGA SALE 2026</span><h1>Big savings. <em>Every category.</em></h1><p>From festive fashion to smart gadgets, home essentials, beauty, grocery and gifts — discover everything in one modern storefront.</p><div class="hero-actions"><a class="btn btn-gold" href="#shop">Shop now →</a><a class="btn btn-outline" href="#categories">Browse categories</a></div><div class="hero-proof"><span>✓ Secure checkout</span><span>✓ Fast delivery</span><span>✓ Easy returns</span></div></div><div class="hero-visual"><div class="hero-badge">UP TO 70% OFF</div><img id="heroImage" src="https://images.unsplash.com/photo-1548013146-72479768bada?auto=format&fit=crop&w=1200&q=85" alt="Festive shopping"><div class="hero-spark">✦</div></div></div></section>
-  <section class="trust-strip"><div class="container trust-grid"><div><b>🚚 Fast delivery</b><span>Across India</span></div><div><b>🔒 Secure payments</b><span>Razorpay protected</span></div><div><b>↩️ Easy returns</b><span>As per store policy</span></div><div><b>💬 Smart support</b><span>Gemini-powered AI</span></div></div></section>
-  <section class="container section" id="categories"><div class="section-head"><div><span class="eyebrow">SHOP BY CATEGORY</span><h2>Everything you need</h2></div><a href="#shop" class="section-link">View all →</a></div><div id="categoriesGrid" class="category-grid"></div></section>
-  <section class="deal-section" id="deals"><div class="container"><div class="deal-top"><div><span class="eyebrow light">LIMITED TIME</span><h2>Diwali Flash Deals</h2><p>Handpicked offers with live stock and real sale prices.</p></div><div class="countdown" id="countdown"><strong>00</strong><span>:</span><strong>00</strong><span>:</span><strong>00</strong><span>:</span><strong>00</strong></div></div><div id="dealsGrid" class="product-grid"></div></div></section>
-  <section class="container section"><div id="promoGrid" class="promo-grid"></div></section>
-  <section class="container section" id="shop"><div class="section-head shop-head"><div><span class="eyebrow">SHOP QIKLY</span><h2 id="shopTitle">Trending products</h2><p id="resultLine">Loading products...</p></div><div class="shop-tools"><select id="sortSelect"><option value="popular">Popular</option><option value="price-low">Price: Low to High</option><option value="price-high">Price: High to Low</option><option value="rating">Top Rated</option><option value="new">Newest</option></select><button class="filter-mobile" id="filterToggle">Filters</button></div></div><div class="shop-layout"><aside class="filter-panel" id="filterPanel"><div class="filter-head"><b>Filters</b><button id="closeFilters">×</button></div><label>Category<select id="categoryFilter"><option value="all">All categories</option></select></label><label>Minimum price<input id="minPrice" type="number" min="0" placeholder="₹0"></label><label>Maximum price<input id="maxPrice" type="number" min="0" placeholder="₹50,000"></label><label>Rating<select id="ratingFilter"><option value="0">All ratings</option><option value="4">4★ and up</option><option value="3">3★ and up</option></select></label><label class="check"><input id="stockOnly" type="checkbox"> In stock only</label><button class="btn btn-dark full" id="clearFilters">Clear filters</button></aside><div class="shop-main"><div class="shop-meta"><span id="activeSearch"></span><button id="clearSearch" class="text-btn hidden">Clear search</button></div><div id="productGrid" class="product-grid"></div><div id="emptyState" class="empty-state hidden"><div>🛍️</div><h3>No matching products</h3><p>Try another search or clear the filters.</p><button class="btn btn-dark" id="resetAll">Show all products</button></div></div></div></section>
-  <section class="container section split-banner"><div class="split-copy"><span class="eyebrow">WHY SHOP QIKLY</span><h2>A big-store experience built for fast buying.</h2><p>Search, compare, save, add to cart, choose a delivery address and pay online with the same smooth flow. Cash on Delivery is controlled entirely from the admin panel.</p><div class="feature-pills"><span>Wishlist</span><span>Compare</span><span>Coupons</span><span>Live order tracking</span><span>AI shopping help</span></div></div><div class="split-card"><span>QIKLY AI</span><h3>Tell me what you need.</h3><p>Ask for a gift under ₹2,000, compare headphones, find festive outfits or get alternatives.</p><a class="btn btn-gold" href="/account.html#ai">Ask Qikly AI →</a></div></section>
-  <section class="newsletter"><div class="container newsletter-box"><div><span class="eyebrow">DEALS FIRST</span><h2>Get drops before everyone else</h2><p>Price drops, new arrivals and Diwali offers in your inbox.</p></div><form id="newsletterForm"><input type="email" required placeholder="Your email address"><button class="btn btn-dark">Subscribe</button></form></div></section>
-</main>
-<div data-shell-footer></div><div class="toast" id="toast"></div>
-<script src="/store.js"></script><script src="/home.js"></script>
-</body></html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#74112b">
+<meta name="description" content="Qikly Diwali Fashion Sale — ethnic wear, western wear, men's and kids fashion with festive deals.">
+<title>Qikly — Diwali Fashion Sale</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='25' fill='%2374112b'/%3E%3Ctext x='50' y='68' font-size='60' text-anchor='middle' fill='%23ffd66b'%3EQ%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="sale-bar" id="announcement">🪔 Diwali Fashion Sale • Up to 80% off • Free shipping above ₹999</div>
+<header class="site-header">
+  <div class="header-main container">
+    <button class="icon-btn mobile-only" data-action="menu">☰</button>
+    <a class="brand" href="#home" data-route="home"><span class="brand-mark" id="logoMark">Q</span><span><strong id="siteName">Qikly</strong><small id="siteTagline">Diwali Fashion Edit</small></span></a>
+    <button class="category-btn" data-action="categories">☰ Categories⌄</button>
+    <form class="searchbar" id="searchForm"><span>⌕</span><input id="searchInput" placeholder="Search sarees, kurtas, dresses, shirts…" autocomplete="off"><button>Search</button></form>
+    <div class="header-actions">
+      <button class="head-btn" data-route="wishlist"><span>♡<i id="wishCount">0</i></span><small>Wishlist</small></button>
+      <button class="head-btn" data-action="account"><span>👤</span><small>Account</small></button>
+      <button class="head-btn" data-action="cart"><span>🛍️<i id="cartCount">0</i></span><small>Bag</small></button>
+    </div>
+  </div>
+  <div class="category-nav"><div class="container" id="categoryNav"></div></div>
+  <div class="mega-panel" id="megaPanel"><div class="container" id="megaContent"></div></div>
+</header>
+
+<main id="app" class="container"></main>
+
+<footer class="site-footer">
+  <div class="container footer-grid">
+    <div><a class="brand" href="#home"><span class="brand-mark">Q</span><span><strong id="footerName">Qikly</strong><small>Diwali Fashion Edit</small></span></a><p id="footerText">Festive fashion, everyday style and fast checkout — curated for the Diwali season.</p></div>
+    <div><h4>Shop</h4><a href="#shop">All Fashion</a><a href="#shop?cat=women">Women</a><a href="#shop?cat=men">Men</a><a href="#shop?cat=ethnic">Ethnic Wear</a></div>
+    <div><h4>Help</h4><a href="#account">My Account</a><a href="#orders">Track Orders</a><a href="/terms.html">Terms</a><a href="/privacy.html">Privacy</a></div>
+    <div><h4>Support</h4><p>7 days a week</p><a id="supportEmail" href="mailto:support@qikly.shop">support@qikly.shop</a><button class="footer-chat" data-action="ai">Ask Qikly AI →</button></div>
+  </div>
+  <div class="footer-bottom container"><span>© 2026 Qikly</span><span>Secure checkout • Easy returns</span></div>
+</footer>
+
+<div class="mobile-bottom"><button data-route="home">⌂<small>Home</small></button><button data-route="shop">⌕<small>Shop</small></button><button data-route="wishlist">♡<small>Wishlist</small></button><button data-action="cart">🛍️<small>Bag</small></button><button data-action="account">👤<small>Account</small></button></div>
+
+<div class="overlay hidden" id="overlay"></div>
+<div class="drawer hidden" id="drawer"></div>
+<div class="modal hidden" id="modal"></div>
+<div class="ai-chat hidden" id="aiChat"><div class="ai-head"><div><strong>Qikly AI</strong><small>Style assistant</small></div><button data-action="close-ai">×</button></div><div class="ai-messages" id="aiMessages"></div><form id="aiForm"><input id="aiInput" placeholder="Ask: wedding outfit under ₹2000…"><button>→</button></form></div>
+<div class="toast" id="toast"></div>
+<script src="/app.js"></script>
+</body>
+</html>
