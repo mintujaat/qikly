@@ -7,7 +7,9 @@ This version removes React/Vite/Lucide from the storefront. The customer and adm
 1. Upload the project or connect the repository.
 2. Do not add a build command. The website is already static.
 3. Keep the same environment variables from the existing Qikly project.
-4. Open `/` for the store and `/admin` or `/admin.html` for admin.
+4. Open `/` for the store and `/admin` (or `/admin.html`) for admin.
+5. In Vercel, keep `IMGBB_API_KEY` set. All admin image uploads go through the server-side ImgBB endpoint, so the ImgBB key is never exposed in browser code.
+6. Set `SESSION_SECRET` to a long random value. The existing `ADMIN_PASSWORD` is also still required.
 
 ## Preserved backend integrations
 
