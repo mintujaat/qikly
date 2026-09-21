@@ -1,64 +1,82 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Qikly — Diwali Mega Sale</title><meta name="description" content="Qikly Diwali shopping — festive deals, fast checkout and secure wallet payments.">
-<link rel="stylesheet" href="/style.css"><script src="/theme.js"></script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#7d0828" />
+  <meta name="description" content="Qikly — Diwali shopping sale with fast delivery, secure payments and everyday deals." />
+  <title>Qikly — Diwali Dhamaka Sale</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='25' fill='%237d0828'/%3E%3Ctext x='50' y='68' font-size='60' text-anchor='middle' fill='%23ffd369'%3EQ%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/style.css" />
 </head>
-<body class="page-with-dock">
-<div class="announcement"><span>🪔 Diwali Mega Sale • Festive prices • Limited-time offers • Secure checkout with your existing Qikly wallet</span></div>
-<header class="site-header">
-  <a href="/" class="brand"><span class="brand-dot">Q</span><span id="siteName">Qikly</span></a>
-  <nav class="main-nav"><a href="#shop">Shop</a><a href="#deals">Deals</a><a href="#why">Why Qikly</a><a href="/active-plans.html">My Orders</a></nav>
-  <div class="header-actions">
-    <span id="headerBalance" class="balance-pill">₹0</span>
-    <button class="btn ghost" id="openCart">🛒 <span id="cartCount">0</span></button>
-    <button class="btn theme-toggle" data-theme-toggle aria-label="Switch theme">☾</button>
-    <a id="authBtn" class="btn primary" href="/auth.html">Login</a>
-    <div id="profileMenu" class="profile-menu hidden"><button id="profileTrigger" class="profile-trigger"><span id="profileAvatar" class="profile-avatar">Q</span><span class="profile-trigger-text"><strong id="profileNameShort">My Account</strong><span id="profileBalanceShort">₹0</span></span><span>⌄</span></button><div class="profile-dropdown"><div class="profile-dropdown-head"><strong id="profileMenuName">Account</strong><span id="profileMenuEmail">Wallet & profile</span></div><a href="/profile.html">◉ <span>My Account</span></a><a href="/profile.html#wallet">＋ <span>Add money</span></a><a href="/active-plans.html">▣ <span>My Orders</span></a><a href="/transactions.html">↕ <span>Transactions</span></a><a href="/refer.html">↗ <span>Refer & invite</span></a><button id="profileLogout" class="danger-row">↪ <span>Logout</span></button></div></div>
-  </div>
-</header>
-<main>
-<section class="wrap hero" id="deals">
-  <div class="spark s1"></div><div class="spark s2"></div><div class="spark s3"></div><div class="spark s4"></div><div class="spark s5"></div>
-  <div class="hero-inner">
-    <div class="hero-copy">
-      <div class="hero-kicker"><span class="festive-pill">🪔 DIWALI 2026</span><span class="festive-pill">FLASH SALE</span></div>
-      <h1 id="heroTitle">Diwali Mega Sale is Live.</h1>
-      <p id="heroText">Festive shopping, bold deals and a premium storefront built on top of your existing Qikly system. Add products to your cart and continue with the payment flow already configured on your account.</p>
-      <div class="hero-actions"><a class="btn primary" href="#shop">Shop the sale →</a><button class="btn ghost" id="heroCart">View cart</button></div>
+<body>
+  <div id="topbar" class="topbar">🎇 Diwali Dhamaka Sale • Extra discounts • Free shipping on eligible orders</div>
+  <header class="header">
+    <div class="head-row container">
+      <button class="icon-btn mobile-only" id="mobileMenuBtn" aria-label="Menu">☰</button>
+      <a class="brand" href="#home"><span class="brand-mark">Q</span><span><strong id="brandName">Qikly</strong><small id="brandTagline">Har shopping, ek jagah.</small></span></a>
+      <button class="category-trigger" id="categoryTrigger"><span>☰</span> Categories <span>⌄</span></button>
+      <form class="search" id="searchForm"><span>⌕</span><input id="searchInput" autocomplete="off" placeholder="Search products, brands and more" /><button type="submit">Search</button></form>
+      <div class="head-actions">
+        <button class="head-action" id="accountBtn"><span>👤</span><small>Account</small></button>
+        <button class="head-action" id="wishlistBtn"><span>♡<i id="wishlistCount">0</i></span><small>Wishlist</small></button>
+        <button class="head-action" id="cartBtn"><span>🛒<i id="cartCount">0</i></span><small>Cart</small></button>
+      </div>
     </div>
-    <div class="hero-art"><div class="mandala"></div><div class="diya"></div></div>
-  </div>
-</section>
+    <div class="category-strip"><div class="container" id="categoryStrip"></div></div>
+    <div class="mega-menu" id="megaMenu"><div class="container" id="megaInner"></div></div>
+  </header>
 
-<section class="wrap section" style="padding-bottom:24px">
-  <div class="searchbar"><span class="search-icon">⌕</span><input id="searchInput" placeholder="Search products, deals, categories…" autocomplete="off"><button class="btn ghost" id="clearSearch" style="display:none">Clear</button></div>
-  <div class="category-row" id="categoryRow" style="margin-top:14px"></div>
-</section>
+  <main id="app" class="container">
+    <section class="hero" id="homeSection">
+      <div class="hero-copy">
+        <span class="sale-pill" id="saleLabel">UP TO 70% OFF</span>
+        <h1 id="heroTitle">Diwali Dhamaka Sale</h1>
+        <p id="heroText">Festive deals, trending products and fast checkout — sab kuch Qikly par.</p>
+        <div class="hero-buttons"><button class="btn gold" id="shopDealsBtn">Shop Deals →</button><button class="btn ghost-light" id="heroCategoryBtn">Explore Categories</button></div>
+        <div class="hero-trust"><span>🚚 Fast Delivery</span><span>🔒 Secure Payments</span><span>↩️ Easy Returns</span></div>
+      </div>
+      <div class="hero-art"><div class="hero-glow"></div><div class="diya diy1">🪔</div><div class="diya diy2">🪔</div><img id="heroImage" alt="Diwali shopping" /></div>
+    </section>
 
-<section id="shop" class="wrap section" style="padding-top:22px">
-  <div class="shop-toolbar"><div><span class="eyebrow">DIWALI STORE</span><div style="margin-top:5px;color:var(--muted);font-size:13px"><span id="resultCount">0</span> products</div></div><select id="sortSelect" class="sort-select"><option value="featured">Featured</option><option value="low">Price: Low to High</option><option value="high">Price: High to Low</option><option value="name">Name</option></select></div>
-  <div id="productGrid" class="product-grid" style="margin-top:18px"><div class="card loading" style="grid-column:1/-1">Loading the Diwali store…</div></div>
-</section>
+    <section class="trust-row" id="trustRow"></section>
 
-<section id="why" class="wrap section" style="padding-top:30px">
-  <div class="feature-strip">
-    <article class="card feature-card"><div class="feature-icon">⚡</div><div><h3>Fast storefront</h3><p>Responsive shopping experience built with plain HTML, CSS and JavaScript.</p></div></article>
-    <article class="card feature-card"><div class="feature-icon">🔐</div><div><h3>Existing payment flow</h3><p>Your existing Razorpay and wallet backend stays untouched.</p></div></article>
-    <article class="card feature-card"><div class="feature-icon">🖼️</div><div><h3>ImgBB product media</h3><p>Admin product image uploads continue through the existing ImgBB API endpoint.</p></div></article>
-    <article class="card feature-card"><div class="feature-icon">✦</div><div><h3>AI support</h3><p>Gemini-powered support remains available from the floating assistant.</p></div></article>
-  </div>
-</section>
-</main>
+    <section class="section" id="categorySection"><div class="section-head"><div><span class="eyebrow">SHOP BY CATEGORY</span><h2>Everything you need</h2></div><a href="#shop" class="link-arrow">View all →</a></div><div class="category-grid" id="categoryGrid"></div></section>
 
-<footer class="footer"><div class="wrap"><div class="footer-grid"><div><div class="brand"><span class="brand-dot">Q</span><span id="footerName">Qikly</span></div><p id="footerTag" style="max-width:360px">Diwali shopping with your existing Qikly account and payment setup.</p></div><div><h4>Shop</h4><div class="footer-links"><a href="#shop">All products</a><a href="#deals">Diwali sale</a><a href="#why">Why Qikly</a></div></div><div><h4>Account</h4><div class="footer-links"><a href="/profile.html">My account</a><a href="/active-plans.html">My orders</a><a href="/transactions.html">Transactions</a></div></div><div><h4>Support</h4><div class="footer-links"><a href="/chat.html">AI Support</a><a href="/privacy.html">Privacy</a><a href="/terms.html">Terms</a></div></div></div><div class="footer-bottom"><span>© Qikly. Diwali storefront UI.</span><span id="footerSupport"></span></div></div></footer>
+    <section class="flash-section" id="dealsSection"><div class="flash-head"><div><span class="eyebrow light">LIMITED TIME</span><h2>Diwali Flash Deals</h2><p>Hot products. Deep discounts. Fast moving stock.</p></div><div class="countdown"><span id="days">00</span><b>:</b><span id="hours">00</span><b>:</b><span id="mins">00</span><b>:</b><span id="secs">00</span></div></div><div class="product-grid" id="dealGrid"></div></section>
 
-<div class="cart-drawer hidden" id="cartDrawer"><aside class="cart-panel"><div class="cart-head"><div><span class="eyebrow">YOUR CART</span><h2 style="margin:4px 0">Shopping bag</h2></div><button class="btn ghost" id="closeCart">×</button></div><div class="cart-items" id="cartItems"></div><div class="cart-summary"><div class="summary-row"><span>Items</span><strong id="cartSubtotal">₹0</strong></div><div class="summary-row"><span>Diwali shipping</span><strong>FREE</strong></div><div class="summary-row summary-total"><span>Total</span><strong id="cartTotal">₹0</strong></div><button class="btn primary full" id="checkoutBtn">Proceed to secure checkout</button><p class="muted" style="font-size:11px;margin:8px 0 0">Checkout uses the existing Qikly wallet/payment system; no payment backend was changed.</p></div></aside></div>
+    <section class="promo-grid" id="promoGrid"></section>
 
-<div class="modal hidden" id="productModal"><div class="modal-card"><button class="modal-close" data-close-modal>×</button><div id="productModalBody"></div></div></div>
-<div class="modal hidden" id="aiModal"><div class="modal-card ai-box"><button class="modal-close" data-close-modal>×</button><div class="ai-head"><div class="ai-avatar">✦</div><div><strong id="aiName">Qikly Support</strong><div class="muted" style="font-size:11px">Gemini-powered assistant</div></div></div><div class="chat-log" id="chatLog"></div><form class="chat-input" id="chatForm"><input id="chatInput" placeholder="Ask about products, checkout or your account…" autocomplete="off"><button class="btn primary">Send</button></form></div></div>
-<button class="chat-fab" id="chatFab" aria-label="Open AI support">✦</button>
-<div id="toast" class="toast"></div>
-<script src="/app.js"></script><nav class="floating-dock" data-float-nav aria-label="Quick navigation"><a class="float-nav-item active" data-nav href="/"><span>⌂</span><span>Home</span></a><a class="float-nav-item" data-nav href="#shop"><span>🛍</span><span>Shop</span></a><a class="float-nav-item" data-nav href="#deals"><span>🔥</span><span>Deals</span></a><a class="float-nav-item" data-nav href="/transactions.html"><span>↕</span><span>Orders</span></a><a class="float-nav-item" data-nav href="/profile.html"><span class="float-nav-avatar" data-dock-avatar>Q</span><span>Account</span></a></nav><script src="/nav.js"></script>
-</body></html>
+    <section class="section" id="shopSection"><div class="section-head"><div><span class="eyebrow">SHOP QIKLY</span><h2 id="shopHeading">Trending right now</h2></div><div class="filter-bar"><select id="sortSelect"><option value="popular">Popular</option><option value="price-low">Price: Low to High</option><option value="price-high">Price: High to Low</option><option value="rating">Top Rated</option><option value="new">Newest</option></select><button class="filter-chip" id="filterBtn">⚙ Filters</button></div></div><div class="shop-layout"><aside class="filters" id="filters"><div class="filter-title">Filters</div><label>Category<select id="categoryFilter"><option value="all">All categories</option></select></label><label>Price range<div class="price-range"><input id="minPrice" type="number" placeholder="Min" /><input id="maxPrice" type="number" placeholder="Max" /></div></label><label>Rating<select id="ratingFilter"><option value="0">All ratings</option><option value="4">4★ & up</option><option value="3">3★ & up</option></select></label><label class="check-row"><input id="stockFilter" type="checkbox" /> In stock only</label><button class="btn dark full" id="clearFilters">Clear filters</button></aside><div class="shop-main"><div class="result-meta"><span id="resultCount">0 products</span><div class="view-buttons"><button class="view-btn active" data-view="grid">▦</button><button class="view-btn" data-view="list">☷</button></div></div><div class="product-grid" id="productGrid"></div><div class="empty-state hidden" id="emptyState"><div>🛍️</div><h3>No products found</h3><p>Try changing the filters or search terms.</p><button class="btn dark" id="emptyReset">Show all products</button></div></div></div></section>
+
+    <section class="section" id="newArrivalsSection"><div class="section-head"><div><span class="eyebrow">JUST DROPPED</span><h2>New arrivals</h2></div><button class="link-button" id="showNewBtn">See all new →</button></div><div class="product-grid" id="newGrid"></div></section>
+
+    <section class="section split-section"><div class="story-card"><span class="eyebrow">WHY QIKLY</span><h2>Big-site shopping experience, without the clutter.</h2><p>Fast search, smart recommendations, wishlist, compare, coupons, multiple payment modes and real-time order tracking — all wrapped in a festive-first interface.</p><div class="story-points"><span>✓ Secure checkout</span><span>✓ Cash on Delivery</span><span>✓ Easy returns</span><span>✓ AI shopping help</span></div></div><div class="ai-card"><div class="ai-orb">✦</div><span class="eyebrow">QIKLY AI</span><h3>Not sure what to buy?</h3><p>Ask about gifts, products, budgets, features or alternatives.</p><button class="btn gold" id="aiOpenBtn">Ask Qikly AI</button></div></section>
+
+    <section class="section newsletter"><div><span class="eyebrow">STAY IN THE LOOP</span><h2>Get deals before everyone else</h2><p>Subscribe for new drops, festive offers and price drops.</p></div><form id="newsletterForm"><input required type="email" placeholder="Your email address"/><button class="btn dark">Subscribe</button></form></section>
+  </main>
+
+  <footer class="footer"><div class="container footer-grid"><div><a class="brand footer-brand" href="#home"><span class="brand-mark">Q</span><span><strong id="footerName">Qikly</strong><small>Har shopping, ek jagah.</small></span></a><p id="footerText">Qikly brings everyday shopping, festive deals and secure checkout together in one modern storefront.</p></div><div><h4>Shop</h4><a href="#shop">All Products</a><a href="#category=electronics">Electronics</a><a href="#category=fashion">Fashion</a><a href="#category=home">Home & Living</a></div><div><h4>Help</h4><a href="#account">My Orders</a><a href="#account">Account</a><a href="/terms.html">Terms</a><a href="/privacy.html">Privacy</a></div><div><h4>Support</h4><p>7 days a week</p><a id="supportEmail" href="mailto:support@example.com">support@example.com</a><button class="footer-chat" id="footerChat">Chat with Qikly AI →</button></div></div><div class="footer-bottom container"><span>© 2026 Qikly</span><span>Made for festive shopping</span></div></footer>
+
+  <div class="mobile-nav"><button data-nav="home">⌂<small>Home</small></button><button data-nav="shop">⌕<small>Search</small></button><button data-nav="wishlist">♡<small>Wishlist</small></button><button data-nav="account">👤<small>Account</small></button><button data-nav="cart">🛒<small>Cart</small></button></div>
+
+  <div class="modal-backdrop hidden" id="modalBackdrop"></div>
+  <div class="modal hidden" id="authModal"><button class="modal-close" data-close>×</button><div class="modal-head"><span class="sale-pill">QIKLY ACCOUNT</span><h2 id="authTitle">Welcome back</h2><p id="authSubtitle">Login to track orders, save wishlist and checkout faster.</p></div><div class="tabs"><button class="tab active" data-auth-tab="login">Login</button><button class="tab" data-auth-tab="signup">Create account</button></div><form id="loginForm" class="form-stack"><label>Email<input id="loginEmail" required type="email" /></label><label>Password<input id="loginPassword" required type="password" /></label><button class="btn gold full">Login</button><p class="form-error" id="loginError"></p></form><form id="signupForm" class="form-stack hidden"><label>Name<input id="signupName" required /></label><label>Email<input id="signupEmail" required type="email" /></label><label>Password<input id="signupPassword" required minlength="6" type="password" /></label><label>Referral code <span class="muted">optional</span><input id="signupReferral" /></label><button class="btn gold full">Create account</button><p class="form-error" id="signupError"></p></form></div>
+
+  <div class="drawer hidden" id="cartDrawer"><div class="drawer-head"><h2>Your cart</h2><button class="modal-close" data-close-cart>×</button></div><div id="cartItems"></div><div class="cart-bottom"><div class="cart-subtotal"><span>Subtotal</span><strong id="cartSubtotal">₹0</strong></div><p class="free-ship" id="freeShipHint"></p><button class="btn gold full" id="checkoutBtn">Proceed to checkout →</button></div></div>
+
+  <div class="drawer wide hidden" id="accountDrawer"><div class="drawer-head"><h2 id="accountDrawerTitle">My Account</h2><button class="modal-close" data-close-account>×</button></div><div class="account-tabs"><button class="account-tab active" data-account-tab="orders">Orders</button><button class="account-tab" data-account-tab="wishlist">Wishlist</button><button class="account-tab" data-account-tab="settings">Profile</button></div><div class="account-content"><div id="ordersPane"></div><div id="wishlistPane" class="hidden"></div><div id="settingsPane" class="hidden"><form id="profileForm" class="form-stack"><label>Name<input id="profileName" required /></label><label>Phone<input id="profilePhone" /></label><label>UPI ID <span class="muted">for existing Qikly wallet flow</span><input id="profileUpi" /></label><button class="btn dark">Save profile</button><p class="form-error" id="profileError"></p></form><button class="btn danger full" id="logoutBtn">Logout</button></div></div></div>
+
+  <div class="modal wide hidden" id="productModal"><button class="modal-close" data-close>×</button><div id="productModalContent"></div></div>
+
+  <div class="modal checkout-modal hidden" id="checkoutModal"><button class="modal-close" data-close>×</button><div class="modal-head"><span class="sale-pill">SECURE CHECKOUT</span><h2>Almost yours</h2><p>Enter delivery details. You can pay online or choose Cash on Delivery.</p></div><div class="checkout-grid"><form id="checkoutForm" class="form-stack"><div class="two-col"><label>Full name<input id="coName" required /></label><label>Phone<input id="coPhone" required /></label></div><label>Email<input id="coEmail" required type="email" /></label><label>Address<input id="coLine1" required /></label><label>Apartment / Area<input id="coLine2" /></label><div class="two-col"><label>City<input id="coCity" required /></label><label>State<input id="coState" required /></label></div><div class="two-col"><label>PIN code<input id="coPin" required inputmode="numeric" /></label><label>Landmark<input id="coLandmark" /></label></div><div class="payment-choices"><label class="pay-option"><input type="radio" name="payment" value="online" checked /><span>💳 Online Payment<small>UPI • Cards • Netbanking</small></span></label><label class="pay-option" id="codOption"><input type="radio" name="payment" value="cod" /><span>💵 Cash on Delivery<small>Pay when delivered</small></span></label></div><div class="coupon-row"><input id="couponInput" placeholder="Coupon code e.g. DIWALI10"/><button type="button" class="btn light" id="applyCoupon">Apply</button></div><p class="form-error" id="checkoutError"></p><button class="btn gold full" id="placeOrderBtn">Place order</button></form><aside class="order-summary"><h3>Order summary</h3><div id="checkoutSummary"></div></aside></div></div>
+
+  <div class="modal small hidden" id="successModal"><div class="success-icon">✓</div><span class="eyebrow">ORDER CONFIRMED</span><h2>Thank you for shopping!</h2><p id="successMessage">Your order has been placed.</p><div class="success-actions"><button class="btn gold" id="successOrdersBtn">View order</button><button class="btn light" data-close>Continue shopping</button></div></div>
+
+  <div class="ai-chat hidden" id="aiChat"><div class="ai-chat-head"><div><strong>Qikly AI</strong><small>Shopping assistant</small></div><button id="aiClose">×</button></div><div class="ai-chat-body" id="aiMessages"></div><form id="aiForm"><input id="aiInput" placeholder="Ask about a product, gift or budget…" /><button>➤</button></form></div><button class="ai-fab" id="aiFab">✦</button>
+
+  <div class="toast" id="toast"></div>
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
