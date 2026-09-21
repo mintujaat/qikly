@@ -1,9 +1,0 @@
-{
-  "version": 2,
-  "cleanUrls": true,
-  "headers": [
-    {"source":"/app.js","headers":[{"key":"Cache-Control","value":"no-cache"}]},
-    {"source":"/admin.js","headers":[{"key":"Cache-Control","value":"no-cache"}]},
-    {"source":"/style.css","headers":[{"key":"Cache-Control","value":"no-cache"}]}
-  ]
-}
