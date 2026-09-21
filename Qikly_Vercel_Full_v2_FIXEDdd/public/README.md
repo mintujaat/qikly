@@ -1,28 +1,61 @@
-# Qikly Shop — Vanilla HTML/CSS/JS Diwali Build
+# Qikly Invest
 
-This version removes React/Vite/Lucide from the storefront. The customer and admin UIs are plain HTML/CSS/JavaScript, while the existing Node serverless API remains for secure Firebase Admin, Razorpay, Gemini and ImgBB operations.
+This version converts the old Qikly/NGO website into an account-first investment-management style platform while keeping the existing Razorpay-powered AI chat flow available separately.
 
-## Deploy on Vercel
+## User flow
 
-1. Upload the project or connect the repository.
-2. Do not add a build command. The website is already static.
-3. Keep the same environment variables from the existing Qikly project.
-4. Open `/` for the store and `/admin` (or `/admin.html`) for admin.
-5. In Vercel, keep `IMGBB_API_KEY` set. All admin image uploads go through the server-side ImgBB endpoint, so the ImgBB key is never exposed in browser code.
-6. Set `SESSION_SECRET` to a long random value. The existing `ADMIN_PASSWORD` is also still required.
+1. User opens `/` and is sent to `/auth.html` until logged in.
+2. Signup creates a Firebase-backed user profile and an empty wallet.
+3. User can add money to the wallet using Razorpay. The server verifies the Razorpay signature, payment status, order and amount before crediting the wallet.
+4. Home shows active investment plans managed from `/admin.html`. Each plan supports:
+   - photo
+   - title
+   - amount
+   - duration in days
+   - daily credit amount
+   - description
+5. User activates plans from their wallet balance.
+6. Daily credits are calculated from the plan start date and are settled into the wallet on dashboard/transaction/withdrawal operations.
+7. User can request a withdrawal. Default minimum is ₹450; the admin can change the minimum from Website Content settings.
+8. Withdrawals are held as `pending` until admin manually completes the payout. Rejecting a request returns the reserved amount to the wallet.
+9. `/profile.html` shows balance, active/completed plans, profile details, deposit/top-up, withdrawal request and recent activity.
+10. `/transactions.html` shows the full transaction history.
 
-## Preserved backend integrations
+## Admin panel
 
-- Firebase Admin / Firestore
-- Razorpay server order creation + signature verification
-- Gemini API through the existing `/api/chatbot`
-- ImgBB admin image upload endpoint
-- Existing user/admin session cookies and API routes
+`/admin.html` includes:
 
-## Frontend
+- dashboard KPIs
+- investment plan builder + ImgBB image upload
+- withdrawal approval/rejection queue
+- user list, wallet balance and enable/disable controls
+- manual wallet balance adjustments
+- site name, hero copy, legal text, risk disclosure and minimum withdrawal
+- Gemini support chatbot name/topic/prompt
+- legacy AI chat plans/guides for the existing paid AI chat flow
 
-- `index.html` — storefront shell
-- `app.js` — shopping, account, cart, checkout, orders, AI chat
-- `style.css` — responsive Diwali design
-- `admin.html` — admin shell
-- `admin.js` — admin controls
+## Firestore collections
+
+- `settings/main`
+- `users/*`
+- `wallets/*`
+- `investmentPlans/*`
+- `investments/*`
+- `transactions/*`
+- `withdrawals/*`
+- `chatbot/main`
+- `aiGurus/*`
+- `aiPlans/*`
+- `aiOrders/*`
+- `aiSessions/*`
+
+## Environment variables
+
+See `.env.example`. Keep the Razorpay secret, Firebase service account, Gemini key, ImgBB key and session secret server-side only.
+
+## Important production note
+
+The displayed plan amounts and daily credits are administrator-configured values. They should not be marketed as guaranteed investment returns. Before processing real user money, the operator should complete the applicable business, KYC, taxation, payment, consumer-protection and financial/regulatory requirements for the jurisdiction in which the service operates.
+
+## Latest UI navigation update
+The user-facing investment pages now include a premium floating quick-navigation dock with Home, Active Plans, Transactions, Withdrawal and My Account. The dock is responsive, theme-aware, and stays clear of the floating AI support button. Separate `active-plans.html` and `withdrawal.html` pages were added.
