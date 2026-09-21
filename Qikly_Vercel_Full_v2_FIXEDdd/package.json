@@ -1,12 +1,25 @@
 {
-  "name": "qikly-invest",
-  "version": "1.0.0",
+  "name": "qikly-shop-diwali",
+  "version": "2.0.0",
   "private": true,
   "engines": {"node": ">=20"},
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "node api/index.js",
+    "preview": "vite preview"
+  },
   "dependencies": {
+    "@vitejs/plugin-react": "latest",
     "@vercel/node": "latest",
     "express": "^5.1.0",
     "firebase-admin": "^13.4.0",
-    "razorpay": "^2.9.6"
-  }
+    "razorpay": "^2.9.6",
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.1.1",
+    "vite": "^6.0.7"
+  },
+  "devDependencies": {}
 }

@@ -1,678 +1,258 @@
-const express = require("express");
-const crypto = require("crypto");
-const Razorpay = require("razorpay");
-const admin = require("firebase-admin");
-const { promisify } = require("util");
+const express = require('express')
+const crypto = require('crypto')
+const Razorpay = require('razorpay')
+const admin = require('firebase-admin')
+const { promisify } = require('util')
 
-const app = express();
-app.use(express.json({ limit: "12mb" }));
+const app = express()
+app.use(express.json({ limit: '12mb' }))
 
 if (!admin.apps.length) {
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-  if (!raw) throw new Error("Missing FIREBASE_SERVICE_ACCOUNT_JSON");
-  const serviceAccount = typeof raw === "string" ? JSON.parse(raw) : raw;
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON
+  if (!raw) throw new Error('Missing FIREBASE_SERVICE_ACCOUNT_JSON')
+  const serviceAccount = typeof raw === 'string' ? JSON.parse(raw) : raw
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
-    databaseURL: process.env.FIREBASE_DATABASE_URL || undefined,
-  });
+    databaseURL: process.env.FIREBASE_DATABASE_URL || undefined
+  })
 }
 
-const db = admin.firestore();
-const FieldValue = admin.firestore.FieldValue;
+const db = admin.firestore()
+const FieldValue = admin.firestore.FieldValue
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
-});
+  key_secret: process.env.RAZORPAY_KEY_SECRET
+})
 
-const ADMIN_COOKIE = "qikly_admin";
-const SESSION_COOKIE = "qikly_session";
-const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || "change-this-password");
-const SESSION_SECRET = String(process.env.SESSION_SECRET || ADMIN_PASSWORD);
-const MIN_WITHDRAWAL = 450;
-const DAY_MS = 24 * 60 * 60 * 1000;
-const scrypt = promisify(crypto.scrypt);
+const ADMIN_COOKIE = 'qikly_admin'
+const SESSION_COOKIE = 'qikly_session'
+const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || 'change-this-password')
+const SESSION_SECRET = String(process.env.SESSION_SECRET || ADMIN_PASSWORD)
+const scrypt = promisify(crypto.scrypt)
 
 const defaults = {
   settings: {
-    siteName: "Qikly Invest",
-    tagline: "Simple investing, transparent tracking.",
-    heroTitle: "Grow your balance with clear, admin-managed plans.",
-    heroText: "Create your account, add funds securely with Razorpay, choose an available plan and track your balance, earnings and withdrawals from one place.",
-    marqueeText: "₹450 minimum withdrawal • Secure Razorpay deposits • Live transaction history •",
-    about: "Qikly Invest is an investment-management style web platform where users can maintain a wallet, activate plans and request withdrawals. Plan values and daily credit figures are configured by the administrator.",
-    terms: "Use only funds you understand and can afford to risk. Plan returns shown on this website are configurable projections/credits and are not a guarantee of profit. The operator is responsible for using the platform only where legally permitted and for completing all required KYC, taxation and regulatory obligations.",
-    privacy: "Account, transaction and withdrawal details are stored to operate the platform. Payment credentials are handled by Razorpay and are not stored by this application. Only information required for account, ledger and support operations should be collected.",
-    refund: "Wallet deposits are payment transactions. For duplicate or incorrect payments, contact support with the Razorpay payment ID. Investment purchases and withdrawal reversals are subject to the operator's configured policy and applicable law.",
-    riskDisclosure: "Investment involves risk. Displayed daily credit values are administrator-configured and should not be presented as guaranteed returns. Verify the business, applicable licenses, tax treatment and regulatory requirements before accepting real money.",
-    supportEmail: "support@example.com",
-    minWithdrawal: MIN_WITHDRAWAL,
-    referralReward: 0,
-    currency: "INR",
-    theme: {
-      primary: "#7c3aed",
-      secondary: "#22c55e",
-      background: "#090b12",
-      surface: "#111522",
-      text: "#f8fafc",
-      muted: "#9aa4b2",
-      accent: "#38bdf8",
-    },
+    siteName: 'Qikly Shop',
+    tagline: 'Diwali shopping, made brighter.',
+    heroTitle: 'Diwali Mega Sale — Light up every cart.',
+    heroText: 'Festive deals, fast delivery, secure checkout and a premium shopping experience built for every screen.',
+    announcement: '🪔 Diwali Mega Sale is live • Extra savings on selected products • Free shipping above ₹999',
+    about: 'Qikly Shop is a modern festive shopping experience with secure payments, order tracking, flexible offers and human + AI customer support.',
+    privacy: 'Account, address and order information is stored to operate the store, fulfill purchases and provide support. Payment credentials are handled by Razorpay.',
+    refund: 'Return/refund handling is controlled by the store policy and order status. Contact support with your order number for help.',
+    supportEmail: 'support@qikly.shop',
+    supportPhone: '+91 99999 99999',
+    freeShipping: 999,
+    shippingFlat: 79,
+    codEnabled: true,
+    chatbotEnabled: true,
+    logoText: 'Q',
+    primary: '#f59e0b',
+    secondary: '#8b5cf6',
+    heroImage: 'https://images.unsplash.com/photo-1603006905003-be475563bc59?auto=format&fit=crop&w=1500&q=85'
   },
   chatbot: {
-    name: "Qikly Support",
-    topic: "Answer questions about account signup, deposits, investment plans, daily credits, withdrawals, transaction history and general website support.",
-    intro: "Hi! Main Qikly Support hoon. Account, deposit, plan ya withdrawal ke baare mein pooch sakte ho.",
-    prompt: "Be concise, helpful and factual. Never guarantee profits, invent policies, invent transaction status, or tell a user that money has been sent unless the provided data says so. Use Hindi/Hinglish unless the user uses another language.",
-  },
-};
-
-const defaultInvestmentPlans = [
-  {
-    id: "starter",
-    title: "Starter Plan",
-    amount: 1000,
-    days: 10,
-    dailyIncrease: 35,
-    imageUrl: "https://images.unsplash.com/photo-1559526324-593bc073d938?auto=format&fit=crop&w=1200&q=80",
-    description: "Entry-level plan with a fixed daily credit configured by admin.",
-    active: true,
-    sortOrder: 1,
-  },
-  {
-    id: "growth",
-    title: "Growth Plan",
-    amount: 5000,
-    days: 20,
-    dailyIncrease: 220,
-    imageUrl: "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1200&q=80",
-    description: "Higher-value plan with a larger daily credit figure.",
-    active: true,
-    sortOrder: 2,
-  },
-  {
-    id: "premium",
-    title: "Premium Plan",
-    amount: 10000,
-    days: 30,
-    dailyIncrease: 520,
-    imageUrl: "https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=1200&q=80",
-    description: "Longer duration plan for users who want a larger allocation.",
-    active: true,
-    sortOrder: 3,
-  },
-];
-
-const defaultAiGurus = [
-  { id: "qikly-ai", name: "Qikly AI", specialty: "AI Support", emoji: "✦", active: true, sortOrder: 1 },
-];
-const defaultAiPlans = [
-  { id: "ai-10", name: "10 Minute Chat", price: 49, durationMinutes: 10, active: true, sortOrder: 1 },
-  { id: "ai-30", name: "30 Minute Chat", price: 99, durationMinutes: 30, active: true, sortOrder: 2 },
-];
-
-const clean = (v, max = 5000) => String(v ?? "").trim().slice(0, max);
-const cleanEmail = (v) => clean(v, 180).toLowerCase();
-const num = (v) => Number(v);
-const money = (v) => Math.round(Number(v) || 0);
-const cleanHex = (v, fallback) => /^#[0-9a-f]{6}$/i.test(String(v || "")) ? String(v) : fallback;
-
-function parseCookies(req) {
-  const out = {};
-  String(req.headers.cookie || "").split(";").forEach((part) => {
-    const i = part.indexOf("=");
-    if (i >= 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
-  });
-  return out;
-}
-function timingSafeEqualText(a, b) {
-  const aa = Buffer.from(String(a));
-  const bb = Buffer.from(String(b));
-  return aa.length === bb.length && crypto.timingSafeEqual(aa, bb);
-}
-function signValue(body, secret) { return crypto.createHmac("sha256", secret).update(body).digest("hex"); }
-function createToken(prefix, id, hours, secret) {
-  const exp = Date.now() + hours * 60 * 60 * 1000;
-  const body = `${prefix}.${id}.${exp}`;
-  return `${body}.${signValue(body, secret)}`;
-}
-function verifyToken(token, prefix, secret) {
-  const bits = String(token || "").split(".");
-  if (bits.length !== 4 || bits[0] !== prefix || Number(bits[2]) < Date.now()) return null;
-  const body = bits.slice(0, 3).join(".");
-  return timingSafeEqualText(signValue(body, secret), bits[3]) ? bits[1] : null;
-}
-function setCookie(res, name, value, maxAge) {
-  res.setHeader("Set-Cookie", `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${process.env.NODE_ENV === "production" ? "; Secure" : ""}`);
-}
-function clearCookie(res, name) { setCookie(res, name, "", 0); }
-function isAdmin(req) { return !!verifyToken(parseCookies(req)[ADMIN_COOKIE], "admin", ADMIN_PASSWORD); }
-async function currentUser(req) {
-  const uid = verifyToken(parseCookies(req)[SESSION_COOKIE], "user", SESSION_SECRET);
-  if (!uid) return null;
-  const snap = await db.collection("users").doc(uid).get();
-  if (!snap.exists || snap.data()?.active === false) return null;
-  return { id: snap.id, ...snap.data() };
-}
-const guardAdmin = (req, res, next) => isAdmin(req) ? next() : res.status(401).json({ error: "Admin login required." });
-async function guardUser(req, res, next) {
-  try {
-    const user = await currentUser(req);
-    if (!user) return res.status(401).json({ error: "Login required." });
-    req.user = user;
-    next();
-  } catch (e) { next(e); }
-}
-
-async function hashPassword(password) {
-  const salt = crypto.randomBytes(16).toString("hex");
-  const key = await scrypt(String(password), salt, 64);
-  return `scrypt$${salt}$${key.toString("hex")}`;
-}
-async function verifyPassword(password, encoded) {
-  const [scheme, salt, hex] = String(encoded || "").split("$");
-  if (scheme !== "scrypt" || !salt || !hex) return false;
-  const key = await scrypt(String(password), salt, 64);
-  return timingSafeEqualText(key.toString("hex"), hex);
-}
-function publicSettings(data = {}) {
-  const s = { ...defaults.settings, ...data };
-  s.theme = { ...defaults.settings.theme, ...(data.theme || {}) };
-  return s;
-}
-async function getDoc(collection, id, fallback) {
-  const snap = await db.collection(collection).doc(id).get();
-  return snap.exists ? { id: snap.id, ...snap.data() } : fallback;
-}
-async function listCollection(collection) {
-  const snap = await db.collection(collection).get();
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
-}
-async function getPlans() {
-  const rows = await listCollection("investmentPlans");
-  return (rows.length ? rows : defaultInvestmentPlans).filter(x => x.active !== false).sort((a,b) => num(a.sortOrder)-num(b.sortOrder));
-}
-async function getAiGurus() {
-  const rows = await listCollection("aiGurus");
-  return (rows.length ? rows : defaultAiGurus).filter(x => x.active !== false).sort((a,b)=>num(a.sortOrder)-num(b.sortOrder));
-}
-async function getAiPlans() {
-  const rows = await listCollection("aiPlans");
-  return (rows.length ? rows : defaultAiPlans).filter(x => x.active !== false).sort((a,b)=>num(a.sortOrder)-num(b.sortOrder));
-}
-
-function dateMs(v) {
-  if (!v) return 0;
-  if (typeof v.toDate === "function") return v.toDate().getTime();
-  const t = new Date(v).getTime();
-  return Number.isFinite(t) ? t : 0;
-}
-function jsonSafe(value) {
-  if (value == null) return value;
-  if (value instanceof Date) return value.toISOString();
-  if (typeof value.toDate === "function") return value.toDate().toISOString();
-  if (Array.isArray(value)) return value.map(jsonSafe);
-  if (typeof value === "object") { const out = {}; Object.entries(value).forEach(([k,v]) => { out[k] = jsonSafe(v); }); return out; }
-  return value;
-}
-async function ensureWalletBuckets(uid) {
-  const ref = db.collection("wallets").doc(uid);
-  const snap = await ref.get();
-  const data = snap.exists ? snap.data() : {};
-  if (data && Number.isFinite(Number(data.depositBalance)) && Number.isFinite(Number(data.earningsBalance)) && Number.isFinite(Number(data.bonusBalance)) && Number(data.balanceSourceVersion || 0) >= 2) {
-    return { total: money(data.balance), deposit: money(data.depositBalance), earnings: money(data.earningsBalance), bonus: money(data.bonusBalance) };
+    name: 'Qikly AI',
+    intro: 'Hi! Main Qikly AI hoon. Product, order, delivery, offers ya store policy ke baare mein pooch sakte ho.',
+    topic: 'Answer questions about products, pricing, orders, delivery, returns, coupons and store support using only the provided store data when available.',
+    prompt: 'Be concise, helpful and factual. Never invent order status, discounts, stock or policies. Never ask for passwords, card numbers, UPI PINs or OTPs. Use Hinglish unless the user clearly uses another language.'
   }
-  const txSnap = await db.collection("transactions").where("uid", "==", uid).get();
-  const rows = txSnap.docs.map(d => d.data()).sort((a,b) => dateMs(a.createdAt)-dateMs(b.createdAt));
-  let deposit = 0, earnings = 0, bonus = 0;
-  for (const tx of rows) {
-    const amount = money(tx.amount);
-    const status = String(tx.status || "");
-    if (status === "rejected") continue;
-    if (tx.type === "deposit" && status === "completed") deposit += amount;
-    else if (tx.type === "return" && status === "completed") earnings += amount;
-    else if (tx.type === "referral_bonus" && status === "completed") bonus += amount;
-    else if (tx.type === "admin_adjustment" && status === "completed") {
-      if (amount >= 0) deposit += amount;
-      else {
-        let need = Math.abs(amount);
-        const a=Math.min(deposit,need); deposit-=a; need-=a;
-        const b=Math.min(bonus,need); bonus-=b; need-=b;
-        const c=Math.min(earnings,need); earnings-=c; need-=c;
-      }
-    } else if (tx.type === "investment" && amount < 0 && status === "completed") {
-      let need = Math.abs(amount);
-      const a=Math.min(deposit,need); deposit-=a; need-=a;
-      const b=Math.min(bonus,need); bonus-=b; need-=b;
-      const c=Math.min(earnings,need); earnings-=c; need-=c;
-    } else if (tx.type === "withdrawal" && status !== "rejected") {
-      earnings = Math.max(0, earnings - Math.abs(amount));
-    }
-  }
-  const currentTotal = money(snap.exists ? data.balance : (deposit + earnings + bonus));
-  const diff = money(currentTotal - money(deposit + earnings + bonus));
-  if (diff > 0) deposit += diff;
-  else if (diff < 0) {
-    let need=Math.abs(diff);
-    const a=Math.min(earnings,need); earnings-=a; need-=a;
-    const b=Math.min(bonus,need); bonus-=b; need-=b;
-    deposit=Math.max(0,deposit-need);
-  }
-  await ref.set({uid,balance:money(currentTotal),depositBalance:money(deposit),earningsBalance:money(earnings),bonusBalance:money(bonus),balanceSourceVersion:2,updatedAt:FieldValue.serverTimestamp()},{merge:true});
-  return { total:money(currentTotal), deposit:money(deposit), earnings:money(earnings), bonus:money(bonus) };
 }
 
-async function settleEarnings(uid) {
-  await ensureWalletBuckets(uid);
-  const invSnap = await db.collection("investments").where("uid", "==", uid).get();
-  const walletRef = db.collection("wallets").doc(uid);
-  let totalCredit = 0;
-  const updates = [];
-  const now = Date.now();
-  invSnap.docs.forEach(doc => {
-    const x = doc.data();
-    const start = dateMs(x.startAt);
-    const end = Math.min(now, dateMs(x.endAt));
-    const totalDays = Math.max(0, Number(x.days) || 0);
-    const elapsed = start ? Math.min(totalDays, Math.floor(Math.max(0, end - start) / DAY_MS)) : 0;
-    const creditedDays = Number(x.creditedDays || 0);
-    const deltaDays = Math.max(0, elapsed - creditedDays);
-    if (deltaDays > 0) {
-      const credit = deltaDays * money(x.dailyIncrease);
-      totalCredit += credit;
-      updates.push({ ref: doc.ref, deltaDays, credit, complete: elapsed >= totalDays });
-    } else if (elapsed >= totalDays && x.status === "active") {
-      updates.push({ ref: doc.ref, deltaDays: 0, credit: 0, complete: true });
-    }
-  });
-  if (!totalCredit && !updates.some(x=>x.complete)) return 0;
-  await db.runTransaction(async tx => {
-    const walletSnap = await tx.get(walletRef);
-    const wallet = walletSnap.exists ? walletSnap.data() : {};
-    const currentBalance = money(wallet.balance);
-    const currentEarnings = money(wallet.earningsBalance);
-    if (totalCredit) tx.set(walletRef,{uid,balance:currentBalance+totalCredit,earningsBalance:currentEarnings+totalCredit,depositBalance:money(wallet.depositBalance),bonusBalance:money(wallet.bonusBalance),balanceSourceVersion:2,updatedAt:FieldValue.serverTimestamp()},{merge:true});
-    updates.forEach(u=>{
-      const patch={};
-      if(u.deltaDays) patch.creditedDays=admin.firestore.FieldValue.increment(u.deltaDays);
-      if(u.complete){patch.status="completed";patch.completedAt=FieldValue.serverTimestamp();}
-      if(Object.keys(patch).length)tx.set(u.ref,patch,{merge:true});
-    });
-  });
-  if(totalCredit){
-    const batch=db.batch();
-    updates.filter(x=>x.credit>0).forEach(u=>batch.set(db.collection("transactions").doc(),{uid,type:"return",amount:u.credit,status:"completed",title:"Daily plan credit",description:`Plan earnings credited (${u.deltaDays} day${u.deltaDays>1?'s':''}).`,referenceId:u.ref.id,createdAt:FieldValue.serverTimestamp(),source:"plan_earnings"}));
-    await batch.commit();
-  }
-  return totalCredit;
-}
+const seedCategories = [
+  { id: 'fashion', name: 'Fashion', slug: 'fashion', imageUrl: 'https://images.unsplash.com/photo-1445205170230-053b83016050?auto=format&fit=crop&w=600&q=80', active: true, sortOrder: 1 },
+  { id: 'electronics', name: 'Electronics', slug: 'electronics', imageUrl: 'https://images.unsplash.com/photo-1496181133206-80ce9b88a853?auto=format&fit=crop&w=600&q=80', active: true, sortOrder: 2 },
+  { id: 'home', name: 'Home & Living', slug: 'home-living', imageUrl: 'https://images.unsplash.com/photo-1616046229478-9901c5536a45?auto=format&fit=crop&w=600&q=80', active: true, sortOrder: 3 },
+  { id: 'beauty', name: 'Beauty', slug: 'beauty', imageUrl: 'https://images.unsplash.com/photo-1596462502278-27bfdc403348?auto=format&fit=crop&w=600&q=80', active: true, sortOrder: 4 },
+  { id: 'gifts', name: 'Gifts', slug: 'gifts', imageUrl: 'https://images.unsplash.com/photo-1513885535751-8b9238bd345a?auto=format&fit=crop&w=600&q=80', active: true, sortOrder: 5 },
+  { id: 'gadgets', name: 'Gadgets', slug: 'gadgets', imageUrl: 'https://images.unsplash.com/photo-1526738549149-8e07eca6c147?auto=format&fit=crop&w=600&q=80', active: true, sortOrder: 6 }
+]
 
-async function getWalletBreakdown(uid) {
-  await ensureWalletBuckets(uid);
-  const snap = await db.collection("wallets").doc(uid).get();
-  const data = snap.exists ? snap.data() : {};
-  return { total: money(data.balance), deposit: money(data.depositBalance), earnings: money(data.earningsBalance), bonus: money(data.bonusBalance), withdrawable: money(data.earningsBalance) };
-}
-async function getWallet(uid) {
-  const b = await getWalletBreakdown(uid);
-  return b.total;
-}
-async function userDashboard(uid) {
-  await settleEarnings(uid);
-  const savedSettings = await getDoc("settings", "main", defaults.settings);
-  const [userSnap, walletSnap, invSnap, txSnap] = await Promise.all([
-    db.collection("users").doc(uid).get(),
-    db.collection("wallets").doc(uid).get(),
-    db.collection("investments").where("uid", "==", uid).get(),
-    db.collection("transactions").where("uid", "==", uid).get(),
-  ]);
-  const user = { id: userSnap.id, ...userSnap.data() };
-  const investments = invSnap.docs.map(d => jsonSafe({ id: d.id, ...d.data() })).sort((a,b)=>dateMs(b.startAt)-dateMs(a.startAt));
-  const transactions = txSnap.docs.map(d => jsonSafe({ id:d.id, ...d.data() })).sort((a,b)=>dateMs(b.createdAt)-dateMs(a.createdAt)).slice(0,200);
-  const referral = await getReferralInfo(uid);
-  const wallet = walletSnap.exists ? walletSnap.data() : {};
-  return jsonSafe({ user: sanitizeUser({...user,referralCode:referral.code}), wallet: money(wallet.balance), walletBreakdown: { total: money(wallet.balance), deposit: money(wallet.depositBalance), earnings: money(wallet.earningsBalance), bonus: money(wallet.bonusBalance), withdrawable: money(wallet.earningsBalance) }, investments, transactions, minWithdrawal: Math.max(1, money(savedSettings.minWithdrawal) || MIN_WITHDRAWAL), referral });
-}
-function sanitizeUser(user) { const { passwordHash, ...safe } = user || {}; return safe; }
+const seedProducts = [
+  { id: 'diwali-lamp-set', title: 'Festive Brass Diya Set', slug: 'festive-brass-diya-set', category: 'gifts', price: 699, compareAtPrice: 1199, stock: 42, sku: 'QK-DIYA-001', images: ['https://images.unsplash.com/photo-1603006905003-be475563bc59?auto=format&fit=crop&w=1000&q=85'], description: 'A premium brass diya set made for festive décor and gifting. Warm, elegant and easy to style for Diwali.', highlights: ['Festive-ready quality', 'Gift-friendly packaging', 'Fast dispatch'], rating: 4.8, ratingCount: 124, featured: true, badge: 'Diwali Pick', active: true, sortOrder: 1 },
+  { id: 'sneaker-urban', title: 'Urban Motion Sneakers', slug: 'urban-motion-sneakers', category: 'fashion', price: 1499, compareAtPrice: 2499, stock: 18, sku: 'QK-FAS-102', images: ['https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=1000&q=85'], description: 'Comfort-first everyday sneakers with a clean streetwear profile.', highlights: ['Lightweight sole', 'All-day comfort', 'Easy returns'], rating: 4.6, ratingCount: 89, featured: true, badge: 'Best Seller', active: true, sortOrder: 2 },
+  { id: 'wireless-headphones', title: 'Pulse ANC Wireless Headphones', slug: 'pulse-anc-wireless-headphones', category: 'electronics', price: 2499, compareAtPrice: 3999, stock: 27, sku: 'QK-ELX-304', images: ['https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=1000&q=85'], description: 'Wireless headphones with active noise cancellation, deep bass and long listening time.', highlights: ['ANC mode', 'Fast USB-C charge', 'Comfort fit'], rating: 4.7, ratingCount: 212, featured: true, badge: 'Hot Deal', active: true, sortOrder: 3 },
+  { id: 'smartwatch', title: 'Aura Fit Smartwatch', slug: 'aura-fit-smartwatch', category: 'gadgets', price: 1899, compareAtPrice: 2999, stock: 11, sku: 'QK-GAD-209', images: ['https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=1000&q=85'], description: 'A sleek smartwatch for daily activity, notifications and calls.', highlights: ['Bright display', 'Daily activity tracking', 'Magnetic charging'], rating: 4.5, ratingCount: 71, featured: true, badge: 'Trending', active: true, sortOrder: 4 },
+  { id: 'perfume', title: 'Noor Eau de Parfum', slug: 'noor-eau-de-parfum', category: 'beauty', price: 999, compareAtPrice: 1499, stock: 30, sku: 'QK-BEA-117', images: ['https://images.unsplash.com/photo-1541643600914-78b084683601?auto=format&fit=crop&w=1000&q=85'], description: 'A warm, festive fragrance with a refined everyday character.', highlights: ['Long-wear profile', 'Gift-ready box', 'Elegant bottle'], rating: 4.7, ratingCount: 54, featured: true, badge: 'Festive', active: true, sortOrder: 5 },
+  { id: 'table-lamp', title: 'Amber Glow Table Lamp', slug: 'amber-glow-table-lamp', category: 'home', price: 1299, compareAtPrice: 1999, stock: 14, sku: 'QK-HOM-311', images: ['https://images.unsplash.com/photo-1507473885765-e6ed057f782c?auto=format&fit=crop&w=1000&q=85'], description: 'Soft ambient lighting for a warm living room or bedside corner.', highlights: ['Warm glow', 'Premium finish', 'Plug and play'], rating: 4.6, ratingCount: 38, featured: true, badge: 'Home Pick', active: true, sortOrder: 6 },
+  { id: 'kurta', title: 'Festive Cotton Kurta', slug: 'festive-cotton-kurta', category: 'fashion', price: 899, compareAtPrice: 1399, stock: 23, sku: 'QK-FAS-155', images: ['https://images.unsplash.com/photo-1610652492500-ded49ceeb378?auto=format&fit=crop&w=1000&q=85'], description: 'Breathable cotton kurta designed for festive evenings and everyday comfort.', highlights: ['Soft cotton', 'Festive silhouette', 'Easy care'], rating: 4.4, ratingCount: 62, featured: true, badge: 'Diwali Edit', active: true, sortOrder: 7 },
+  { id: 'gift-box', title: 'Premium Celebration Gift Box', slug: 'premium-celebration-gift-box', category: 'gifts', price: 1599, compareAtPrice: 2299, stock: 16, sku: 'QK-GFT-502', images: ['https://images.unsplash.com/photo-1549465220-1a8b9238cd48?auto=format&fit=crop&w=1000&q=85'], description: 'A curated gifting set for family, friends and festive occasions.', highlights: ['Premium presentation', 'Ready to gift', 'Limited festive stock'], rating: 4.9, ratingCount: 144, featured: true, badge: 'Gift Favourite', active: true, sortOrder: 8 }
+]
 
-async function createReferralCode() {
-  for (let i=0;i<8;i++) {
-    const code = `QIKLY${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
-    const snap = await db.collection("users").where("referralCode","==",code).limit(1).get();
-    if (snap.empty) return code;
-  }
-  return `QIKLY${Date.now().toString(36).toUpperCase()}`;
+const clean = (v, max = 5000) => String(v ?? '').trim().slice(0, max)
+const email = v => clean(v, 180).toLowerCase()
+const money = v => Math.max(0, Math.round(Number(v) || 0))
+const num = v => Number(v) || 0
+const safeId = v => clean(v, 140).replace(/[^a-zA-Z0-9_-]/g, '-')
+const validUrl = v => /^https?:\/\//i.test(String(v || ''))
+
+function cookies(req) {
+  const out = {}
+  String(req.headers.cookie || '').split(';').forEach(part => {
+    const i = part.indexOf('=')
+    if (i > -1) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim())
+  })
+  return out
 }
-async function ensureReferralCode(uid) {
-  const ref = db.collection("users").doc(uid), snap = await ref.get();
-  if (!snap.exists) return "";
-  const current = clean(snap.data().referralCode,40).toUpperCase();
-  if (current) return current;
-  const code = await createReferralCode();
-  await ref.set({referralCode:code,updatedAt:FieldValue.serverTimestamp()},{merge:true});
-  return code;
-}
-async function getReferralInfo(uid) {
-  const userRef = db.collection("users").doc(uid);
-  const userSnap = await userRef.get();
-  const code = userSnap.exists ? (clean(userSnap.data().referralCode,40).toUpperCase() || await ensureReferralCode(uid)) : "";
-  const snap = await db.collection("referrals").where("referrerUid","==",uid).get();
-  const referrals = snap.docs.map(d=>jsonSafe({id:d.id,...d.data()})).sort((a,b)=>dateMs(b.createdAt)-dateMs(a.createdAt));
-  const users = await Promise.all(referrals.map(async r=>{
-    const rs = await db.collection("users").doc(r.referredUid).get();
-    const u = rs.exists ? rs.data() : {};
-    return { ...r, name:clean(u.name,100)||"Member", email:cleanEmail(u.email) };
-  }));
-  return {code,count:users.length,users};
-}
+function safeEqual(a, b) { const aa = Buffer.from(String(a)); const bb = Buffer.from(String(b)); return aa.length === bb.length && crypto.timingSafeEqual(aa, bb) }
+function sign(body, secret) { return crypto.createHmac('sha256', secret).update(body).digest('hex') }
+function token(prefix, id, hours, secret) { const exp = Date.now() + hours * 3600000; const body = `${prefix}.${id}.${exp}`; return `${body}.${sign(body, secret)}` }
+function verifyToken(value, prefix, secret) { const bits = String(value || '').split('.'); if (bits.length !== 4 || bits[0] !== prefix || Number(bits[2]) < Date.now()) return null; const body = bits.slice(0, 3).join('.'); return safeEqual(sign(body, secret), bits[3]) ? bits[1] : null }
+function setCookie(res, name, value, maxAge) { res.setHeader('Set-Cookie', `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`) }
+function clearCookie(res, name) { setCookie(res, name, '', 0) }
+function isAdmin(req) { return !!verifyToken(cookies(req)[ADMIN_COOKIE], 'admin', ADMIN_PASSWORD) }
+async function currentUser(req) { const uid = verifyToken(cookies(req)[SESSION_COOKIE], 'user', SESSION_SECRET); if (!uid) return null; const s = await db.collection('users').doc(uid).get(); if (!s.exists || s.data()?.active === false) return null; return { id: s.id, ...s.data() } }
+async function guardUser(req, res, next) { try { const user = await currentUser(req); if (!user) return res.status(401).json({ error: 'Login required.' }); req.user = user; next() } catch (e) { next(e) } }
+const guardAdmin = (req, res, next) => isAdmin(req) ? next() : res.status(401).json({ error: 'Admin login required.' })
+
+async function hashPassword(password) { const salt = crypto.randomBytes(16).toString('hex'); const key = await scrypt(String(password), salt, 64); return `scrypt$${salt}$${key.toString('hex')}` }
+async function verifyPassword(password, encoded) { const [scheme, salt, hex] = String(encoded || '').split('$'); if (scheme !== 'scrypt' || !salt || !hex) return false; const key = await scrypt(String(password), salt, 64); return safeEqual(key.toString('hex'), hex) }
+function dateMs(v) { if (!v) return 0; if (typeof v.toDate === 'function') return v.toDate().getTime(); const t = new Date(v).getTime(); return Number.isFinite(t) ? t : 0 }
+function jsonSafe(value) { if (value == null) return value; if (typeof value?.toDate === 'function') return value.toDate().toISOString(); if (Array.isArray(value)) return value.map(jsonSafe); if (typeof value === 'object') { const o = {}; for (const [k, v] of Object.entries(value)) o[k] = jsonSafe(v); return o } return value }
+function publicSettings(data = {}) { return { ...defaults.settings, ...data } }
+async function getDoc(col, id, fallback = null) { const s = await db.collection(col).doc(id).get(); return s.exists ? { id: s.id, ...s.data() } : fallback }
+async function listCollection(col, limit = 1000) { const s = await db.collection(col).limit(limit).get(); return s.docs.map(d => ({ id: d.id, ...d.data() })) }
+async function getSettings() { const s = await getDoc('settings', 'main', {}); return publicSettings(s || {}) }
+async function getChatbot() { const s = await getDoc('chatbot', 'main', {}); return { ...defaults.chatbot, ...(s || {}) } }
+async function getProducts(all = false) { const rows = await listCollection('products', 1000); if (!rows.length) { await Promise.all(seedProducts.map(x => db.collection('products').doc(x.id).set(x, { merge: true }))); return seedProducts.filter(x => all || x.active !== false).sort((a,b)=>num(a.sortOrder)-num(b.sortOrder)) } const base = rows; return base.filter(x => all || x.active !== false).sort((a, b) => num(a.sortOrder) - num(b.sortOrder)) }
+async function getCategories(all = false) { const rows = await listCollection('categories', 200); if (!rows.length) { await Promise.all(seedCategories.map(x => db.collection('categories').doc(x.id).set(x, { merge: true }))); return seedCategories.filter(x => all || x.active !== false).sort((a,b)=>num(a.sortOrder)-num(b.sortOrder)) } const base = rows; return base.filter(x => all || x.active !== false).sort((a,b)=>num(a.sortOrder)-num(b.sortOrder)) }
+async function getBanners(all = false) { const rows = await listCollection('banners', 100); return rows.filter(x => all || x.active !== false).sort((a,b)=>num(a.sortOrder)-num(b.sortOrder)) }
+async function getCoupons(all = false) { const rows = await listCollection('coupons', 300); return rows.filter(x => all || x.active !== false).sort((a,b)=>dateMs(b.updatedAt)-dateMs(a.updatedAt)) }
+async function couponFor(code, subtotal) { const c = (await getCoupons()).find(x => String(x.code).toUpperCase() === String(code || '').toUpperCase()); if (!c) throw new Error('Invalid coupon code.'); if (c.expiresAt && dateMs(c.expiresAt) && dateMs(c.expiresAt) < Date.now()) throw new Error('This coupon has expired.'); if (num(c.usageLimit) > 0 && num(c.usedCount) >= num(c.usageLimit)) throw new Error('This coupon has reached its usage limit.'); if (money(subtotal) < money(c.minOrder)) throw new Error(`Minimum order for this coupon is ${money(c.minOrder)}.`); let amount = c.type === 'fixed' ? money(c.value) : Math.floor(money(subtotal) * (num(c.value) / 100)); if (c.maxDiscount > 0) amount = Math.min(amount, money(c.maxDiscount)); amount = Math.max(0, Math.min(amount, money(subtotal))); return { id: c.id || c.code, code: c.code, amount, type: c.type, value: c.value } }
+
 async function geminiGenerate(contents, systemInstruction) {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) throw new Error("Gemini API is not configured on the server.");
-  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-  const body = { contents, systemInstruction:{parts:[{text:systemInstruction}]}, generationConfig:{temperature:0.4,maxOutputTokens:550} };
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
-  const r = await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-  const d = await r.json().catch(()=>({}));
-  if(!r.ok) throw new Error(d.error?.message || `Gemini API error (${r.status})`);
-  return d.candidates?.[0]?.content?.parts?.map(x=>x.text||"").join("").trim() || "Main abhi jawab generate nahi kar pa raha hoon.";
+  const key = process.env.GEMINI_API_KEY
+  if (!key) throw new Error('Gemini API is not configured on the server.')
+  const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ systemInstruction: { parts: [{ text: systemInstruction }] }, contents, generationConfig: { temperature: .35, maxOutputTokens: 420 } })
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(data?.error?.message || `Gemini API error (${response.status})`)
+  return data?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('')?.trim() || 'I could not generate a response right now.'
 }
 
-app.get("/api/public/config", (req,res)=>res.json({razorpayKeyId:process.env.RAZORPAY_KEY_ID||"", minWithdrawal:MIN_WITHDRAWAL}));
-app.get("/api/public/data", async (req,res)=>{
-  try {
-    const [settings, chatbot, plans, aiGurus, aiPlans] = await Promise.all([
-      getDoc("settings","main",defaults.settings), getDoc("chatbot","main",defaults.chatbot), getPlans(), getAiGurus(), getAiPlans()
-    ]);
-    res.json({ settings:publicSettings(settings), plans:aiPlans, investmentPlans:plans, gurus:aiGurus, chatbot:{name:clean(chatbot.name,80)||defaults.chatbot.name,intro:clean(chatbot.intro,700)||defaults.chatbot.intro} });
-  } catch(e){ res.status(500).json({error:e.message||"Unable to load public data."}); }
-});
+app.get('/api/public/config', (req, res) => res.json({ razorpayKeyId: process.env.RAZORPAY_KEY_ID || '' }))
+app.get('/api/public/store', async (req, res) => { try { const [settings, chatbot, products, categories, banners] = await Promise.all([getSettings(), getChatbot(), getProducts(), getCategories(), getBanners()]); res.json({ settings: { ...settings, chatbotName: chatbot.name }, chatbot, chatbotEnabled: settings.chatbotEnabled !== false, categories, products, banners }) } catch (e) { res.status(500).json({ error: e.message }) } })
 
-// User authentication
-app.post("/api/auth/signup", async (req,res)=>{
+app.post('/api/auth/signup', async (req, res) => {
   try {
-    const name=clean(req.body.name,100), email=cleanEmail(req.body.email), password=String(req.body.password||""), referralCode=clean(req.body.referralCode,40).toUpperCase();
-    if(name.length<2) return res.status(400).json({error:"Name is required."});
-    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({error:"Enter a valid email."});
-    if(password.length<6) return res.status(400).json({error:"Password must be at least 6 characters."});
-    const existing=await db.collection("users").where("email","==",email).limit(1).get();
-    if(!existing.empty) return res.status(409).json({error:"An account with this email already exists."});
-    let referrer=null;
-    if(referralCode){
-      const rs=await db.collection("users").where("referralCode","==",referralCode).limit(1).get();
-      if(!rs.empty) referrer={id:rs.docs[0].id,...rs.docs[0].data()};
+    const name = clean(req.body.name, 120), em = email(req.body.email), password = String(req.body.password || ''), phone = clean(req.body.phone, 25)
+    if (name.length < 2 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em) || password.length < 6) return res.status(400).json({ error: 'Enter a valid name, email and password (min 6 chars).' })
+    const exists = await db.collection('users').where('email', '==', em).limit(1).get(); if (!exists.empty) return res.status(409).json({ error: 'An account with this email already exists.' })
+    const ref = db.collection('users').doc(); const passwordHash = await hashPassword(password)
+    await ref.set({ name, email: em, phone, passwordHash, active: true, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() })
+    await db.collection('wallets').doc(ref.id).set({ uid: ref.id, balance: 0, updatedAt: FieldValue.serverTimestamp() }, { merge: true })
+    setCookie(res, SESSION_COOKIE, token('user', ref.id, 168, SESSION_SECRET), 7 * 86400)
+    res.json({ ok: true, user: { id: ref.id, name, email: em, phone, active: true } })
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+app.post('/api/auth/login', async (req, res) => {
+  try { const em = email(req.body.email), password = String(req.body.password || ''); const q = await db.collection('users').where('email', '==', em).limit(1).get(); if (q.empty || !(await verifyPassword(password, q.docs[0].data().passwordHash))) return res.status(401).json({ error: 'Invalid email or password.' }); const u = q.docs[0].data(); if (u.active === false) return res.status(403).json({ error: 'This account is disabled.' }); setCookie(res, SESSION_COOKIE, token('user', q.docs[0].id, 168, SESSION_SECRET), 7 * 86400); res.json({ ok: true, user: { id: q.docs[0].id, name: u.name, email: u.email, phone: u.phone || '', active: u.active !== false } }) } catch (e) { res.status(500).json({ error: e.message }) }
+})
+app.post('/api/auth/logout', (req, res) => { clearCookie(res, SESSION_COOKIE); res.json({ ok: true }) })
+app.get('/api/auth/me', async (req, res) => { try { const u = await currentUser(req); res.json({ authenticated: !!u, user: u ? { id: u.id, name: u.name, email: u.email, phone: u.phone || '', active: u.active !== false } : null }) } catch (e) { res.status(500).json({ error: e.message }) } })
+
+app.get('/api/user/profile', guardUser, async (req, res) => res.json({ user: { id: req.user.id, name: req.user.name, email: req.user.email, phone: req.user.phone || '' } }))
+app.post('/api/user/profile', guardUser, async (req, res) => { try { const name = clean(req.body.name, 120), phone = clean(req.body.phone, 25); if (name.length < 2) return res.status(400).json({ error: 'Enter a valid name.' }); await db.collection('users').doc(req.user.id).set({ name, phone, updatedAt: FieldValue.serverTimestamp() }, { merge: true }); const user = await getDoc('users', req.user.id, {}); res.json({ ok: true, user: { id: req.user.id, name, email: user.email, phone } }) } catch (e) { res.status(500).json({ error: e.message }) } })
+
+app.get('/api/shop/addresses', guardUser, async (req, res) => { try { const s = await db.collection('users').doc(req.user.id).collection('addresses').get(); res.json({ addresses: s.docs.map(d => ({ id: d.id, ...d.data() })) }) } catch (e) { res.status(500).json({ error: e.message }) } })
+app.post('/api/shop/addresses', guardUser, async (req, res) => { try { const p = { name: clean(req.body.name, 100), phone: clean(req.body.phone, 25), line1: clean(req.body.line1, 300), city: clean(req.body.city, 100), state: clean(req.body.state, 100), pincode: clean(req.body.pincode, 10), landmark: clean(req.body.landmark, 150), updatedAt: FieldValue.serverTimestamp() }; if (!p.name || !p.phone || !p.line1 || !p.city || !p.state || !/^\d{6}$/.test(p.pincode)) return res.status(400).json({ error: 'Complete the address with a valid 6-digit pincode.' }); const ref = db.collection('users').doc(req.user.id).collection('addresses').doc(); await ref.set({ ...p, createdAt: FieldValue.serverTimestamp() }); res.json({ ok: true, id: ref.id }) } catch (e) { res.status(500).json({ error: e.message }) } })
+app.delete('/api/shop/addresses', guardUser, async (req, res) => { try { const id = safeId(req.body.id); await db.collection('users').doc(req.user.id).collection('addresses').doc(id).delete(); res.json({ ok: true }) } catch (e) { res.status(500).json({ error: e.message }) } })
+
+app.post('/api/shop/coupon', async (req, res) => { try { res.json(await couponFor(req.body.code, req.body.subtotal)) } catch (e) { res.status(400).json({ error: e.message }) } })
+
+function orderNo() { return `QK-${new Date().getFullYear()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}` }
+async function buildOrderItems(items) {
+  const products = await getProducts()
+  const map = new Map(products.map(p => [p.id, p]))
+  const result = []
+  for (const raw of Array.isArray(items) ? items : []) {
+    const p = map.get(safeId(raw.id)); const qty = Math.min(99, Math.max(1, money(raw.qty)))
+    if (!p || p.active === false) throw new Error('One of the selected products is no longer available.')
+    if (money(p.stock) < qty) throw new Error(`${p.title} has only ${p.stock} left.`)
+    result.push({ id: p.id, title: p.title, qty, price: money(p.price), image: p.images?.[0] || p.imageUrl || '' })
+  }
+  if (!result.length) throw new Error('Your cart is empty.')
+  return result
+}
+function totals(items, settings, discount) { const subtotal = items.reduce((s, x) => s + x.price * x.qty, 0); const d = Math.min(subtotal, Math.max(0, money(discount))); const shipping = subtotal >= money(settings.freeShipping) ? 0 : money(settings.shippingFlat); return { subtotal, discount: d, shipping, total: subtotal - d + shipping } }
+
+app.post('/api/shop/create-order', guardUser, async (req, res) => {
+  try {
+    const settings = await getSettings(); const items = await buildOrderItems(req.body.items); const t = totals(items, settings, req.body.discount)
+    let coupon = null; if (req.body.coupon) { try { coupon = await couponFor(req.body.coupon, t.subtotal); if (coupon.amount !== t.discount) t.discount = coupon.amount; t.total = t.subtotal - t.discount + t.shipping } catch (e) { return res.status(400).json({ error: e.message }) } }
+    const address = { name: clean(req.body.address?.name, 100), phone: clean(req.body.address?.phone, 25), line1: clean(req.body.address?.line1, 300), city: clean(req.body.address?.city, 100), state: clean(req.body.address?.state, 100), pincode: clean(req.body.address?.pincode, 10), landmark: clean(req.body.address?.landmark, 150) }
+    if (!address.name || !address.phone || !address.line1 || !address.city || !address.state || !/^\d{6}$/.test(address.pincode)) return res.status(400).json({ error: 'Complete a valid delivery address.' })
+    const paymentMethod = req.body.paymentMethod === 'cod' ? 'cod' : 'online'
+    if (paymentMethod === 'cod' && settings.codEnabled === false) return res.status(400).json({ error: 'Cash on delivery is not enabled.' })
+    const ref = db.collection('orders').doc(); const common = { orderNumber: orderNo(), uid: req.user.id, customer: { name: req.user.name, email: req.user.email, phone: address.phone }, items, address, subtotal: t.subtotal, discount: t.discount, shipping: t.shipping, total: t.total, coupon: coupon ? { code: coupon.code, amount: coupon.amount } : null, paymentMethod, paymentStatus: paymentMethod === 'cod' ? 'cod' : 'created', fulfillmentStatus: paymentMethod === 'cod' ? 'confirmed' : 'processing', createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }
+    if (paymentMethod === 'cod') {
+      await db.runTransaction(async tx => { for (const item of items) { const pr = db.collection('products').doc(item.id); const ps = await tx.get(pr); if (ps.exists) { const stock = money(ps.data().stock); if (stock < item.qty) throw new Error(`${item.title} went out of stock. Please refresh your cart.`); tx.update(pr, { stock: stock - item.qty, updatedAt: FieldValue.serverTimestamp() }) } } tx.set(ref, common); if (coupon) tx.set(db.collection('coupons').doc(coupon.id), { usedCount: FieldValue.increment(1), updatedAt: FieldValue.serverTimestamp() }, { merge: true }) })
+      return res.json({ ok: true, orderId: ref.id, paymentMethod })
     }
-    const ref=db.collection("users").doc();
-    const newReferralCode=await createReferralCode();
-    await ref.set({name,email,passwordHash:await hashPassword(password),active:true,upiId:"",phone:"",profileImage:"",referralCode:newReferralCode,referredBy:referrer?.id||"",createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
-    await db.collection("wallets").doc(ref.id).set({uid:ref.id,balance:0,depositBalance:0,earningsBalance:0,bonusBalance:0,balanceSourceVersion:2,updatedAt:FieldValue.serverTimestamp()});
-    if(referrer) await db.collection("referrals").doc(ref.id).set({referrerUid:referrer.id,referredUid:ref.id,referralCode,createdAt:FieldValue.serverTimestamp(),status:"joined"});
-    setCookie(res,SESSION_COOKIE,createToken("user",ref.id,168,SESSION_SECRET),7*24*60*60);
-    res.json({ok:true,user:{id:ref.id,name,email,balance:0,referralCode:newReferralCode}});
-  } catch(e){res.status(500).json({error:e.message||"Unable to create account."});}
-});
-app.post("/api/auth/login", async (req,res)=>{
+    const rpOrder = await razorpay.orders.create({ amount: t.total * 100, currency: 'INR', receipt: `shop_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`, notes: { uid: req.user.id, orderId: ref.id } })
+    await ref.set({ ...common, paymentStatus: 'created', razorpayOrderId: rpOrder.id })
+    res.json({ ok: true, orderId: ref.id, razorpayOrderId: rpOrder.id, amount: rpOrder.amount, currency: rpOrder.currency, keyId: process.env.RAZORPAY_KEY_ID })
+  } catch (e) { res.status(400).json({ error: e.message || 'Unable to create order.' }) }
+})
+
+app.post('/api/shop/verify-payment', guardUser, async (req, res) => {
   try {
-    const email=cleanEmail(req.body.email), password=String(req.body.password||"");
-    const snap=await db.collection("users").where("email","==",email).limit(1).get();
-    if(snap.empty || !(await verifyPassword(password,snap.docs[0].data().passwordHash))) return res.status(401).json({error:"Invalid email or password."});
-    const user={id:snap.docs[0].id,...snap.docs[0].data()}; if(user.active===false) return res.status(403).json({error:"This account is disabled."});
-    setCookie(res,SESSION_COOKIE,createToken("user",user.id,168,SESSION_SECRET),7*24*60*60);
-    res.json({ok:true,user:sanitizeUser(user),balance:await getWallet(user.id)});
-  } catch(e){res.status(500).json({error:e.message||"Login failed."});}
-});
-app.post("/api/auth/logout",(req,res)=>{clearCookie(res,SESSION_COOKIE);res.json({ok:true});});
-app.get("/api/auth/me",async(req,res)=>{try{const u=await currentUser(req);if(!u)return res.json({authenticated:false});const referralCode=await ensureReferralCode(u.id);const safe=sanitizeUser({...u,referralCode});res.json({authenticated:true,user:safe,balance:await getWallet(u.id)});}catch(e){res.status(500).json({error:e.message});}});
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body || {}
+    const expected = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET).update(`${razorpay_order_id}|${razorpay_payment_id}`).digest('hex')
+    if (!safeEqual(expected, razorpay_signature)) return res.status(400).json({ error: 'Payment signature verification failed.' })
+    const q = await db.collection('orders').where('razorpayOrderId', '==', razorpay_order_id).limit(1).get(); if (q.empty) return res.status(404).json({ error: 'Order not found.' }); const ref = q.docs[0].ref; const o = q.docs[0].data(); if (o.uid !== req.user.id) return res.status(403).json({ error: 'Order access denied.' }); if (o.paymentStatus === 'paid') return res.json({ ok: true, alreadyVerified: true, orderId: ref.id })
+    const payment = await razorpay.payments.fetch(razorpay_payment_id); if (payment.status !== 'captured' || money(payment.amount) !== money(o.total) * 100 || payment.order_id !== razorpay_order_id) return res.status(400).json({ error: 'Payment is not valid or captured.' })
+    await db.runTransaction(async tx => { for (const item of o.items || []) { const pr = db.collection('products').doc(item.id); const ps = await tx.get(pr); if (ps.exists) { const stock = money(ps.data().stock); if (stock < item.qty) throw new Error(`${item.title} is out of stock after payment verification. Contact support with your order number.`); tx.update(pr, { stock: stock - item.qty, updatedAt: FieldValue.serverTimestamp() }) } } tx.set(ref, { paymentStatus: 'paid', fulfillmentStatus: 'confirmed', paymentId: razorpay_payment_id, paidAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true }); if (o.coupon?.code) tx.set(db.collection('coupons').doc(o.coupon.code), { usedCount: FieldValue.increment(1), updatedAt: FieldValue.serverTimestamp() }, { merge: true }); tx.set(db.collection('transactions').doc(), { uid: req.user.id, orderId: ref.id, type: 'shop_order', amount: o.total, status: 'completed', title: `Order ${o.orderNumber}`, createdAt: FieldValue.serverTimestamp() }) })
+    res.json({ ok: true, orderId: ref.id })
+  } catch (e) { res.status(400).json({ error: e.message || 'Payment verification failed.' }) }
+})
 
-// User dashboard/profile
-app.get("/api/user/dashboard",guardUser,async(req,res)=>{try{res.json(await userDashboard(req.user.id));}catch(e){res.status(500).json({error:e.message||"Unable to load dashboard."});}});
-app.post("/api/user/profile",guardUser,async(req,res)=>{
-  try {
-    const currentSnap=await db.collection("users").doc(req.user.id).get();
-    const current=currentSnap.exists?currentSnap.data():{};
-    const name=clean(req.body.name,100), phone=clean(req.body.phone,30), requestedUpi=clean(req.body.upiId,120);
-    if(name.length<2) return res.status(400).json({error:"Name is required."});
-    const existingUpi=clean(current.upiId,120);
-    if(existingUpi && requestedUpi && requestedUpi!==existingUpi) {
-      return res.status(409).json({error:"UPI ID can only be changed by admin after the first save."});
-    }
-    const upiId=existingUpi||requestedUpi;
-    const patch={name,phone,upiId,updatedAt:FieldValue.serverTimestamp()};
-    await db.collection("users").doc(req.user.id).set(patch,{merge:true});
-    res.json({ok:true,user:sanitizeUser({...req.user,...patch})});
-  } catch(e){res.status(500).json({error:e.message||"Unable to save profile."});}
-});
-app.get("/api/user/transactions",guardUser,async(req,res)=>{try{await settleEarnings(req.user.id);const snap=await db.collection("transactions").where("uid","==",req.user.id).get();res.json({transactions:snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>dateMs(b.createdAt)-dateMs(a.createdAt)).slice(0,300)});}catch(e){res.status(500).json({error:e.message});}});
-app.get("/api/user/referrals",guardUser,async(req,res)=>{
-  try{
-    const [info, settings] = await Promise.all([getReferralInfo(req.user.id), getDoc("settings","main",defaults.settings)]);
-    info.rewardAmount = Math.max(0, money(settings.referralReward));
-    res.json(info);
-  }catch(e){res.status(500).json({error:e.message||"Unable to load referrals."});}
-});
+app.get('/api/shop/orders', guardUser, async (req, res) => { try { const q = await db.collection('orders').where('uid', '==', req.user.id).get(); const rows = q.docs.map(d=>({ id:d.id, ...d.data() })).sort((a,b)=>dateMs(b.createdAt)-dateMs(a.createdAt)); res.json({ orders: rows.slice(0, 200).map(jsonSafe) }) } catch (e) { res.status(500).json({ error: e.message }) } })
+app.get('/api/shop/orders/:id', guardUser, async (req, res) => { try { const o = await getDoc('orders', safeId(req.params.id), null); if (!o || o.uid !== req.user.id) return res.status(404).json({ error: 'Order not found.' }); res.json({ order: jsonSafe(o) }) } catch (e) { res.status(500).json({ error: e.message }) } })
+app.post('/api/shop/orders/cancel', guardUser, async (req, res) => { try { const ref = db.collection('orders').doc(safeId(req.body.id)); const snap = await ref.get(); if (!snap.exists || snap.data().uid !== req.user.id) return res.status(404).json({ error: 'Order not found.' }); const o=snap.data(); if (!['processing','confirmed'].includes(o.fulfillmentStatus)) return res.status(400).json({ error: 'This order can no longer be cancelled online.' }); await ref.set({ fulfillmentStatus:'cancelled', cancelledAt:FieldValue.serverTimestamp(), updatedAt:FieldValue.serverTimestamp(), refundStatus:o.paymentStatus==='paid'?'pending_not_automatic':'not_required' },{merge:true}); res.json({ok:true}) } catch(e){res.status(400).json({error:e.message})} })
 
-// User profile image upload (ImgBB)
-app.post("/api/user/profile-image",guardUser,async(req,res)=>{
-  try {
-    const key=String(process.env.IMGBB_API_KEY||"").trim(); if(!key)return res.status(503).json({error:"ImgBB API is not configured."});
-    const raw=String(req.body?.image||""); if(!raw)return res.status(400).json({error:"Please select an image first."});
-    const base64=raw.includes(",")?raw.split(",").slice(1).join(","):raw;
-    const bytes=Math.floor((base64.replace(/\s/g,"").length*3)/4); if(bytes>8*1024*1024)return res.status(413).json({error:"Image must be under 8 MB."});
-    const params=new URLSearchParams(); params.set("image",base64.replace(/\s/g,"")); params.set("name",`qikly_profile_${req.user.id}`);
-    const r=await fetch(`https://api.imgbb.com/1/upload?key=${encodeURIComponent(key)}`,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:params});
-    const d=await r.json().catch(()=>({})); if(!r.ok||!d?.success||!d?.data?.url)return res.status(502).json({error:d?.error?.message||"ImgBB upload failed."});
-    const profileImage=d.data.url;
-    await db.collection("users").doc(req.user.id).set({profileImage,updatedAt:FieldValue.serverTimestamp()},{merge:true});
-    res.json({ok:true,profileImage});
-  }catch(e){res.status(500).json({error:e.message||"Unable to upload profile image."});}
-});
+app.get('/api/shop/reviews/:productId', async (req,res)=>{try{const q=await db.collection('reviews').where('productId','==',safeId(req.params.productId)).limit(100).get();res.json({reviews:q.docs.map(d=>jsonSafe({id:d.id,...d.data()})).sort((a,b)=>dateMs(b.createdAt)-dateMs(a.createdAt))})}catch(e){res.status(500).json({error:e.message})}})
+app.post('/api/shop/reviews', guardUser, async(req,res)=>{try{const productId=safeId(req.body.productId),rating=Math.min(5,Math.max(1,money(req.body.rating))),text=clean(req.body.text,1200);const p=await getDoc('products',productId,null);if(!p)return res.status(404).json({error:'Product not found.'});if(text.length<8)return res.status(400).json({error:'Review is too short.'});const existing=await db.collection('reviews').where('productId','==',productId).limit(100).get(); const own=existing.docs.find(d=>d.data()?.uid===req.user.id);const ref=own?own.ref:db.collection('reviews').doc();await ref.set({productId,uid:req.user.id,name:req.user.name,rating,text,createdAt:own?own.data().createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()},{merge:true});res.json({ok:true})}catch(e){res.status(400).json({error:e.message})}})
 
-// Wallet / Razorpay deposits
-app.post("/api/wallet/create-order",guardUser,async(req,res)=>{
-  try {
-    const amount=money(req.body.amount); if(amount<1||amount>10000000)return res.status(400).json({error:"Enter a valid amount between ₹1 and ₹1,00,00,000."});
-    const order=await razorpay.orders.create({amount:amount*100,currency:"INR",receipt:`qikly_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`,notes:{uid:req.user.id}});
-    await db.collection("transactions").doc(order.id).set({uid:req.user.id,type:"deposit",amount,status:"created",title:"Wallet deposit",description:"Razorpay wallet top-up",orderId:order.id,createdAt:FieldValue.serverTimestamp()});
-    res.json({ok:true,orderId:order.id,amount:order.amount,currency:order.currency});
-  } catch(e){res.status(500).json({error:e.message||"Unable to create payment order."});}
-});
-app.post("/api/wallet/verify-payment",guardUser,async(req,res)=>{
-  try {
-    await ensureWalletBuckets(req.user.id);
-    const {razorpay_order_id,razorpay_payment_id,razorpay_signature}=req.body||{};
-    if(!razorpay_order_id||!razorpay_payment_id||!razorpay_signature)return res.status(400).json({error:"Incomplete Razorpay response."});
-    const expected=crypto.createHmac("sha256",process.env.RAZORPAY_KEY_SECRET).update(`${razorpay_order_id}|${razorpay_payment_id}`).digest("hex");
-    if(!timingSafeEqualText(expected,razorpay_signature))return res.status(400).json({error:"Payment signature verification failed."});
-    const ref=db.collection("transactions").doc(razorpay_order_id), snap=await ref.get();
-    if(!snap.exists||snap.data().uid!==req.user.id||snap.data().type!=="deposit")return res.status(404).json({error:"Deposit order not found."});
-    const tx=snap.data(); const payment=await razorpay.payments.fetch(razorpay_payment_id);
-    if(payment.status!=="captured"||payment.order_id!==razorpay_order_id)return res.status(400).json({error:"Payment is not valid or captured."});
-    if(money(payment.amount)!==money(tx.amount)*100)return res.status(400).json({error:"Payment amount does not match."});
-    if(tx.status!=="completed"){
-      await db.runTransaction(async t=>{
-        const tr=await t.get(ref); if(tr.data()?.status==="completed")return;
-        const walletRef=db.collection("wallets").doc(req.user.id), ws=await t.get(walletRef), wd=ws.exists?ws.data():{};
-        const bal=money(wd.balance), deposit=money(wd.depositBalance);
-        t.set(walletRef,{uid:req.user.id,balance:bal+money(tx.amount),depositBalance:deposit+money(tx.amount),earningsBalance:money(wd.earningsBalance),bonusBalance:money(wd.bonusBalance),balanceSourceVersion:2,updatedAt:FieldValue.serverTimestamp()},{merge:true});
-        t.set(ref,{status:"completed",paymentId:razorpay_payment_id,verifiedAt:FieldValue.serverTimestamp()},{merge:true});
-      });
-    }
-    res.json({ok:true,balance:await getWallet(req.user.id)});
-  } catch(e){res.status(500).json({error:e.message||"Payment verification failed."});}
-});
+app.post('/api/chatbot', async (req,res)=>{try{const bot=await getChatbot();if((await getSettings()).chatbotEnabled===false)return res.status(403).json({error:'AI support is currently disabled.'});const userMessage=clean(req.body.message,1500);if(!userMessage)return res.status(400).json({error:'Message is required.'});const products=(await getProducts()).slice(0,60).map(p=>`${p.title} | ₹${p.price} | stock ${p.stock} | category ${p.category}`).join('\n');const answer=await geminiGenerate([{role:'user',parts:[{text:userMessage}]}],`${bot.prompt}\nStore context:\n${products}\nCurrent support scope: ${bot.topic}`);res.json({ok:true,name:bot.name,answer})}catch(e){res.status(500).json({error:e.message})}})
 
-// Investments
-app.post("/api/investments/buy",guardUser,async(req,res)=>{
-  try {
-    const plans=await getPlans(); const plan=plans.find(p=>p.id===String(req.body.planId));
-    if(!plan)return res.status(404).json({error:"Plan not found."});
-    const amount=money(plan.amount); if(amount<=0||money(plan.days)<=0||money(plan.dailyIncrease)<=0)return res.status(400).json({error:"This plan is not configured correctly."});
-    await settleEarnings(req.user.id);
-    const settings=await getDoc("settings","main",defaults.settings);
-    const referralReward=Math.max(0,money(settings.referralReward));
-    const referralSnap=await db.collection("referrals").where("referredUid","==",req.user.id).limit(1).get();
-    const referralRef=referralSnap.empty?null:referralSnap.docs[0].ref;
-    if(referralRef){const referralSeed=await referralRef.get();const referrerUid=referralSeed.exists?referralSeed.data().referrerUid:"";if(referrerUid)await ensureWalletBuckets(referrerUid);}
-    const ref=db.collection("investments").doc();
-    await db.runTransaction(async t=>{
-      const walletRef=db.collection("wallets").doc(req.user.id);
-      const ws=await t.get(walletRef);
-      const wd=ws.exists?ws.data():{};
-      const bal=money(wd.balance), deposit=money(wd.depositBalance), bonus=money(wd.bonusBalance), earnings=money(wd.earningsBalance);
-      if(bal<amount) throw new Error(`Insufficient balance. Add ${money(amount-bal).toLocaleString("en-IN")} more.`);
+app.post('/api/admin/login',(req,res)=>{const password=String(req.body.password||'');if(!safeEqual(password,ADMIN_PASSWORD))return res.status(401).json({error:'Wrong password.'});setCookie(res,ADMIN_COOKIE,token('admin','panel',12,ADMIN_PASSWORD),12*3600);res.json({ok:true})})
+app.post('/api/admin/logout',(req,res)=>{clearCookie(res,ADMIN_COOKIE);res.json({ok:true})})
+app.get('/api/admin/me',(req,res)=>res.json({authenticated:isAdmin(req)}))
 
-      const referralState=referralRef?await t.get(referralRef):null;
-      const referralData=referralState?.exists?referralState.data():null;
-      let referrerWalletRef=null, referrerWalletSnap=null, reward=0;
-      const shouldProcessFirstPlan=!!referralData && !referralData.firstPlanPurchasedAt;
-      if(shouldProcessFirstPlan){
-        reward=referralReward;
-        if(referralData.referrerUid){
-          referrerWalletRef=db.collection("wallets").doc(referralData.referrerUid);
-          referrerWalletSnap=await t.get(referrerWalletRef);
-        }
-      }
+app.get('/api/admin/data',guardAdmin,async(req,res)=>{try{
+  const [settings,chatbot,products,categories,banners,coupons,orders] = await Promise.all([getSettings(),getChatbot(),getProducts(true),getCategories(true),getBanners(true),getCoupons(true),listCollection('orders',1000)])
+  const usersRaw=await listCollection('users',1000);const ordersSorted=orders.sort((a,b)=>dateMs(b.createdAt)-dateMs(a.createdAt)); const paidRevenue=orders.filter(o=>o.paymentStatus==='paid').reduce((s,o)=>s+money(o.total),0)
+  const userStats=new Map(); orders.forEach(o=>{const x=userStats.get(o.uid)||{orderCount:0,totalSpend:0};x.orderCount++;if(o.paymentStatus==='paid')x.totalSpend+=money(o.total);userStats.set(o.uid,x)})
+  const users=usersRaw.map(u=>({id:u.id,name:u.name,email:u.email,phone:u.phone||'',active:u.active!==false,createdAt:u.createdAt,...(userStats.get(u.id)||{})})).sort((a,b)=>dateMs(b.createdAt)-dateMs(a.createdAt))
+  const stats={revenue:paidRevenue,orders:orders.length,pendingOrders:orders.filter(o=>!['delivered','cancelled'].includes(o.fulfillmentStatus)).length,users:users.length,activeUsers:users.filter(u=>u.active!==false).length,products:products.length,lowStock:products.filter(p=>money(p.stock)<5&&p.active!==false).length,activeCoupons:coupons.filter(c=>c.active!==false).length,activeBanners:banners.filter(b=>b.active!==false).length}
+  res.json({settings,chatbot,products:products.map(jsonSafe),categories:categories.map(jsonSafe),banners:banners.map(jsonSafe),coupons:coupons.map(jsonSafe),orders:ordersSorted.map(jsonSafe),users:users.map(jsonSafe),stats})
+}catch(e){res.status(500).json({error:e.message})}})
 
-      const start=new Date(), end=new Date(start.getTime()+money(plan.days)*DAY_MS);
-      let needToSpend=amount;
-      const spendDeposit=Math.min(deposit,needToSpend); needToSpend-=spendDeposit;
-      const spendBonus=Math.min(bonus,needToSpend); needToSpend-=spendBonus;
-      const spendEarnings=Math.min(earnings,needToSpend); needToSpend-=spendEarnings;
-      if(needToSpend>0) throw new Error("Insufficient balance.");
-      t.set(walletRef,{uid:req.user.id,balance:bal-amount,depositBalance:deposit-spendDeposit,bonusBalance:bonus-spendBonus,earningsBalance:earnings-spendEarnings,balanceSourceVersion:2,updatedAt:FieldValue.serverTimestamp()},{merge:true});
-      t.set(ref,{uid:req.user.id,planId:plan.id,planTitle:clean(plan.title,160),amount,days:money(plan.days),dailyIncrease:money(plan.dailyIncrease),startAt:start,endAt:end,creditedDays:0,status:"active",createdAt:FieldValue.serverTimestamp()});
-      t.set(db.collection("transactions").doc(),{uid:req.user.id,type:"investment",amount:-amount,status:"completed",title:`Plan activated: ${clean(plan.title,160)}`,description:`${money(plan.days)} day plan`,referenceId:ref.id,createdAt:FieldValue.serverTimestamp()});
+app.post('/api/admin/settings',guardAdmin,async(req,res)=>{try{const current=await getSettings();const next={...current,...req.body,freeShipping:money(req.body.freeShipping),shippingFlat:money(req.body.shippingFlat),codEnabled:req.body.codEnabled!==false,chatbotEnabled:req.body.chatbotEnabled!==false,logoText:clean(req.body.logoText,4)||'Q',siteName:clean(req.body.siteName,100)||defaults.settings.siteName,heroImage:validUrl(req.body.heroImage)?clean(req.body.heroImage,1200):current.heroImage};await db.collection('settings').doc('main').set(next,{merge:true});res.json({ok:true})}catch(e){res.status(400).json({error:e.message})}})
+app.post('/api/admin/chatbot',guardAdmin,async(req,res)=>{try{await db.collection('chatbot').doc('main').set({name:clean(req.body.name,80)||defaults.chatbot.name,intro:clean(req.body.intro,500),topic:clean(req.body.topic,1800),prompt:clean(req.body.prompt,2000),updatedAt:FieldValue.serverTimestamp()},{merge:true});res.json({ok:true})}catch(e){res.status(400).json({error:e.message})}})
 
-      if(shouldProcessFirstPlan && referralData.referrerUid){
-        const referrerWalletData=referrerWalletSnap?.exists?referrerWalletSnap.data():{};
-        const currentReferrerBalance=money(referrerWalletData.balance), currentBonus=money(referrerWalletData.bonusBalance);
-        t.set(referrerWalletRef,{uid:referralData.referrerUid,balance:currentReferrerBalance+reward,bonusBalance:currentBonus+reward,depositBalance:money(referrerWalletData.depositBalance),earningsBalance:money(referrerWalletData.earningsBalance),balanceSourceVersion:2,updatedAt:FieldValue.serverTimestamp()},{merge:true});
-        t.set(referralRef,{firstPlanPurchasedAt:FieldValue.serverTimestamp(),rewardPaid:true,rewardAmount:reward,rewardPaidAt:FieldValue.serverTimestamp(),status:reward>0?"rewarded":"qualified"},{merge:true});
-        if(reward>0){
-          t.set(db.collection("transactions").doc(),{uid:referralData.referrerUid,type:"referral_bonus",amount:reward,status:"completed",title:"Referral plan bonus",description:`One-time bonus for ${clean(req.user.name,100)||"a referred user"}'s first plan purchase.`,referenceId:ref.id,createdAt:FieldValue.serverTimestamp()});
-        }
-      } else if(referralData && !referralData.firstPlanPurchasedAt){
-        t.set(referralRef,{firstPlanPurchasedAt:FieldValue.serverTimestamp(),rewardPaid:true,rewardAmount:0,status:"qualified"},{merge:true});
-      }
-    });
-    res.json({ok:true,balance:await getWallet(req.user.id),referralBonus:referralReward});
-  } catch(e){res.status(400).json({error:e.message||"Unable to activate plan."});}
-});
+app.post('/api/admin/upload-image',guardAdmin,async(req,res)=>{try{const key=String(process.env.IMGBB_API_KEY||'');if(!key)return res.status(503).json({error:'ImgBB upload is not configured.'});const image=String(req.body.image||'').split(',').pop().replace(/\s/g,'');if(!image)return res.status(400).json({error:'Image is required.'});const params=new URLSearchParams();params.set('image',image);if(req.body.name)params.set('name',clean(req.body.name,120));const r=await fetch(`https://api.imgbb.com/1/upload?key=${encodeURIComponent(key)}`,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:params});const d=await r.json().catch(()=>({}));if(!r.ok||!d?.success||!d?.data?.url)return res.status(502).json({error:d?.error?.message||'ImgBB upload failed.'});res.json({ok:true,imageUrl:d.data.url})}catch(e){res.status(500).json({error:e.message})}})
 
-// Withdrawals (manual admin payout flow)
-app.post("/api/withdrawals",guardUser,async(req,res)=>{
-  try {
-    const settings = await getDoc("settings", "main", defaults.settings);
-    const minWithdrawal = Math.max(1, money(settings.minWithdrawal) || MIN_WITHDRAWAL);
-    const amount=money(req.body.amount); await settleEarnings(req.user.id);
-    if(amount<minWithdrawal)return res.status(400).json({error:`Minimum withdrawal is ₹${minWithdrawal}.`});
-    const userSnap=await db.collection("users").doc(req.user.id).get(), user=userSnap.data()||{};
-    const upiId=clean(user.upiId,120); if(!upiId)return res.status(400).json({error:"Add a UPI ID in your profile first."});
-    const withdrawalRef=db.collection("withdrawals").doc(), txRef=db.collection("transactions").doc();
-    await db.runTransaction(async t=>{
-      const walletRef=db.collection("wallets").doc(req.user.id), ws=await t.get(walletRef), wd=ws.exists?ws.data():{}, earnings=money(wd.earningsBalance), bal=money(wd.balance);
-      if(earnings<amount)throw new Error(`Only plan earnings can be withdrawn. Withdrawable earnings: ${money(earnings)}.`);
-      t.set(walletRef,{uid:req.user.id,balance:bal-amount,earningsBalance:earnings-amount,depositBalance:money(wd.depositBalance),bonusBalance:money(wd.bonusBalance),balanceSourceVersion:2,updatedAt:FieldValue.serverTimestamp()},{merge:true});
-      t.set(withdrawalRef,{uid:req.user.id,amount,upiId,status:"pending",requestedAt:FieldValue.serverTimestamp(),processedAt:null,source:"plan_earnings"});
-      t.set(txRef,{uid:req.user.id,type:"withdrawal",amount:-amount,status:"pending",title:"Withdrawal request",description:`Requested to ${upiId} from plan earnings`,referenceId:withdrawalRef.id,createdAt:FieldValue.serverTimestamp(),source:"plan_earnings"});
-    });
-    res.json({ok:true,message:"Withdrawal request submitted for admin review.",balance:await getWallet(req.user.id)});
-  } catch(e){res.status(400).json({error:e.message||"Unable to create withdrawal request."});}
-});
+function saveValidationProduct(req){const p={id:safeId(req.body.id)||`product_${Date.now()}`,title:clean(req.body.title,180),slug:safeId(req.body.slug)||clean(req.body.title,160).toLowerCase().replace(/[^a-z0-9]+/g,'-'),category:clean(req.body.category,80),price:money(req.body.price),compareAtPrice:money(req.body.compareAtPrice),stock:money(req.body.stock),sku:clean(req.body.sku,80),images:Array.isArray(req.body.images)?req.body.images.slice(0,8).map(x=>clean(x,1200)).filter(validUrl):[],imageUrl:validUrl(req.body.imageUrl)?clean(req.body.imageUrl,1200):'',description:clean(req.body.description,3000),highlights:Array.isArray(req.body.highlights)?req.body.highlights.slice(0,12).map(x=>clean(x,140)) : [],featured:req.body.featured!==false,badge:clean(req.body.badge,80),active:req.body.active!==false,sortOrder:money(req.body.sortOrder)||Date.now(),updatedAt:FieldValue.serverTimestamp()};if(!p.title||p.price<=0)return {error:'Product title and selling price are required.'};if(!p.images.length&&p.imageUrl)p.images=[p.imageUrl];if(!p.images.length)return {error:'At least one HTTPS image URL is required.'};return {p}}
+app.post('/api/admin/product',guardAdmin,async(req,res)=>{try{const out=saveValidationProduct(req);if(out.error)return res.status(400).json({error:out.error});await db.collection('products').doc(out.p.id).set(out.p,{merge:true});res.json({ok:true,id:out.p.id})}catch(e){res.status(400).json({error:e.message})}})
+app.delete('/api/admin/product',guardAdmin,async(req,res)=>{try{await db.collection('products').doc(safeId(req.body.id)).delete();res.json({ok:true})}catch(e){res.status(400).json({error:e.message})}})
 
-// Support chatbot
-app.post("/api/chatbot",async(req,res)=>{
-  try {
-    const [chatbot,settings,plans]=await Promise.all([getDoc("chatbot","main",defaults.chatbot),getDoc("settings","main",defaults.settings),getPlans()]);
-    const message=clean(req.body.message,1200); if(!message)return res.status(400).json({error:"Message is required."});
-    const history=Array.isArray(req.body.history)?req.body.history.slice(-8):[];
-    const contents=[]; history.forEach(item=>{if(item?.role==="user"||item?.role==="model")contents.push({role:item.role,parts:[{text:clean(item.text,1200)}]});}); contents.push({role:"user",parts:[{text:message}]});
-    const planContext=plans.map(p=>`${p.title}: ₹${money(p.amount)}, ${money(p.days)} days, daily credit ₹${money(p.dailyIncrease)}`).join(" | ");
-    const system=`You are ${clean(chatbot.name,80)||defaults.chatbot.name}, the support assistant for ${clean(settings.siteName,120)}.\nAdmin topic: ${clean(chatbot.topic,1800)}\nInstructions: ${clean(chatbot.prompt,1800)}\nSite summary: ${clean(settings.heroText,1800)}\nConfigured plans: ${planContext}\nMinimum withdrawal: ₹${MIN_WITHDRAWAL}.\nNever promise guaranteed profit, never fabricate balances or transaction outcomes, and never give regulated financial advice as certainty. Keep replies concise.`;
-    res.json({ok:true,name:clean(chatbot.name,80)||defaults.chatbot.name,answer:await geminiGenerate(contents,system)});
-  } catch(e){res.status(500).json({error:e.message||"Support assistant is unavailable right now."});}
-});
+app.post('/api/admin/category',guardAdmin,async(req,res)=>{try{const id=safeId(req.body.id)||`category_${Date.now()}`;const p={name:clean(req.body.name,100),slug:safeId(req.body.slug)||clean(req.body.name,100).toLowerCase().replace(/[^a-z0-9]+/g,'-'),imageUrl:validUrl(req.body.imageUrl)?clean(req.body.imageUrl,1200):'',active:req.body.active!==false,sortOrder:money(req.body.sortOrder)||1,updatedAt:FieldValue.serverTimestamp()};if(!p.name)return res.status(400).json({error:'Category name is required.'});await db.collection('categories').doc(id).set(p,{merge:true});res.json({ok:true})}catch(e){res.status(400).json({error:e.message})}})
+app.delete('/api/admin/category',guardAdmin,async(req,res)=>{try{await db.collection('categories').doc(safeId(req.body.id)).delete();res.json({ok:true})}catch(e){res.status(400).json({error:e.message})}})
 
-// Admin auth
-app.post("/api/admin/login",(req,res)=>{const password=String(req.body.password||"");if(!timingSafeEqualText(password,ADMIN_PASSWORD))return res.status(401).json({error:"Wrong password."});setCookie(res,ADMIN_COOKIE,createToken("admin","panel",12,ADMIN_PASSWORD),12*60*60);res.json({ok:true});});
-app.post("/api/admin/logout",(req,res)=>{clearCookie(res,ADMIN_COOKIE);res.json({ok:true});});
-app.get("/api/admin/me",(req,res)=>res.json({authenticated:isAdmin(req)}));
+app.post('/api/admin/banner',guardAdmin,async(req,res)=>{try{const id=safeId(req.body.id)||`banner_${Date.now()}`;const p={title:clean(req.body.title,160),subtitle:clean(req.body.subtitle,300),imageUrl:validUrl(req.body.imageUrl)?clean(req.body.imageUrl,1200):'',link:clean(req.body.link,300)||'/shop',badge:clean(req.body.badge,80),active:req.body.active!==false,sortOrder:money(req.body.sortOrder)||1,updatedAt:FieldValue.serverTimestamp()};if(!p.title||!p.imageUrl)return res.status(400).json({error:'Banner title and HTTPS image URL are required.'});await db.collection('banners').doc(id).set(p,{merge:true});res.json({ok:true})}catch(e){res.status(400).json({error:e.message})}})
+app.delete('/api/admin/banner',guardAdmin,async(req,res)=>{try{await db.collection('banners').doc(safeId(req.body.id)).delete();res.json({ok:true})}catch(e){res.status(400).json({error:e.message})}})
 
-app.get("/api/admin/data",guardAdmin,async(req,res)=>{
-  try {
-    const [settings,chatbot,plans,withdrawals,users,transactions,aiGurus,aiPlans,referrals]=await Promise.all([getDoc("settings","main",defaults.settings),getDoc("chatbot","main",defaults.chatbot),listCollection("investmentPlans"),listCollection("withdrawals"),listCollection("users"),listCollection("transactions"),listCollection("aiGurus"),listCollection("aiPlans"),listCollection("referrals")]);
-    const activePlans=plans.length?plans:defaultInvestmentPlans;
-    const paidDeposits=transactions.filter(t=>t.type==="deposit"&&t.status==="completed");
-    const pendingW=withdrawals.filter(w=>w.status==="pending");
-    const usersWithBalances = await Promise.all(users.map(async u => ({...sanitizeUser(u), balance: await getWallet(u.id)})));
-    const stats={users:users.length,depositTotal:paidDeposits.reduce((s,x)=>s+money(x.amount),0),pendingWithdrawals:pendingW.reduce((s,x)=>s+money(x.amount),0),pendingWithdrawalCount:pendingW.length,activePlans:activePlans.filter(x=>x.active!==false).length,referrals:referrals.length};
-    res.set("Cache-Control","no-store");
-    res.json(jsonSafe({settings:publicSettings(settings),chatbot,plans:activePlans.sort((a,b)=>num(a.sortOrder)-num(b.sortOrder)),withdrawals:withdrawals.sort((a,b)=>dateMs(b.requestedAt)-dateMs(a.requestedAt)),users:usersWithBalances.sort((a,b)=>dateMs(b.createdAt)-dateMs(a.createdAt)),transactions:transactions.sort((a,b)=>dateMs(b.createdAt)-dateMs(a.createdAt)).slice(0,500),referrals:referrals.sort((a,b)=>dateMs(b.createdAt)-dateMs(a.createdAt)),aiGurus:aiGurus.length?aiGurus:defaultAiGurus,aiPlans:aiPlans.length?aiPlans:defaultAiPlans,stats}));
-  } catch(e){res.status(500).json({error:e.message||"Unable to load admin data."});}
-});
-app.post("/api/admin/settings",guardAdmin,async(req,res)=>{
-  try {
-    const b=req.body||{},theme=b.theme||{};
-    const payload={siteName:clean(b.siteName,120)||defaults.settings.siteName,tagline:clean(b.tagline,240),heroTitle:clean(b.heroTitle,240),heroText:clean(b.heroText,1800),marqueeText:clean(b.marqueeText,700),about:clean(b.about,6000),terms:clean(b.terms,8000),privacy:clean(b.privacy,8000),refund:clean(b.refund,8000),riskDisclosure:clean(b.riskDisclosure,2500),supportEmail:cleanEmail(b.supportEmail),minWithdrawal:Math.max(1,money(b.minWithdrawal)||MIN_WITHDRAWAL),referralReward:Math.max(0,money(b.referralReward)),currency:"INR",theme:{primary:cleanHex(theme.primary,defaults.settings.theme.primary),secondary:cleanHex(theme.secondary,defaults.settings.theme.secondary),background:cleanHex(theme.background,defaults.settings.theme.background),surface:cleanHex(theme.surface,defaults.settings.theme.surface),text:cleanHex(theme.text,defaults.settings.theme.text),muted:cleanHex(theme.muted,defaults.settings.theme.muted),accent:cleanHex(theme.accent,defaults.settings.theme.accent)}};
-    await db.collection("settings").doc("main").set(payload,{merge:true});res.json({ok:true});
-  } catch(e){res.status(500).json({error:e.message||"Unable to save settings."});}
-});
-app.post("/api/admin/chatbot",guardAdmin,async(req,res)=>{try{await db.collection("chatbot").doc("main").set({name:clean(req.body.name,80)||defaults.chatbot.name,intro:clean(req.body.intro,800),topic:clean(req.body.topic,2500),prompt:clean(req.body.prompt,2500),updatedAt:FieldValue.serverTimestamp()},{merge:true});res.json({ok:true});}catch(e){res.status(500).json({error:e.message});}});
+app.post('/api/admin/coupon',guardAdmin,async(req,res)=>{try{const code=clean(req.body.code,40).toUpperCase();if(!/^[A-Z0-9_-]{3,40}$/.test(code))return res.status(400).json({error:'Coupon code must be 3-40 letters/numbers.'});const p={code,type:req.body.type==='fixed'?'fixed':'percent',value:money(req.body.value),minOrder:money(req.body.minOrder),maxDiscount:money(req.body.maxDiscount),usageLimit:money(req.body.usageLimit),expiresAt:clean(req.body.expiresAt,80),active:req.body.active!==false,usedCount:money(req.body.usedCount),updatedAt:FieldValue.serverTimestamp()};if(p.value<=0)return res.status(400).json({error:'Coupon value must be greater than zero.'});await db.collection('coupons').doc(code).set(p,{merge:true});res.json({ok:true})}catch(e){res.status(400).json({error:e.message})}})
+app.delete('/api/admin/coupon',guardAdmin,async(req,res)=>{try{await db.collection('coupons').doc(safeId(req.body.id).toUpperCase()).delete();res.json({ok:true})}catch(e){res.status(400).json({error:e.message})}})
 
-app.post("/api/admin/upload-image",guardAdmin,async(req,res)=>{
-  try {
-    const key=String(process.env.IMGBB_API_KEY||"").trim(); if(!key)return res.status(503).json({error:"ImgBB API is not configured."});
-    const raw=String(req.body?.image||""); if(!raw)return res.status(400).json({error:"Please select an image first."});
-    const base64=raw.includes(",")?raw.split(",").slice(1).join(","):raw;
-    const bytes=Math.floor((base64.replace(/\s/g,"").length*3)/4); if(bytes>8*1024*1024)return res.status(413).json({error:"Image must be under 8 MB."});
-    const params=new URLSearchParams();params.set("image",base64.replace(/\s/g,""));if(req.body?.name)params.set("name",clean(req.body.name,120));
-    const r=await fetch(`https://api.imgbb.com/1/upload?key=${encodeURIComponent(key)}`,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:params});
-    const d=await r.json().catch(()=>({})); if(!r.ok||!d?.success||!d?.data?.url)return res.status(502).json({error:d?.error?.message||"ImgBB upload failed."});
-    res.json({ok:true,imageUrl:d.data.url,displayUrl:d.data.display_url||d.data.url});
-  } catch(e){res.status(500).json({error:e.message||"Unable to upload image."});}
-});
+app.post('/api/admin/order/status',guardAdmin,async(req,res)=>{try{const id=safeId(req.body.id),status=clean(req.body.status,40);if(!['processing','confirmed','packed','shipped','out_for_delivery','delivered','cancelled'].includes(status))return res.status(400).json({error:'Invalid fulfillment status.'});await db.collection('orders').doc(id).set({fulfillmentStatus:status,trackingId:clean(req.body.trackingId,120),updatedAt:FieldValue.serverTimestamp()},{merge:true});res.json({ok:true})}catch(e){res.status(400).json({error:e.message})}})
+app.post('/api/admin/user/toggle',guardAdmin,async(req,res)=>{try{await db.collection('users').doc(safeId(req.body.uid)).set({active:req.body.active!==false,updatedAt:FieldValue.serverTimestamp()},{merge:true});res.json({ok:true})}catch(e){res.status(400).json({error:e.message})}})
 
-app.post("/api/admin/plan",guardAdmin,async(req,res)=>{try{const id=clean(req.body.id,80)||`plan_${Date.now()}`;const payload={title:clean(req.body.title,160),amount:money(req.body.amount),days:money(req.body.days),dailyIncrease:money(req.body.dailyIncrease),imageUrl:clean(req.body.imageUrl,1200),description:clean(req.body.description,1200),active:req.body.active!==false,sortOrder:money(req.body.sortOrder)||Date.now(),updatedAt:FieldValue.serverTimestamp()};if(!payload.title||!payload.amount||!payload.days||!payload.dailyIncrease||!/^(https?:\/\/)/i.test(payload.imageUrl))return res.status(400).json({error:"Title, amount, days, daily credit and HTTPS image URL are required."});await db.collection("investmentPlans").doc(id).set(payload,{merge:true});res.json({ok:true});}catch(e){res.status(500).json({error:e.message||"Unable to save plan."});}});
-app.post("/api/admin/delete-plan",guardAdmin,async(req,res)=>{try{const id=clean(req.body.id,80);if(!id)return res.status(400).json({error:"Plan id required."});await db.collection("investmentPlans").doc(id).delete();res.json({ok:true});}catch(e){res.status(500).json({error:e.message});}});
+app.get('/api/health',(req,res)=>res.json({ok:true,firebaseConfigured:!!process.env.FIREBASE_SERVICE_ACCOUNT_JSON,razorpayConfigured:!!process.env.RAZORPAY_KEY_ID&&!!process.env.RAZORPAY_KEY_SECRET,geminiConfigured:!!process.env.GEMINI_API_KEY}))
 
-app.post("/api/admin/user/adjust-balance",guardAdmin,async(req,res)=>{try{const uid=clean(req.body.uid,120),delta=money(req.body.amount),direction=String(req.body.direction||"add")==="subtract"?"subtract":"add";if(!uid||delta<=0)return res.status(400).json({error:"Valid user and amount required."});await ensureWalletBuckets(uid);const signed=direction==="add"?delta:-delta;await db.runTransaction(async t=>{const wr=db.collection("wallets").doc(uid),ws=await t.get(wr),wd=ws.exists?ws.data():{},bal=money(wd.balance),deposit=money(wd.depositBalance),bonus=money(wd.bonusBalance),earnings=money(wd.earningsBalance);if(bal+signed<0)throw new Error("Balance cannot go below zero.");let nd=deposit,nb=bonus,ne=earnings;if(signed>=0)nd+=signed;else{let need=-signed;const a=Math.min(nd,need);nd-=a;need-=a;const b=Math.min(nb,need);nb-=b;need-=b;const c=Math.min(ne,need);ne-=c;need-=c;if(need>0)throw new Error("Not enough balance to subtract that amount.");}t.set(wr,{uid,balance:bal+signed,depositBalance:nd,bonusBalance:nb,earningsBalance:ne,balanceSourceVersion:2,updatedAt:FieldValue.serverTimestamp()},{merge:true});t.set(db.collection("transactions").doc(),{uid,type:"admin_adjustment",amount:signed,status:"completed",title:direction==="add"?"Admin balance credit":"Admin balance debit",description:"Manual wallet adjustment by admin (principal-safe).",createdAt:FieldValue.serverTimestamp()});});res.json({ok:true,balance:await getWallet(uid)});}catch(e){res.status(400).json({error:e.message||"Unable to adjust balance."});}});
-
-app.post("/api/admin/withdrawal/action",guardAdmin,async(req,res)=>{
-  try {
-    const id=clean(req.body.id,120), action=String(req.body.action||""); if(!id||!["approve","reject"].includes(action))return res.status(400).json({error:"Invalid withdrawal action."});
-    const ref=db.collection("withdrawals").doc(id), txSnap=await db.collection("transactions").where("referenceId","==",id).limit(1).get();
-    await db.runTransaction(async t=>{
-      const wsnap=await t.get(ref); if(!wsnap.exists)throw new Error("Withdrawal not found."); const w=wsnap.data();
-      if(w.status!=="pending")return;
-      if(txSnap.empty)throw new Error("Linked transaction not found.");
-      const txRef=txSnap.docs[0].ref;
-      if(action==="approve") { t.set(ref,{status:"approved",processedAt:FieldValue.serverTimestamp()},{merge:true});t.set(txRef,{status:"completed",description:`Admin approved payout to ${w.upiId}`},{merge:true}); }
-      else { const wr=db.collection("wallets").doc(w.uid),wallet=await t.get(wr),wd=wallet.exists?wallet.data():{},bal=money(wd.balance),earnings=money(wd.earningsBalance);t.set(wr,{uid:w.uid,balance:bal+money(w.amount),earningsBalance:earnings+money(w.amount),depositBalance:money(wd.depositBalance),bonusBalance:money(wd.bonusBalance),balanceSourceVersion:2,updatedAt:FieldValue.serverTimestamp()},{merge:true});t.set(ref,{status:"rejected",processedAt:FieldValue.serverTimestamp()},{merge:true});t.set(txRef,{status:"rejected",description:"Withdrawal rejected; amount returned to plan-earnings balance."},{merge:true}); }
-    });
-    res.json({ok:true});
-  } catch(e){res.status(400).json({error:e.message||"Unable to process withdrawal."});}
-});
-
-app.post("/api/admin/user/update-upi",guardAdmin,async(req,res)=>{
-  try{
-    const uid=clean(req.body.uid,120), upiId=clean(req.body.upiId,120);
-    if(!uid)return res.status(400).json({error:"User id required."});
-    if(upiId && !/^[^\s@]+@[^\s@]+$/i.test(upiId)) return res.status(400).json({error:"Enter a valid UPI ID."});
-    await db.collection("users").doc(uid).set({upiId,updatedAt:FieldValue.serverTimestamp()},{merge:true});
-    res.json({ok:true,upiId});
-  }catch(e){res.status(500).json({error:e.message||"Unable to update UPI ID."});}
-});
-app.post("/api/admin/user/toggle",guardAdmin,async(req,res)=>{try{const uid=clean(req.body.uid,120),active=req.body.active!==false;if(!uid)return res.status(400).json({error:"User id required."});await db.collection("users").doc(uid).set({active,updatedAt:FieldValue.serverTimestamp()},{merge:true});res.json({ok:true});}catch(e){res.status(500).json({error:e.message});}});
-
-// AI compatibility layer: preserves the old paid AI chat flow.
-app.get("/api/ai/public/data",async(req,res)=>{try{res.json({gurus:await getAiGurus(),plans:await getAiPlans()});}catch(e){res.status(500).json({error:e.message});}});
-app.post("/api/ai/trial",async(req,res)=>{try{const guruId=clean(req.body.guruId,80),guru=(await getAiGurus()).find(x=>x.id===guruId);if(!guru)return res.status(404).json({error:"AI guide not found."});const ref=db.collection("aiSessions").doc();const seconds=30;await ref.set({guruId,customerName:clean(req.body.customerName,80)||"Guest",seconds,remainingSeconds:seconds,expiresAt:new Date(Date.now()+seconds*1000),createdAt:FieldValue.serverTimestamp(),paid:false});res.json({ok:true,sessionId:ref.id,seconds});}catch(e){res.status(500).json({error:e.message});}});
-app.post("/api/ai/create-order",async(req,res)=>{try{const p=(await getAiPlans()).find(x=>x.id===clean(req.body.planId,80)),guru=(await getAiGurus()).find(x=>x.id===clean(req.body.guruId,80));if(!p||!guru)return res.status(404).json({error:"AI plan not found."});const order=await razorpay.orders.create({amount:money(p.price)*100,currency:"INR",receipt:`ai_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`,notes:{guruId:guru.id,planId:p.id}});await db.collection("aiOrders").doc(order.id).set({orderId:order.id,guruId:guru.id,planId:p.id,price:money(p.price),durationMinutes:money(p.durationMinutes),status:"created",createdAt:FieldValue.serverTimestamp()});res.json({ok:true,orderId:order.id,amount:order.amount,currency:order.currency});}catch(e){res.status(500).json({error:e.message});}});
-app.post("/api/ai/verify-payment",async(req,res)=>{try{const {razorpay_order_id,razorpay_payment_id,razorpay_signature}=req.body||{};const expected=crypto.createHmac("sha256",process.env.RAZORPAY_KEY_SECRET).update(`${razorpay_order_id}|${razorpay_payment_id}`).digest("hex");if(!timingSafeEqualText(expected,razorpay_signature))return res.status(400).json({error:"Payment signature verification failed."});const ref=db.collection("aiOrders").doc(razorpay_order_id),snap=await ref.get();if(!snap.exists)return res.status(404).json({error:"AI order not found."});const order=snap.data(),payment=await razorpay.payments.fetch(razorpay_payment_id);if(payment.status!=="captured"||money(payment.amount)!==money(order.price)*100)return res.status(400).json({error:"AI payment is not valid."});const seconds=money(order.durationMinutes)*60,sessionRef=db.collection("aiSessions").doc();await sessionRef.set({guruId:order.guruId,customerName:"Guest",seconds,remainingSeconds:seconds,expiresAt:new Date(Date.now()+seconds*1000),createdAt:FieldValue.serverTimestamp(),paid:true,orderId:razorpay_order_id});await ref.set({status:"completed",paymentId:razorpay_payment_id,verifiedAt:FieldValue.serverTimestamp(),sessionId:sessionRef.id},{merge:true});res.json({ok:true,sessionId:sessionRef.id,seconds});}catch(e){res.status(500).json({error:e.message||"AI payment verification failed."});}});
-app.post("/api/ai/chat",async(req,res)=>{try{const sessionId=clean(req.body.sessionId,120),message=clean(req.body.message,1200);const ref=db.collection("aiSessions").doc(sessionId),snap=await ref.get();if(!snap.exists)return res.status(404).json({error:"Session not found."});const s=snap.data(),remaining=Math.max(0,Math.ceil((dateMs(s.expiresAt)-Date.now())/1000));if(remaining<=0)return res.status(400).json({error:"Session expired."});const guru=(await getAiGurus()).find(x=>x.id===s.guruId)||defaultAiGurus[0];const answer=await geminiGenerate([{role:"user",parts:[{text:message}]}],`You are ${guru.name}, ${guru.specialty||"AI guide"}. Answer briefly and helpfully. Do not claim certainty about future events or finances.`);await ref.set({remainingSeconds:remaining,updatedAt:FieldValue.serverTimestamp()},{merge:true});res.json({ok:true,answer,remainingSeconds:Math.max(0,remaining-2)});}catch(e){res.status(500).json({error:e.message||"AI chat failed."});}});
-
-// Admin AI controls
-app.post("/api/admin/ai-guru",guardAdmin,async(req,res)=>{try{const id=clean(req.body.id,80)||`guru_${Date.now()}`;await db.collection("aiGurus").doc(id).set({name:clean(req.body.name,100),specialty:clean(req.body.specialty,160),emoji:clean(req.body.emoji,10)||"✦",imageUrl:clean(req.body.imageUrl,1200),active:req.body.active!==false,sortOrder:money(req.body.sortOrder)||1,updatedAt:FieldValue.serverTimestamp()},{merge:true});res.json({ok:true});}catch(e){res.status(500).json({error:e.message});}});
-app.post("/api/admin/ai-plan",guardAdmin,async(req,res)=>{try{const id=clean(req.body.id,80)||`ai_${Date.now()}`;const payload={name:clean(req.body.name,120),price:money(req.body.price),durationMinutes:money(req.body.durationMinutes),active:req.body.active!==false,sortOrder:money(req.body.sortOrder)||1,updatedAt:FieldValue.serverTimestamp()};if(!payload.name||!payload.price||!payload.durationMinutes)return res.status(400).json({error:"Name, price and duration are required."});await db.collection("aiPlans").doc(id).set(payload,{merge:true});res.json({ok:true});}catch(e){res.status(500).json({error:e.message});}});
-
-app.get("/api/health",(req,res)=>res.json({ok:true,firebaseConfigured:!!process.env.FIREBASE_SERVICE_ACCOUNT_JSON,razorpayConfigured:!!process.env.RAZORPAY_KEY_ID&&!!process.env.RAZORPAY_KEY_SECRET,geminiConfigured:!!process.env.GEMINI_API_KEY}));
-
-module.exports=app;
+module.exports = app
