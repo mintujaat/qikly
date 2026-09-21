@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Qikly — Diwali Mega Sale</title><meta name="description" content="Qikly Diwali shopping — festive deals, fast checkout and secure wallet payments.">
+<link rel="stylesheet" href="/style.css"><script src="/theme.js"></script>
+</head>
+<body class="page-with-dock">
+<div class="announcement"><span>🪔 Diwali Mega Sale • Festive prices • Limited-time offers • Secure checkout with your existing Qikly wallet</span></div>
+<header class="site-header">
+  <a href="/" class="brand"><span class="brand-dot">Q</span><span id="siteName">Qikly</span></a>
+  <nav class="main-nav"><a href="#shop">Shop</a><a href="#deals">Deals</a><a href="#why">Why Qikly</a><a href="/active-plans.html">My Orders</a></nav>
+  <div class="header-actions">
+    <span id="headerBalance" class="balance-pill">₹0</span>
+    <button class="btn ghost" id="openCart">🛒 <span id="cartCount">0</span></button>
+    <button class="btn theme-toggle" data-theme-toggle aria-label="Switch theme">☾</button>
+    <a id="authBtn" class="btn primary" href="/auth.html">Login</a>
+    <div id="profileMenu" class="profile-menu hidden"><button id="profileTrigger" class="profile-trigger"><span id="profileAvatar" class="profile-avatar">Q</span><span class="profile-trigger-text"><strong id="profileNameShort">My Account</strong><span id="profileBalanceShort">₹0</span></span><span>⌄</span></button><div class="profile-dropdown"><div class="profile-dropdown-head"><strong id="profileMenuName">Account</strong><span id="profileMenuEmail">Wallet & profile</span></div><a href="/profile.html">◉ <span>My Account</span></a><a href="/profile.html#wallet">＋ <span>Add money</span></a><a href="/active-plans.html">▣ <span>My Orders</span></a><a href="/transactions.html">↕ <span>Transactions</span></a><a href="/refer.html">↗ <span>Refer & invite</span></a><button id="profileLogout" class="danger-row">↪ <span>Logout</span></button></div></div>
+  </div>
+</header>
+<main>
+<section class="wrap hero" id="deals">
+  <div class="spark s1"></div><div class="spark s2"></div><div class="spark s3"></div><div class="spark s4"></div><div class="spark s5"></div>
+  <div class="hero-inner">
+    <div class="hero-copy">
+      <div class="hero-kicker"><span class="festive-pill">🪔 DIWALI 2026</span><span class="festive-pill">FLASH SALE</span></div>
+      <h1 id="heroTitle">Diwali Mega Sale is Live.</h1>
+      <p id="heroText">Festive shopping, bold deals and a premium storefront built on top of your existing Qikly system. Add products to your cart and continue with the payment flow already configured on your account.</p>
+      <div class="hero-actions"><a class="btn primary" href="#shop">Shop the sale →</a><button class="btn ghost" id="heroCart">View cart</button></div>
+    </div>
+    <div class="hero-art"><div class="mandala"></div><div class="diya"></div></div>
+  </div>
+</section>
+
+<section class="wrap section" style="padding-bottom:24px">
+  <div class="searchbar"><span class="search-icon">⌕</span><input id="searchInput" placeholder="Search products, deals, categories…" autocomplete="off"><button class="btn ghost" id="clearSearch" style="display:none">Clear</button></div>
+  <div class="category-row" id="categoryRow" style="margin-top:14px"></div>
+</section>
+
+<section id="shop" class="wrap section" style="padding-top:22px">
+  <div class="shop-toolbar"><div><span class="eyebrow">DIWALI STORE</span><div style="margin-top:5px;color:var(--muted);font-size:13px"><span id="resultCount">0</span> products</div></div><select id="sortSelect" class="sort-select"><option value="featured">Featured</option><option value="low">Price: Low to High</option><option value="high">Price: High to Low</option><option value="name">Name</option></select></div>
+  <div id="productGrid" class="product-grid" style="margin-top:18px"><div class="card loading" style="grid-column:1/-1">Loading the Diwali store…</div></div>
+</section>
+
+<section id="why" class="wrap section" style="padding-top:30px">
+  <div class="feature-strip">
+    <article class="card feature-card"><div class="feature-icon">⚡</div><div><h3>Fast storefront</h3><p>Responsive shopping experience built with plain HTML, CSS and JavaScript.</p></div></article>
+    <article class="card feature-card"><div class="feature-icon">🔐</div><div><h3>Existing payment flow</h3><p>Your existing Razorpay and wallet backend stays untouched.</p></div></article>
+    <article class="card feature-card"><div class="feature-icon">🖼️</div><div><h3>ImgBB product media</h3><p>Admin product image uploads continue through the existing ImgBB API endpoint.</p></div></article>
+    <article class="card feature-card"><div class="feature-icon">✦</div><div><h3>AI support</h3><p>Gemini-powered support remains available from the floating assistant.</p></div></article>
+  </div>
+</section>
+</main>
+
+<footer class="footer"><div class="wrap"><div class="footer-grid"><div><div class="brand"><span class="brand-dot">Q</span><span id="footerName">Qikly</span></div><p id="footerTag" style="max-width:360px">Diwali shopping with your existing Qikly account and payment setup.</p></div><div><h4>Shop</h4><div class="footer-links"><a href="#shop">All products</a><a href="#deals">Diwali sale</a><a href="#why">Why Qikly</a></div></div><div><h4>Account</h4><div class="footer-links"><a href="/profile.html">My account</a><a href="/active-plans.html">My orders</a><a href="/transactions.html">Transactions</a></div></div><div><h4>Support</h4><div class="footer-links"><a href="/chat.html">AI Support</a><a href="/privacy.html">Privacy</a><a href="/terms.html">Terms</a></div></div></div><div class="footer-bottom"><span>© Qikly. Diwali storefront UI.</span><span id="footerSupport"></span></div></div></footer>
+
+<div class="cart-drawer hidden" id="cartDrawer"><aside class="cart-panel"><div class="cart-head"><div><span class="eyebrow">YOUR CART</span><h2 style="margin:4px 0">Shopping bag</h2></div><button class="btn ghost" id="closeCart">×</button></div><div class="cart-items" id="cartItems"></div><div class="cart-summary"><div class="summary-row"><span>Items</span><strong id="cartSubtotal">₹0</strong></div><div class="summary-row"><span>Diwali shipping</span><strong>FREE</strong></div><div class="summary-row summary-total"><span>Total</span><strong id="cartTotal">₹0</strong></div><button class="btn primary full" id="checkoutBtn">Proceed to secure checkout</button><p class="muted" style="font-size:11px;margin:8px 0 0">Checkout uses the existing Qikly wallet/payment system; no payment backend was changed.</p></div></aside></div>
+
+<div class="modal hidden" id="productModal"><div class="modal-card"><button class="modal-close" data-close-modal>×</button><div id="productModalBody"></div></div></div>
+<div class="modal hidden" id="aiModal"><div class="modal-card ai-box"><button class="modal-close" data-close-modal>×</button><div class="ai-head"><div class="ai-avatar">✦</div><div><strong id="aiName">Qikly Support</strong><div class="muted" style="font-size:11px">Gemini-powered assistant</div></div></div><div class="chat-log" id="chatLog"></div><form class="chat-input" id="chatForm"><input id="chatInput" placeholder="Ask about products, checkout or your account…" autocomplete="off"><button class="btn primary">Send</button></form></div></div>
+<button class="chat-fab" id="chatFab" aria-label="Open AI support">✦</button>
+<div id="toast" class="toast"></div>
+<script src="/app.js"></script><nav class="floating-dock" data-float-nav aria-label="Quick navigation"><a class="float-nav-item active" data-nav href="/"><span>⌂</span><span>Home</span></a><a class="float-nav-item" data-nav href="#shop"><span>🛍</span><span>Shop</span></a><a class="float-nav-item" data-nav href="#deals"><span>🔥</span><span>Deals</span></a><a class="float-nav-item" data-nav href="/transactions.html"><span>↕</span><span>Orders</span></a><a class="float-nav-item" data-nav href="/profile.html"><span class="float-nav-avatar" data-dock-avatar>Q</span><span>Account</span></a></nav><script src="/nav.js"></script>
+</body></html>

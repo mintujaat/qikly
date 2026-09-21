@@ -1,28 +1,18 @@
-# Qikly Shop — Vanilla HTML/CSS/JS Diwali Build
+# Qikly Diwali Shopping Store
 
-This version removes React/Vite/Lucide from the storefront. The customer and admin UIs are plain HTML/CSS/JavaScript, while the existing Node serverless API remains for secure Firebase Admin, Razorpay, Gemini and ImgBB operations.
+This version keeps the existing Qikly backend/payment infrastructure intact and updates the public storefront and admin UI into a modern Diwali shopping experience.
 
-## Deploy on Vercel
+## What changed
+- Pure HTML + CSS + JavaScript storefront.
+- Diwali-themed responsive home page with search, categories, filters, wishlist and cart.
+- Product cards are sourced from the existing `investmentPlans` collection so the existing Firebase data and purchase endpoint continue to work.
+- Checkout continues through the existing Qikly wallet/Razorpay flow. `api/index.js`, `package.json`, `vercel.json`, rules and environment-variable names were not changed.
+- Admin panel product section uses the existing plan-management API and existing ImgBB upload endpoint.
+- Existing AI/Gemini support flow is retained.
+- Login, profile, wallet, transactions, withdrawals and account flows remain available.
+- Light/dark theme works with the existing theme toggle.
 
-1. Upload the project or connect the repository.
-2. Do not add a build command. The website is already static.
-3. Keep the same environment variables from the existing Qikly project.
-4. Open `/` for the store and `/admin` (or `/admin.html`) for admin.
-5. In Vercel, keep `IMGBB_API_KEY` set. All admin image uploads go through the server-side ImgBB endpoint, so the ImgBB key is never exposed in browser code.
-6. Set `SESSION_SECRET` to a long random value. The existing `ADMIN_PASSWORD` is also still required.
+## Deploy
+Deploy this folder to Vercel exactly like the original project. Keep the same environment variables from the working project.
 
-## Preserved backend integrations
-
-- Firebase Admin / Firestore
-- Razorpay server order creation + signature verification
-- Gemini API through the existing `/api/chatbot`
-- ImgBB admin image upload endpoint
-- Existing user/admin session cookies and API routes
-
-## Frontend
-
-- `index.html` — storefront shell
-- `app.js` — shopping, account, cart, checkout, orders, AI chat
-- `style.css` — responsive Diwali design
-- `admin.html` — admin shell
-- `admin.js` — admin controls
+The API/payment backend was intentionally left unchanged.
