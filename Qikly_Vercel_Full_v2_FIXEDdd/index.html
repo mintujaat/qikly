@@ -1,16 +1,76 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#16081f" />
-    <meta name="description" content="Qikly Shop — modern Diwali shopping experience." />
-    <link rel="manifest" href="/public.webmanifest" />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🪔%3C/text%3E%3C/svg%3E" />
-    <title>Qikly Shop — Diwali Sale</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#8b1538">
+  <meta name="description" content="Qikly festive shopping — Diwali Mega Sale">
+  <title>Qikly Shop — Diwali Mega Sale</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%23f59e0b'/%3E%3Ctext x='32' y='42' font-size='34' text-anchor='middle' fill='white'%3EQ%3C/text%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="sale-ribbon" id="saleRibbon"></div>
+  <header class="site-header" id="top">
+    <div class="header-top container">
+      <button class="brand" data-route="#/" aria-label="Qikly home">
+        <span class="brand-mark" id="brandMark">Q</span>
+        <span class="brand-copy"><b id="brandName">Qikly Shop</b><small id="brandTagline">Diwali shopping, made brighter.</small></span>
+      </button>
+      <div class="header-search">
+        <span class="search-icon">⌕</span>
+        <input id="globalSearch" type="search" placeholder="Search products, categories and deals">
+        <button class="search-kbd" type="button">⌘K</button>
+      </div>
+      <nav class="header-actions">
+        <button class="header-action" data-open="ai"><span>✦</span><small>Qikly AI</small></button>
+        <button class="header-action" data-route="#/wishlist"><span>♡<i id="wishCount">0</i></span><small>Wishlist</small></button>
+        <button class="header-action" data-route="#/account"><span>♙</span><small>Account</small></button>
+        <button class="header-action cart-trigger" data-route="#/cart"><span>🛒<i id="cartCount">0</i></span><small>Cart</small></button>
+      </nav>
+    </div>
+    <div class="header-nav container">
+      <button class="mobile-menu" id="mobileMenu">☰</button>
+      <nav id="mainNav">
+        <button data-route="#/shop">Shop All</button>
+        <button data-route="#/shop?sort=deal">Diwali Deals</button>
+        <button data-route="#/shop?cat=fashion">Fashion</button>
+        <button data-route="#/shop?cat=electronics">Electronics</button>
+        <button data-route="#/shop?cat=home">Home & Living</button>
+        <button data-route="#/shop?cat=beauty">Beauty</button>
+        <button data-route="#/shop?cat=gifts">Gifts</button>
+      </nav>
+      <div class="nav-trust"><span>✓ Secure checkout</span><span>🚚 Fast delivery</span><span>↩ Easy returns</span></div>
+    </div>
+  </header>
+
+  <main id="app" class="app-shell"></main>
+
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div><div class="footer-brand"><span class="brand-mark" id="footerMark">Q</span><span><b id="footerName">Qikly Shop</b><small id="footerTag">Festive shopping</small></span></div><p id="footerAbout">Premium festive shopping with secure checkout, fast delivery and helpful support.</p><div class="footer-pills"><span>🔒 Secure payments</span><span>📦 Order tracking</span><span>🪔 Diwali ready</span></div></div>
+      <div><h4>Shop</h4><a data-route="#/shop">All products</a><a data-route="#/shop?sort=deal">Diwali deals</a><a data-route="#/wishlist">Wishlist</a><a data-route="#/orders">My orders</a></div>
+      <div><h4>Help</h4><a data-route="#/account">My account</a><a data-route="#/cart">Cart</a><a id="supportEmail" href="#">Contact support</a><span id="supportPhone">—</span></div>
+      <div><h4>Policies</h4><a data-route="#/policy?type=about">About</a><a data-route="#/policy?type=refund">Returns</a><a data-route="#/policy?type=privacy">Privacy</a><a data-route="#/policy?type=terms">Terms</a></div>
+    </div>
+    <div class="footer-bottom"><div class="container"><span id="copyright">© 2026 Qikly Shop</span><span>Powered by secure online payments</span></div></div>
+  </footer>
+
+  <div class="modal-backdrop" id="modalBackdrop" hidden></div>
+  <div class="modal" id="authModal" hidden></div>
+  <div class="modal modal-ai" id="aiModal" hidden>
+    <div class="modal-head"><div><span class="eyebrow">SMART SHOPPING</span><h3 id="aiName">Qikly AI</h3></div><button class="close-modal" data-close="ai">×</button></div>
+    <div class="ai-messages" id="aiMessages"></div>
+    <form class="ai-form" id="aiForm"><input id="aiInput" maxlength="1500" placeholder="Ask about products, deals, delivery..." required><button class="btn btn-primary">Send</button></form>
+  </div>
+
+  <div class="toast-stack" id="toastStack"></div>
+  <button class="floating-ai" data-open="ai" aria-label="Open Qikly AI">✦</button>
+
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <script src="/app.js"></script>
+</body>
 </html>
