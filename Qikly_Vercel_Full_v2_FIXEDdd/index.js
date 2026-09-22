@@ -26,7 +26,9 @@ const defaults = {
     freeShipping: 999,
     shippingFlat: 79,
     codEnabled: true,
+    codMinOrder: 0,
     chatbotEnabled: true,
+    heroImageEnabled: true,
     logoText: 'Q',
     primary: '#f59e0b',
     secondary: '#8b5cf6',
@@ -316,6 +318,7 @@ app.post('/api/shop/create-order', guardUser, async (req, res) => {
     if (!address.name || !address.phone || !address.line1 || !address.city || !address.state || !/^\d{6}$/.test(address.pincode)) return res.status(400).json({ error: 'Complete a valid delivery address.' })
     const paymentMethod = req.body.paymentMethod === 'cod' ? 'cod' : 'online'
     if (paymentMethod === 'cod' && settings.codEnabled === false) return res.status(400).json({ error: 'Cash on delivery is not enabled.' })
+    if (paymentMethod === 'cod' && money(t.subtotal) < money(settings.codMinOrder)) return res.status(400).json({ error: `COD is available only on orders of ₹${money(settings.codMinOrder)} or more.` })
     const ref = db.collection('orders').doc(); const common = { orderNumber: orderNo(), uid: req.user.id, customer: { name: req.user.name, email: req.user.email, phone: address.phone }, items, address, subtotal: t.subtotal, discount: t.discount, shipping: t.shipping, total: t.total, coupon: coupon ? { code: coupon.code, amount: coupon.amount } : null, paymentMethod, paymentStatus: paymentMethod === 'cod' ? 'cod' : 'created', fulfillmentStatus: paymentMethod === 'cod' ? 'confirmed' : 'processing', createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }
     if (paymentMethod === 'cod') {
       await db.runTransaction(async tx => { for (const item of items) { const pr = db.collection('products').doc(item.id); const ps = await tx.get(pr); if (ps.exists) { const stock = money(ps.data().stock); if (stock < item.qty) throw new Error(`${item.title} went out of stock. Please refresh your cart.`); tx.update(pr, { stock: stock - item.qty, updatedAt: FieldValue.serverTimestamp() }) } } tx.set(ref, common); if (coupon) tx.set(db.collection('coupons').doc(coupon.id), { usedCount: FieldValue.increment(1), updatedAt: FieldValue.serverTimestamp() }, { merge: true }) })
@@ -361,7 +364,7 @@ app.get('/api/admin/data',guardAdmin,async(req,res)=>{try{
   res.json({settings,chatbot,products:products.map(jsonSafe),categories:categories.map(jsonSafe),banners:banners.map(jsonSafe),coupons:coupons.map(jsonSafe),orders:ordersSorted.map(jsonSafe),users:users.map(jsonSafe),stats})
 }catch(e){res.status(500).json({error:e.message})}})
 
-app.post('/api/admin/settings',guardAdmin,async(req,res)=>{try{const current=await getSettings();const next={...current,...req.body,freeShipping:money(req.body.freeShipping),shippingFlat:money(req.body.shippingFlat),codEnabled:req.body.codEnabled!==false,chatbotEnabled:req.body.chatbotEnabled!==false,logoText:clean(req.body.logoText,4)||'Q',siteName:clean(req.body.siteName,100)||defaults.settings.siteName,heroImage:validUrl(req.body.heroImage)?clean(req.body.heroImage,1200):current.heroImage};await db.collection('settings').doc('main').set(next,{merge:true});res.json({ok:true})}catch(e){res.status(400).json({error:e.message})}})
+app.post('/api/admin/settings',guardAdmin,async(req,res)=>{try{const current=await getSettings();const next={...current,...req.body,freeShipping:money(req.body.freeShipping),shippingFlat:money(req.body.shippingFlat),codMinOrder:money(req.body.codMinOrder),codEnabled:req.body.codEnabled!==false,chatbotEnabled:req.body.chatbotEnabled!==false,heroImageEnabled:req.body.heroImageEnabled!==false,logoText:clean(req.body.logoText,4)||'Q',siteName:clean(req.body.siteName,100)||defaults.settings.siteName,heroImage:validUrl(req.body.heroImage)?clean(req.body.heroImage,1200):current.heroImage};await db.collection('settings').doc('main').set(next,{merge:true});res.json({ok:true})}catch(e){res.status(400).json({error:e.message})}})
 app.post('/api/admin/chatbot',guardAdmin,async(req,res)=>{try{await db.collection('chatbot').doc('main').set({name:clean(req.body.name,80)||defaults.chatbot.name,intro:clean(req.body.intro,500),topic:clean(req.body.topic,1800),prompt:clean(req.body.prompt,2000),updatedAt:FieldValue.serverTimestamp()},{merge:true});res.json({ok:true})}catch(e){res.status(400).json({error:e.message})}})
 
 app.post('/api/admin/upload-image',guardAdmin,async(req,res)=>{try{const key=String(process.env.IMGBB_API_KEY||'');if(!key)return res.status(503).json({error:'ImgBB upload is not configured.'});const image=String(req.body.image||'').split(',').pop().replace(/\s/g,'');if(!image)return res.status(400).json({error:'Image is required.'});const params=new URLSearchParams();params.set('image',image);if(req.body.name)params.set('name',clean(req.body.name,120));const r=await fetch(`https://api.imgbb.com/1/upload?key=${encodeURIComponent(key)}`,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:params});const d=await r.json().catch(()=>({}));if(!r.ok||!d?.success||!d?.data?.url)return res.status(502).json({error:d?.error?.message||'ImgBB upload failed.'});res.json({ok:true,imageUrl:d.data.url})}catch(e){res.status(500).json({error:e.message})}})
