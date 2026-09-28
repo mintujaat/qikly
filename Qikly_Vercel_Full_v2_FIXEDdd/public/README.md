@@ -1,35 +1,38 @@
-# Qikly E-Book Store
+# Qikly Books — Professional E-book Store
 
-This is a complete redesign of the previous Qikly shopping site into a premium e-book marketplace.
+A premium digital bookstore using the same Firebase + Razorpay setup, with Cloudflare R2 for private PDF storage.
 
-## Kept
-- Firebase/Firestore backend and session-based authentication
-- Razorpay payment gateway
-- Admin-controlled content
-- Vercel deployment model
+## Included
+- Fast-loading responsive storefront
+- Home, Store, Categories, Book Details, Checkout and My Library
+- Professional Login / Signup explaining that the account is only for saving purchased e-books
+- Ownership badges: **You own this book**
+- Sticky responsive navigation with **My Library / My Books**
+- Qikly AI assistant powered by Gemini via a server-side endpoint
+- Admin e-book editor
+- PDF upload to private Cloudflare R2 through signed URLs
+- Cover thumbnail upload through ImgBB from the admin panel
+- Firebase Firestore for catalog, users and orders
+- Razorpay checkout and server-side payment signature verification
 
-## Added
-- E-book catalog, categories, search and filters
-- Book detail pages
-- Razorpay one-time checkout
-- My Library
-- Secure time-limited R2 download links
-- Admin dashboard for books, orders, categories and store settings
-- R2 direct browser uploads using server-generated presigned URLs
-- Responsive dark/light UI
+## Required environment variables
+Keep the existing Firebase and Razorpay variables and add:
 
-## Environment
-Copy `.env.example` to your Vercel environment variables. Keep R2 credentials server-side only.
+- `R2_ACCOUNT_ID`
+- `R2_ACCESS_KEY_ID`
+- `R2_SECRET_ACCESS_KEY`
+- `R2_BUCKET=pdfs`
+- `IMGBB_API_KEY`
+- `GEMINI_API_KEY`
+- `GEMINI_MODEL` (optional; defaults to `gemini-3.6-flash`)
+- `SESSION_SECRET`
+- `ADMIN_PASSWORD`
 
-R2 credentials are used only by the server to create short-lived presigned PUT/GET URLs. The browser never receives the Access Key or Secret Access Key.
+## ImgBB thumbnail workflow
+Admin → Add/Edit e-book → Upload thumbnail → image is sent to `/api/admin/cover-upload` and then to ImgBB. The ImgBB key stays server-side.
 
-Your existing Worker URL can remain, but this build uses the S3-compatible R2 API for secure uploads/downloads, so a public Worker route is not required for paid books.
+## Gemini AI workflow
+The floating Qikly AI chat calls `/api/ai/chat`. The Gemini key stays server-side and the model receives a small live catalog context so it can answer book and library questions.
 
-## Firestore collections
-- `settings/main`
-- `categories`
-- `books`
-- `users`
-- `orders`
-
-The API creates sample categories/books only when the catalog is empty.
+## Deployment
+Deploy the project to Vercel. Redeploy after changing environment variables. Keep the R2 bucket private; paid PDFs should only be accessed through the authenticated library endpoint.
