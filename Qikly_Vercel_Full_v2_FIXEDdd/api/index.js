@@ -44,6 +44,27 @@ const r2 = R2_READY ? new S3Client({
   }
 }) : null;
 
+let STORE_MEM_CACHE=null;
+let STORE_MEM_EXPIRES=0;
+const AI_RATE=new Map();
+function invalidateStoreCache(){STORE_MEM_CACHE=null;STORE_MEM_EXPIRES=0}
+async function getStoreSnapshot(){
+  if(STORE_MEM_CACHE && Date.now()<STORE_MEM_EXPIRES)return STORE_MEM_CACHE;
+  await ensureSeeds();
+  const [settings,categories,books]=await Promise.all([getSettings(),listCol("categories"),listCol("books")]);
+  STORE_MEM_CACHE={settings,categories,books:books.filter(b=>b.active!==false)};
+  STORE_MEM_EXPIRES=Date.now()+30_000;
+  return STORE_MEM_CACHE;
+}
+function aiAllowed(ip){
+  const now=Date.now(),windowMs=60_000,limit=20;
+  const bucket=AI_RATE.get(ip)||{start:now,count:0};
+  if(now-bucket.start>windowMs){bucket.start=now;bucket.count=0}
+  bucket.count++;AI_RATE.set(ip,bucket);
+  if(AI_RATE.size>5000){for(const [k,v] of AI_RATE){if(now-v.start>windowMs)AI_RATE.delete(k)}}
+  return bucket.count<=limit;
+}
+
 const SESSION_COOKIE="qikly_ebook_session";
 const ADMIN_COOKIE="qikly_ebook_admin";
 const SESSION_SECRET=String(process.env.SESSION_SECRET||"change-me");
@@ -175,13 +196,8 @@ async function getSettings(){
 app.get("/health",(req,res)=>res.json({ok:true,service:"qikly-ebook-api",r2:R2_READY}));
 
 app.get("/api/store",async(req,res)=>{
-  try{
-    await ensureSeeds();
-    const [settings,categories,books]=await Promise.all([
-      getSettings(),listCol("categories"),listCol("books")
-    ]);
-    res.json({settings,categories,books:books.filter(b=>b.active!==false)});
-  }catch(e){res.status(500).json({error:e.message})}
+  try{res.set("Cache-Control","public, max-age=20, stale-while-revalidate=45");res.json(await getStoreSnapshot())}
+  catch(e){res.status(500).json({error:e.message})}
 });
 
 app.get("/api/books/:id",async(req,res)=>{
@@ -217,6 +233,29 @@ app.post("/api/auth/login",async(req,res)=>{
     if(!u.passwordHash||!(await verifyPassword(password,u.passwordSalt,u.passwordHash)))return res.status(401).json({error:"Invalid email or password."});
     cookieSet(res,SESSION_COOKIE,sign({uid:d.id,email:u.email,name:u.name||"Reader",exp:Date.now()+7*86400000}));
     res.json({ok:true,user:{id:d.id,email:u.email,name:u.name||"Reader"}});
+  }catch(e){res.status(500).json({error:e.message})}
+});
+
+app.post("/api/ai/chat",async(req,res)=>{
+  try{
+    const key=String(process.env.GEMINI_API_KEY||"").trim();
+    if(!key)return res.status(503).json({error:"Qikly AI is not configured yet."});
+    const ip=String(req.headers["x-forwarded-for"]||req.socket.remoteAddress||"anonymous").split(",")[0].trim();
+    if(!aiAllowed(ip))return res.status(429).json({error:"AI is busy right now. Please try again in a minute."});
+    const message=String(req.body?.message||"").trim().slice(0,700);
+    if(!message)return res.status(400).json({error:"Message is required."});
+    const history=Array.isArray(req.body?.history)?req.body.history.slice(-8).map(x=>({role:x.role==="model"?"model":"user",parts:[{text:String(x?.parts?.[0]?.text||"").slice(0,700)}]})).filter(x=>x.parts[0].text):[{role:"user",parts:[{text:message}]}];
+    const store=await getStoreSnapshot();
+    const catalog=store.books.slice(0,80).map(b=>`- ${b.title} | ${b.author||"Qikly Books"} | ${b.categoryName||"Other"} | ₹${Number(b.price||0)} | ${b.description||""}`).join("\n");
+    const system=`You are Qikly AI, the helpful assistant inside Qikly Books. Keep answers concise, friendly and practical. Help visitors discover books, understand checkout, login, My Library and e-book access. Never claim a user purchased a book unless the site explicitly confirms it. Do not expose API keys, passwords, internal URLs, Firestore details or server secrets. If asked about a book, use the catalog below and clearly say when something is not in the catalog. You can also answer general study and productivity questions.\n\nCURRENT CATALOG:\n${catalog}`;
+    const model=String(process.env.GEMINI_MODEL||"gemini-3.6-flash").trim();
+    const endpoint=`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+    const rr=await fetch(endpoint,{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":key},body:JSON.stringify({systemInstruction:{parts:[{text:system}]},contents:history,generationConfig:{temperature:0.45,maxOutputTokens:500}})});
+    const data=await rr.json().catch(()=>({}));
+    if(!rr.ok)return res.status(502).json({error:data?.error?.message||"Gemini request failed."});
+    const text=(data?.candidates?.[0]?.content?.parts||[]).map(x=>x.text||"").join("\n").trim();
+    if(!text)return res.status(502).json({error:"AI returned an empty response."});
+    res.json({text});
   }catch(e){res.status(500).json({error:e.message})}
 });
 
@@ -317,16 +356,16 @@ app.post("/api/admin/books",requireAdmin,async(req,res)=>{
       pages:Number(data.pages||0),format:"PDF",coverUrl:String(data.coverUrl||""),coverClass:String(data.coverClass||"cover-violet"),
       fileKey:String(data.fileKey||""),featured:!!data.featured,newArrival:!!data.newArrival,active:data.active!==false,
       createdAt:FieldValue.serverTimestamp()};
-    await ref.set(book);res.json({ok:true,book:{id:ref.id,...book}});
+    await ref.set(book);invalidateStoreCache();res.json({ok:true,book:{id:ref.id,...book}});
   }catch(e){res.status(500).json({error:e.message})}
 });
 
 app.put("/api/admin/books/:id",requireAdmin,async(req,res)=>{
-  try{await db.collection("books").doc(req.params.id).set(req.body||{},{merge:true});res.json({ok:true})}
+  try{await db.collection("books").doc(req.params.id).set(req.body||{},{merge:true});invalidateStoreCache();res.json({ok:true})}
   catch(e){res.status(500).json({error:e.message})}
 });
 app.delete("/api/admin/books/:id",requireAdmin,async(req,res)=>{
-  try{await db.collection("books").doc(req.params.id).delete();res.json({ok:true})}
+  try{await db.collection("books").doc(req.params.id).delete();invalidateStoreCache();res.json({ok:true})}
   catch(e){res.status(500).json({error:e.message})}
 });
 
@@ -334,11 +373,28 @@ app.post("/api/admin/categories",requireAdmin,async(req,res)=>{
   try{const d=req.body||{},id=String(d.id||d.title||"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");if(!id)return res.status(400).json({error:"Category title required."});await db.collection("categories").doc(id).set({title:String(d.title||id),icon:String(d.icon||"✦"),description:String(d.description||"")},{merge:true});res.json({ok:true,id})}
   catch(e){res.status(500).json({error:e.message})}
 });
-app.delete("/api/admin/categories/:id",requireAdmin,async(req,res)=>{try{await db.collection("categories").doc(req.params.id).delete();res.json({ok:true})}catch(e){res.status(500).json({error:e.message})}});
+app.delete("/api/admin/categories/:id",requireAdmin,async(req,res)=>{try{await db.collection("categories").doc(req.params.id).delete();invalidateStoreCache();res.json({ok:true})}catch(e){res.status(500).json({error:e.message})}});
 
 app.put("/api/admin/settings",requireAdmin,async(req,res)=>{
-  try{await db.collection("settings").doc("main").set(req.body||{},{merge:true});res.json({ok:true})}
+  try{await db.collection("settings").doc("main").set(req.body||{},{merge:true});invalidateStoreCache();res.json({ok:true})}
   catch(e){res.status(500).json({error:e.message})}
+});
+
+app.post("/api/admin/cover-upload",requireAdmin,async(req,res)=>{
+  try{
+    const key=String(process.env.IMGBB_API_KEY||"").trim();
+    if(!key)return res.status(503).json({error:"ImgBB API key is not configured on the server."});
+    let image=String(req.body?.imageBase64||"").trim();
+    if(!image)return res.status(400).json({error:"Image data is required."});
+    image=image.replace(/^data:image\/[^;]+;base64,/i,"");
+    if(Buffer.byteLength(image,"utf8")>10*1024*1024)return res.status(413).json({error:"Thumbnail is too large. Use an image under 7 MB."});
+    const form=new URLSearchParams();form.set("image",image);
+    const name=String(req.body?.fileName||"cover").replace(/[^a-zA-Z0-9._-]/g,"-").slice(0,80);form.set("name",name);
+    const rr=await fetch(`https://api.imgbb.com/1/upload?key=${encodeURIComponent(key)}`,{method:"POST",body:form,headers:{"Content-Type":"application/x-www-form-urlencoded"}});
+    const data=await rr.json().catch(()=>({}));
+    if(!rr.ok||!data?.success)return res.status(502).json({error:data?.error?.message||"ImgBB upload failed."});
+    res.json({ok:true,url:data.data.display_url||data.data.url,thumbUrl:data.data.thumb?.url||data.data.display_url||data.data.url,deleteUrl:data.data.delete_url||""});
+  }catch(e){res.status(500).json({error:e.message})}
 });
 
 app.post("/api/admin/upload-url",requireAdmin,async(req,res)=>{
