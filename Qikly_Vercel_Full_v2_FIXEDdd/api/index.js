@@ -1,15 +1,10 @@
-
 const express = require("express");
 const crypto = require("crypto");
 const Razorpay = require("razorpay");
 const admin = require("firebase-admin");
-const {
-  S3Client, PutObjectCommand, GetObjectCommand
-} = require("@aws-sdk/client-s3");
-const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 
 const app = express();
-app.use(express.json({limit:"20mb"}));
+app.use(express.json({ limit: "12mb" }));
 
 if (!admin.apps.length) {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
@@ -17,397 +12,543 @@ if (!admin.apps.length) {
   const serviceAccount = typeof raw === "string" ? JSON.parse(raw) : raw;
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
-    databaseURL: process.env.FIREBASE_DATABASE_URL || undefined
+    databaseURL: process.env.FIREBASE_DATABASE_URL || undefined,
   });
 }
+
 const db = admin.firestore();
 const FieldValue = admin.firestore.FieldValue;
-
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET
+  key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
-const R2_READY = !!(
-  process.env.R2_ACCOUNT_ID &&
-  process.env.R2_ACCESS_KEY_ID &&
-  process.env.R2_SECRET_ACCESS_KEY &&
-  process.env.R2_BUCKET
-);
-
-const r2 = R2_READY ? new S3Client({
-  region:"auto",
-  endpoint:`https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-  credentials:{
-    accessKeyId:process.env.R2_ACCESS_KEY_ID,
-    secretAccessKey:process.env.R2_SECRET_ACCESS_KEY
-  }
-}) : null;
-
-let STORE_MEM_CACHE=null;
-let STORE_MEM_EXPIRES=0;
-const AI_RATE=new Map();
-function invalidateStoreCache(){STORE_MEM_CACHE=null;STORE_MEM_EXPIRES=0}
-async function getStoreSnapshot(){
-  if(STORE_MEM_CACHE && Date.now()<STORE_MEM_EXPIRES)return STORE_MEM_CACHE;
-  await ensureSeeds();
-  const [settings,categories,books]=await Promise.all([getSettings(),listCol("categories"),listCol("books")]);
-  STORE_MEM_CACHE={settings,categories,books:books.filter(b=>b.active!==false)};
-  STORE_MEM_EXPIRES=Date.now()+30_000;
-  return STORE_MEM_CACHE;
-}
-function aiAllowed(ip){
-  const now=Date.now(),windowMs=60_000,limit=20;
-  const bucket=AI_RATE.get(ip)||{start:now,count:0};
-  if(now-bucket.start>windowMs){bucket.start=now;bucket.count=0}
-  bucket.count++;AI_RATE.set(ip,bucket);
-  if(AI_RATE.size>5000){for(const [k,v] of AI_RATE){if(now-v.start>windowMs)AI_RATE.delete(k)}}
-  return bucket.count<=limit;
-}
-
-const SESSION_COOKIE="qikly_ebook_session";
-const ADMIN_COOKIE="qikly_ebook_admin";
-const SESSION_SECRET=String(process.env.SESSION_SECRET||"change-me");
-const ADMIN_PASSWORD=String(process.env.ADMIN_PASSWORD||"change-me");
+const ADMIN_COOKIE = "ngo_admin";
+const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || "change-this-password");
 
 const defaults = {
-  siteName:"Qikly Books",
-  tagline:"Premium e-books, instantly in your library.",
-  announcement:"Read smarter. Buy once. Keep your books.",
-  heroTitle:"Stories, skills & ideas — all in one digital library.",
-  heroText:"Discover premium e-books created for learners, builders and curious minds. Pay securely and get instant access.",
-  supportEmail:"support@qikly.shop",
-  currency:"INR",
-  logoText:"Q",
-  accent:"#7c3aed",
-  secondary:"#06b6d4",
-  featuredBookId:""
+  settings: {
+    ngoName: "Seva Jyoti Foundation",
+    tagline: "Aapki chhoti si madad kisi ki badi zarurat ban sakti hai.",
+    heroTitle: "Milkar kisi ki zindagi mein roshni laayein",
+    heroText: "Aapka donation education, food, healthcare aur emergency support jaise ground-level kaamon ko fund karne mein madad karta hai.",
+    marqueeText: "❤️ Aapka har donation kisi ki umeed ko mazboot banata hai • Thank you for supporting Seva Jyoti Foundation •",
+    about: "Seva Jyoti Foundation ek community-focused NGO hai jo zaruratmand parivaron aur bachchon tak practical support pahunchane par kaam karta hai.\n\nHum donations ko ground-level initiatives, education support, food assistance aur emergency help jaise projects mein use karte hain.",
+    terms: "Donation karne se pehle amount aur donor name carefully check karein. Payment Razorpay ke secure checkout ke through process hota hai.\n\nWebsite par dikhaya gaya donor ranking social recognition ke liye hai. Refund requests project policy aur applicable payment rules ke subject hain.",
+    privacy: "Hum donation complete karne ke liye zaruri information jaise donor name aur payment references process karte hain. Payment credentials humare server par store nahi hote; Razorpay payment processing handle karta hai.\n\nPublic donor wall par wahi donor name dikhaya jata hai jo donation ke waqt submit kiya gaya ho.",
+    refund: "Galat ya duplicate payment hone par support team se payment ID ke saath contact karein. Refund approval transaction details aur payment provider ke rules ke mutabik process kiya jayega.",
+    supportEmail: "support@example.org",
+    theme: {
+      primary: "#ff5a36",
+      secondary: "#ffb347",
+      background: "#fffaf5",
+      surface: "#ffffff",
+      text: "#202020",
+      muted: "#6b625b",
+      accent: "#0f8a65",
+    },
+  },
+  chatbot: {
+    name: "Sakhi",
+    topic: "Explain why a donation matters, answer common NGO questions, and encourage the visitor to donate without making false promises, guilt-tripping, or guaranteeing outcomes.",
+    intro: "Namaste ❤️ Main Sakhi hoon. Aap pooch sakte hain ki aapka donation kis tarah help kar sakta hai.",
+    prompt: "Be warm, concise, honest and donation-supportive. Encourage action only when appropriate. Never invent projects, statistics, tax benefits, beneficiary stories, government registrations, or impact numbers that are not provided. Never shame a user for not donating. Use Hindi/Hinglish unless the user uses another language.",
+  },
 };
 
-const seedCategories = [
-  {id:"programming",title:"Programming",icon:"</>",description:"Code, web development and software engineering."},
-  {id:"business",title:"Business",icon:"◈",description:"Business, freelancing, marketing and money skills."},
-  {id:"self-growth",title:"Self Growth",icon:"✦",description:"Habits, productivity and personal development."},
-  {id:"education",title:"Education",icon:"∑",description:"Study guides, concepts and practical learning."}
-];
+const clean = (v, max = 5000) => String(v ?? "").trim().slice(0, max);
+const cleanHex = (v, fallback) => /^#[0-9a-f]{6}$/i.test(String(v || "")) ? String(v) : fallback;
+const num = (v) => Number(v);
 
-const seedBooks = [
-  {
-    id:"python-zero-to-builder",title:"Python: Zero to Builder",author:"Mintu",
-    categoryId:"programming",categoryName:"Programming",price:199,oldPrice:299,
-    rating:4.9,featured:true,newArrival:true,
-    description:"A practical beginner-friendly Python guide with clear explanations, examples and small projects.",
-    highlights:["Python fundamentals","Functions and modules","Files and APIs","Mini projects"],
-    pages:180,format:"PDF",coverClass:"cover-violet",fileKey:""
-  },
-  {
-    id:"modern-web-stack",title:"Modern Web Stack",author:"Qikly Books",
-    categoryId:"programming",categoryName:"Programming",price:249,oldPrice:399,
-    rating:4.8,featured:true,newArrival:true,
-    description:"Learn how modern websites fit together: frontend, backend, databases, deployment and security basics.",
-    highlights:["HTML/CSS/JS","Backend APIs","Firebase","Deployment"],
-    pages:220,format:"PDF",coverClass:"cover-cyan",fileKey:""
-  },
-  {
-    id:"creator-playbook",title:"The Creator Playbook",author:"Qikly Books",
-    categoryId:"business",categoryName:"Business",price:149,oldPrice:249,
-    rating:4.7,featured:false,newArrival:true,
-    description:"A practical framework for turning ideas into content, products and repeatable online workflows.",
-    highlights:["Content systems","Brand basics","Digital products","Simple analytics"],
-    pages:140,format:"PDF",coverClass:"cover-amber",fileKey:""
-  }
-];
+function parseCookies(req) {
+  const out = {};
+  String(req.headers.cookie || "").split(";").forEach((part) => {
+    const i = part.indexOf("=");
+    if (i >= 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+  });
+  return out;
+}
 
-function sign(payload){
-  const body=Buffer.from(JSON.stringify(payload)).toString("base64url");
-  const sig=crypto.createHmac("sha256",SESSION_SECRET).update(body).digest("base64url");
+function timingSafeEqualText(a, b) {
+  const aa = Buffer.from(String(a));
+  const bb = Buffer.from(String(b));
+  return aa.length === bb.length && crypto.timingSafeEqual(aa, bb);
+}
+
+function createAdminToken() {
+  const exp = Date.now() + 12 * 60 * 60 * 1000;
+  const body = `admin.${exp}`;
+  const sig = crypto.createHmac("sha256", ADMIN_PASSWORD).update(body).digest("hex");
   return `${body}.${sig}`;
 }
-function unsign(token){
-  try{
-    const [body,sig]=String(token||"").split(".");
-    if(!body||!sig)return null;
-    const expected=crypto.createHmac("sha256",SESSION_SECRET).update(body).digest("base64url");
-    if(!crypto.timingSafeEqual(Buffer.from(sig),Buffer.from(expected)))return null;
-    const p=JSON.parse(Buffer.from(body,"base64url").toString());
-    if(p.exp && Date.now()>p.exp)return null;
-    return p;
-  }catch{return null}
-}
-function cookieSet(res,name,value,maxAge=60*60*24*7){
-  res.setHeader("Set-Cookie",`${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${process.env.NODE_ENV==="production"?"; Secure":""}`);
-}
-function cookieClear(res,name){res.setHeader("Set-Cookie",`${name}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${process.env.NODE_ENV==="production"?"; Secure":""}`)}
-function getCookie(req,name){
-  const raw=req.headers.cookie||"";
-  const m=raw.split(";").map(x=>x.trim()).find(x=>x.startsWith(name+"="));
-  return m?decodeURIComponent(m.slice(name.length+1)):"";
-}
-function userFromReq(req){
-  const p=unsign(getCookie(req,SESSION_COOKIE));
-  return p?.uid?{uid:p.uid,email:p.email,name:p.name}:null;
-}
-function requireUser(req,res,next){
-  const u=userFromReq(req);
-  if(!u)return res.status(401).json({error:"Please login first."});
-  req.user=u;next();
-}
-function requireAdmin(req,res,next){
-  const p=unsign(getCookie(req,ADMIN_COOKIE));
-  if(!p?.admin)return res.status(401).json({error:"Admin login required."});
-  next();
-}
-function cleanUser(d,id){
-  return {id,...d,passwordHash:undefined,passwordSalt:undefined};
-}
-function hashPassword(password,salt=crypto.randomBytes(16).toString("hex")){
-  return new Promise((resolve,reject)=>crypto.scrypt(String(password),salt,64,(e,k)=>e?reject(e):resolve({salt,hash:k.toString("hex")})));
-}
-async function verifyPassword(password,salt,hash){
-  const out=await hashPassword(password,salt);
-  return crypto.timingSafeEqual(Buffer.from(out.hash,"hex"),Buffer.from(hash,"hex"));
-}
-async function ensureSeeds(){
-  const sref=db.collection("settings").doc("main");
-  const ss=await sref.get();
-  if(!ss.exists) await sref.set(defaults);
-  const cats=await db.collection("categories").limit(1).get();
-  if(cats.empty){
-    const b=db.batch();
-    for(const c of seedCategories)b.set(db.collection("categories").doc(c.id),c);
-    await b.commit();
-  }
-  const books=await db.collection("books").limit(1).get();
-  if(books.empty){
-    const b=db.batch();
-    for(const x of seedBooks)b.set(db.collection("books").doc(x.id),x);
-    await b.commit();
-  }
-}
-async function listCol(name){
-  const snap=await db.collection(name).get();
-  return snap.docs.map(d=>({id:d.id,...d.data()}));
-}
-async function getSettings(){
-  const d=await db.collection("settings").doc("main").get();
-  return d.exists?d.data():defaults;
+
+function isAdmin(req) {
+  const token = String(parseCookies(req)[ADMIN_COOKIE] || "").split(".");
+  if (token.length !== 3 || token[0] !== "admin" || Number(token[1]) < Date.now()) return false;
+  const expected = crypto.createHmac("sha256", ADMIN_PASSWORD).update(`admin.${token[1]}`).digest("hex");
+  return timingSafeEqualText(expected, token[2]);
 }
 
-app.get("/health",(req,res)=>res.json({ok:true,service:"qikly-ebook-api",r2:R2_READY}));
+function setAdminCookie(res, token) {
+  res.setHeader("Set-Cookie", `${ADMIN_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200${process.env.NODE_ENV === "production" ? "; Secure" : ""}`);
+}
 
-app.get("/api/store",async(req,res)=>{
-  try{res.set("Cache-Control","public, max-age=20, stale-while-revalidate=45");res.json(await getStoreSnapshot())}
-  catch(e){res.status(500).json({error:e.message})}
-});
+const guard = (req, res, next) => isAdmin(req) ? next() : res.status(401).json({ error: "Admin login required." });
 
-app.get("/api/books/:id",async(req,res)=>{
-  try{
-    const d=await db.collection("books").doc(req.params.id).get();
-    if(!d.exists)return res.status(404).json({error:"Book not found."});
-    res.json({book:{id:d.id,...d.data()}});
-  }catch(e){res.status(500).json({error:e.message})}
-});
+function publicSettings(data = {}) {
+  const s = { ...defaults.settings, ...data };
+  s.theme = { ...defaults.settings.theme, ...(data.theme || {}) };
+  return s;
+}
 
-app.post("/api/auth/signup",async(req,res)=>{
-  try{
-    const email=String(req.body.email||"").trim().toLowerCase();
-    const name=String(req.body.name||"").trim();
-    const password=String(req.body.password||"");
-    if(!email||!name||password.length<6)return res.status(400).json({error:"Name, valid email and a 6+ character password are required."});
-    const existing=await db.collection("users").where("email","==",email).limit(1).get();
-    if(!existing.empty)return res.status(409).json({error:"An account with this email already exists."});
-    const ph=await hashPassword(password);
-    const ref=db.collection("users").doc();
-    await ref.set({email,name,passwordHash:ph.hash,passwordSalt:ph.salt,createdAt:FieldValue.serverTimestamp()});
-    cookieSet(res,SESSION_COOKIE,sign({uid:ref.id,email,name,exp:Date.now()+7*86400000}));
-    res.json({ok:true,user:{id:ref.id,email,name}});
-  }catch(e){res.status(500).json({error:e.message})}
-});
+async function getDoc(collection, id, fallback) {
+  const snap = await db.collection(collection).doc(id).get();
+  return snap.exists ? { id: snap.id, ...snap.data() } : fallback;
+}
 
-app.post("/api/auth/login",async(req,res)=>{
-  try{
-    const email=String(req.body.email||"").trim().toLowerCase(),password=String(req.body.password||"");
-    const q=await db.collection("users").where("email","==",email).limit(1).get();
-    if(q.empty)return res.status(401).json({error:"Invalid email or password."});
-    const d=q.docs[0],u=d.data();
-    if(!u.passwordHash||!(await verifyPassword(password,u.passwordSalt,u.passwordHash)))return res.status(401).json({error:"Invalid email or password."});
-    cookieSet(res,SESSION_COOKIE,sign({uid:d.id,email:u.email,name:u.name||"Reader",exp:Date.now()+7*86400000}));
-    res.json({ok:true,user:{id:d.id,email:u.email,name:u.name||"Reader"}});
-  }catch(e){res.status(500).json({error:e.message})}
-});
+async function getPublicData() {
+  const [settings, chatbot, bannersSnap, faqSnap, donationsSnap] = await Promise.all([
+    getDoc("settings", "main", defaults.settings),
+    getDoc("chatbot", "main", defaults.chatbot),
+    db.collection("banners").get(),
+    db.collection("faq").get(),
+    db.collection("donations").get(),
+  ]);
 
-app.post("/api/ai/chat",async(req,res)=>{
-  try{
-    const key=String(process.env.GEMINI_API_KEY||"").trim();
-    if(!key)return res.status(503).json({error:"Qikly AI is not configured yet."});
-    const ip=String(req.headers["x-forwarded-for"]||req.socket.remoteAddress||"anonymous").split(",")[0].trim();
-    if(!aiAllowed(ip))return res.status(429).json({error:"AI is busy right now. Please try again in a minute."});
-    const message=String(req.body?.message||"").trim().slice(0,700);
-    if(!message)return res.status(400).json({error:"Message is required."});
-    const history=Array.isArray(req.body?.history)?req.body.history.slice(-8).map(x=>({role:x.role==="model"?"model":"user",parts:[{text:String(x?.parts?.[0]?.text||"").slice(0,700)}]})).filter(x=>x.parts[0].text):[{role:"user",parts:[{text:message}]}];
-    const store=await getStoreSnapshot();
-    const catalog=store.books.slice(0,80).map(b=>`- ${b.title} | ${b.author||"Qikly Books"} | ${b.categoryName||"Other"} | ₹${Number(b.price||0)} | ${b.description||""}`).join("\n");
-    const system=`You are Qikly AI, the helpful assistant inside Qikly Books. Keep answers concise, friendly and practical. Help visitors discover books, understand checkout, login, My Library and e-book access. Never claim a user purchased a book unless the site explicitly confirms it. Do not expose API keys, passwords, internal URLs, Firestore details or server secrets. If asked about a book, use the catalog below and clearly say when something is not in the catalog. You can also answer general study and productivity questions.\n\nCURRENT CATALOG:\n${catalog}`;
-    const model=String(process.env.GEMINI_MODEL||"gemini-3.6-flash").trim();
-    const endpoint=`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
-    const rr=await fetch(endpoint,{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":key},body:JSON.stringify({systemInstruction:{parts:[{text:system}]},contents:history,generationConfig:{temperature:0.45,maxOutputTokens:500}})});
-    const data=await rr.json().catch(()=>({}));
-    if(!rr.ok)return res.status(502).json({error:data?.error?.message||"Gemini request failed."});
-    const text=(data?.candidates?.[0]?.content?.parts||[]).map(x=>x.text||"").join("\n").trim();
-    if(!text)return res.status(502).json({error:"AI returned an empty response."});
-    res.json({text});
-  }catch(e){res.status(500).json({error:e.message})}
-});
+  const banners = bannersSnap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(x => x.active !== false)
+    .sort((a, b) => num(a.sortOrder) - num(b.sortOrder));
 
-app.get("/api/payment/key",(req,res)=>res.json({key:process.env.RAZORPAY_KEY_ID||""}));
+  const faqs = faqSnap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(x => x.active !== false)
+    .sort((a, b) => num(a.sortOrder) - num(b.sortOrder));
 
-app.get("/api/auth/me",(req,res)=>{
-  const u=userFromReq(req);res.json({authenticated:!!u,user:u||null});
-});
-app.post("/api/auth/logout",(req,res)=>{cookieClear(res,SESSION_COOKIE);res.json({ok:true})});
+  const donations = donationsSnap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(x => x.status === "paid")
+    .sort((a, b) => num(b.amount) - num(a.amount) || String(a.name).localeCompare(String(b.name)))
+    .map((x, index) => ({
+      id: x.id,
+      name: clean(x.name, 100) || "Anonymous",
+      amount: num(x.amount) || 0,
+      rank: index + 1,
+      createdAt: x.createdAt || null,
+    }));
 
-app.get("/api/library",requireUser,async(req,res)=>{
-  try{
-    const q=await db.collection("orders").where("userId","==",req.user.uid).get();
-    const ids=q.docs.filter(d=>["paid","captured"].includes(d.data().status)).map(d=>d.data().bookId);
-    const unique=[...new Set(ids)];
-    const books=[];
-    for(const id of unique){const d=await db.collection("books").doc(id).get();if(d.exists)books.push({id:d.id,...d.data()})}
-    res.json({books});
-  }catch(e){res.status(500).json({error:e.message})}
-});
+  const totalRaised = donations.reduce((sum, d) => sum + d.amount, 0);
 
-app.get("/api/books/:id/access",requireUser,async(req,res)=>{
-  try{
-    const oq=await db.collection("orders").where("userId","==",req.user.uid).where("bookId","==",req.params.id).limit(20).get();
-    const owned=oq.docs.some(d=>["paid","captured"].includes(d.data().status));
-    if(!owned)return res.status(403).json({error:"Purchase this book to access it."});
-    const b=await db.collection("books").doc(req.params.id).get();
-    if(!b.exists)return res.status(404).json({error:"Book not found."});
-    const book={id:b.id,...b.data()};
-    if(!book.fileKey)return res.status(404).json({error:"The e-book file has not been uploaded yet."});
-    if(!R2_READY)return res.status(503).json({error:"R2 storage is not configured on the server yet."});
-    const url=await getSignedUrl(r2,new GetObjectCommand({Bucket:process.env.R2_BUCKET,Key:book.fileKey}),{expiresIn:600});
-    res.json({url,expiresIn:600});
-  }catch(e){res.status(500).json({error:e.message})}
-});
+  return {
+    settings: publicSettings(settings),
+    banners,
+    faqs,
+    topDonors: donations.slice(0, 500),
+    donorCount: donations.length,
+    totalRaised,
+    chatbot: {
+      name: clean(chatbot.name, 80) || defaults.chatbot.name,
+      intro: clean(chatbot.intro, 500) || defaults.chatbot.intro,
+    },
+  };
+}
 
-app.post("/api/checkout/create-order",requireUser,async(req,res)=>{
-  try{
-    const bookId=String(req.body.bookId||"");
-    const b=await db.collection("books").doc(bookId).get();
-    if(!b.exists||b.data().active===false)return res.status(404).json({error:"Book not found."});
-    const book=b.data(), amount=Math.round(Number(book.price)*100);
-    if(!amount||amount<100)return res.status(400).json({error:"Invalid book price."});
-    const order=await razorpay.orders.create({amount,currency:"INR",receipt:`ebook_${bookId}_${Date.now()}`});
-    res.json({orderId:order.id,amount,currency:"INR",book:{id:bookId,title:book.title,price:book.price}});
-  }catch(e){res.status(500).json({error:e.error?.description||e.message})}
-});
+async function getRankForDonation(name, amount, donationId) {
+  const donations = (await db.collection("donations").get()).docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(x => x.status === "paid")
+    .sort((a, b) => num(b.amount) - num(a.amount) || String(a.name).localeCompare(String(b.name)));
+  const index = donations.findIndex(x => x.id === donationId);
+  return {
+    rank: index >= 0 ? index + 1 : donations.filter(x => num(x.amount) > amount).length + 1,
+    totalDonors: donations.length,
+    name,
+    amount,
+  };
+}
 
-app.post("/api/checkout/verify",requireUser,async(req,res)=>{
-  try{
-    const {razorpay_order_id,razorpay_payment_id,razorpay_signature,bookId}=req.body||{};
-    if(!razorpay_order_id||!razorpay_payment_id||!razorpay_signature||!bookId)return res.status(400).json({error:"Incomplete payment response."});
-    const body=`${razorpay_order_id}|${razorpay_payment_id}`;
-    const expected=crypto.createHmac("sha256",process.env.RAZORPAY_KEY_SECRET).update(body).digest("hex");
-    if(Buffer.byteLength(expected)!==Buffer.byteLength(String(razorpay_signature))||!crypto.timingSafeEqual(Buffer.from(expected),Buffer.from(String(razorpay_signature))))return res.status(400).json({error:"Payment signature verification failed."});
-    const existing=await db.collection("orders").where("paymentId","==",razorpay_payment_id).limit(1).get();
-    if(existing.empty){
-      const b=await db.collection("books").doc(bookId).get();
-      if(!b.exists)return res.status(404).json({error:"Book no longer exists."});
-      await db.collection("orders").add({
-        userId:req.user.uid,bookId,paymentId:razorpay_payment_id,razorpayOrderId:razorpay_order_id,
-        amount:Number(b.data().price),status:"paid",createdAt:FieldValue.serverTimestamp()
-      });
+function randomSeedName(index) {
+  const first = [
+    "Aarav","Aditi","Aditya","Aisha","Aman","Ananya","Aniket","Anjali","Arjun","Avni",
+    "Bhavya","Chirag","Diya","Dev","Divya","Eshan","Gauri","Harsh","Isha","Ishaan",
+    "Kabir","Kajal","Karan","Kavya","Krish","Kriti","Manav","Meera","Mohit","Naina",
+    "Naman","Neha","Nikhil","Nisha","Pooja","Pranav","Priya","Rahul","Riya","Rohan",
+    "Sahil","Sakshi","Sameer","Simran","Sneha","Sonam","Tanya","Varun","Vansh","Yash",
+  ];
+  const last = ["Sharma","Verma","Gupta","Singh","Mehta","Jain","Malhotra","Kapoor","Kumar","Bansal","Saini","Yadav","Joshi","Chauhan","Patel","Agarwal","Mishra","Rana","Arora","Nair"];
+  const f = first[index % first.length];
+  const l = last[Math.floor(index / first.length) % last.length];
+  const suffix = Math.floor(index / (first.length * last.length));
+  return `${f} ${l}${suffix ? ` ${suffix + 1}` : ""}`;
+}
+
+async function deleteAllDonations() {
+  const snap = await db.collection("donations").get();
+  let deleted = 0;
+  let batch = db.batch();
+  let inBatch = 0;
+  for (const doc of snap.docs) {
+    batch.delete(doc.ref);
+    inBatch++;
+    deleted++;
+    if (inBatch === 450) {
+      await batch.commit();
+      batch = db.batch();
+      inBatch = 0;
     }
-    res.json({ok:true});
-  }catch(e){res.status(500).json({error:e.message})}
-});
+  }
+  if (inBatch) await batch.commit();
+  return { count: deleted };
+}
 
-app.get("/api/admin/me",(req,res)=>res.json({authenticated:!!unsign(getCookie(req,ADMIN_COOKIE))?.admin}));
+async function addManualDonation(name, amount) {
+  const ref = db.collection("donations").doc(`manual_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`);
+  await ref.set({
+    name,
+    amount,
+    status: "paid",
+    seed: false,
+    source: "manual",
+    paymentId: null,
+    orderId: null,
+    createdAt: FieldValue.serverTimestamp(),
+    verifiedAt: FieldValue.serverTimestamp(),
+  });
+  return { id: ref.id };
+}
 
-app.post("/api/admin/login",(req,res)=>{
-  const password=String(req.body.password||"");
-  if(Buffer.byteLength(password)!==Buffer.byteLength(ADMIN_PASSWORD)||!crypto.timingSafeEqual(Buffer.from(password),Buffer.from(ADMIN_PASSWORD)))return res.status(401).json({error:"Wrong admin password."});
-  cookieSet(res,ADMIN_COOKIE,sign({admin:true,exp:Date.now()+12*3600000}),12*3600);
-  res.json({ok:true});
-});
-app.post("/api/admin/logout",(req,res)=>{cookieClear(res,ADMIN_COOKIE);res.json({ok:true})});
+async function seedSupporters() {
+  const snap = await db.collection("donations").where("seed", "==", true).get();
+  const batchDelete = db.batch();
+  snap.docs.forEach(d => batchDelete.delete(d.ref));
+  if (snap.docs.length) await batchDelete.commit();
 
-app.get("/api/admin/data",requireAdmin,async(req,res)=>{
-  try{
-    const [settings,categories,books,orders,users]=await Promise.all([
-      getSettings(),listCol("categories"),listCol("books"),listCol("orders"),listCol("users")
-    ]);
-    res.json({
-      settings,categories,books,orders:orders.sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||""))),
-      users:users.map(u=>cleanUser(u,u.id))
+  const count = 450;
+  let batch = db.batch();
+  let written = 0;
+  for (let i = 0; i < count; i++) {
+    const ref = db.collection("donations").doc(`seed_${String(i + 1).padStart(3, "0")}`);
+    const amount = [101, 151, 251, 501, 751, 1001, 1501, 2101, 2501, 3101][i % 10] + (i % 7) * 10;
+    batch.set(ref, {
+      name: randomSeedName(i),
+      amount,
+      status: "paid",
+      seed: true,
+      paymentId: `seed_payment_${i + 1}`,
+      orderId: `seed_order_${i + 1}`,
+      createdAt: new Date(Date.now() - i * 7 * 60 * 1000),
     });
-  }catch(e){res.status(500).json({error:e.message})}
+    written++;
+    if (written === 450) await batch.commit();
+  }
+  return { count };
+}
+
+async function geminiGenerate(contents, systemInstruction) {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) throw new Error("Gemini API is not configured on the server.");
+  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  const body = {
+    contents,
+    systemInstruction: { parts: [{ text: systemInstruction }] },
+    generationConfig: { temperature: 0.7, maxOutputTokens: 450 },
+  };
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error?.message || `Gemini API error (${r.status})`);
+  return d.candidates?.[0]?.content?.parts?.map(x => x.text || "").join("").trim() || "Main abhi jawab generate nahi kar pa raha hoon. Aap directly donation box se bhi support kar sakte hain. ❤️";
+}
+
+app.get("/api/public/data", async (req, res) => {
+  try { res.json(await getPublicData()); }
+  catch (e) { console.error(e); res.status(500).json({ error: e.message || "Unable to load public data." }); }
 });
 
-app.post("/api/admin/books",requireAdmin,async(req,res)=>{
-  try{
-    const data=req.body||{},ref=db.collection("books").doc();
-    const book={title:String(data.title||"Untitled"),author:String(data.author||"Qikly Books"),
-      categoryId:String(data.categoryId||"other"),categoryName:String(data.categoryName||"Other"),
-      price:Number(data.price||0),oldPrice:Number(data.oldPrice||0),rating:Number(data.rating||5),
-      description:String(data.description||""),highlights:Array.isArray(data.highlights)?data.highlights:[],
-      pages:Number(data.pages||0),format:"PDF",coverUrl:String(data.coverUrl||""),coverClass:String(data.coverClass||"cover-violet"),
-      fileKey:String(data.fileKey||""),featured:!!data.featured,newArrival:!!data.newArrival,active:data.active!==false,
-      createdAt:FieldValue.serverTimestamp()};
-    await ref.set(book);invalidateStoreCache();res.json({ok:true,book:{id:ref.id,...book}});
-  }catch(e){res.status(500).json({error:e.message})}
+app.get("/api/public/config", (req, res) => res.json({ razorpayKeyId: process.env.RAZORPAY_KEY_ID || "" }));
+
+app.post("/api/donation/create-order", async (req, res) => {
+  try {
+    const name = clean(req.body.name, 100);
+    const amount = Math.round(num(req.body.amount));
+    if (!name || name.length < 2) return res.status(400).json({ error: "Please enter your name." });
+    if (!Number.isInteger(amount) || amount < 1 || amount > 10000000) return res.status(400).json({ error: "Enter a valid donation amount between ₹1 and ₹1,00,00,000." });
+    const order = await razorpay.orders.create({
+      amount: amount * 100,
+      currency: "INR",
+      receipt: `ngo_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`,
+      notes: { donorName: name },
+    });
+    await db.collection("donations").doc(order.id).set({
+      orderId: order.id,
+      name,
+      amount,
+      status: "created",
+      seed: false,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    res.json({ ok: true, orderId: order.id, amount: order.amount, currency: order.currency, name });
+  } catch (e) {
+    console.error(e); res.status(500).json({ error: e.message || "Unable to create donation order." });
+  }
 });
 
-app.put("/api/admin/books/:id",requireAdmin,async(req,res)=>{
-  try{await db.collection("books").doc(req.params.id).set(req.body||{},{merge:true});invalidateStoreCache();res.json({ok:true})}
-  catch(e){res.status(500).json({error:e.message})}
-});
-app.delete("/api/admin/books/:id",requireAdmin,async(req,res)=>{
-  try{await db.collection("books").doc(req.params.id).delete();invalidateStoreCache();res.json({ok:true})}
-  catch(e){res.status(500).json({error:e.message})}
+app.post("/api/donation/verify-payment", async (req, res) => {
+  try {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body || {};
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) return res.status(400).json({ error: "Incomplete Razorpay response." });
+    const expected = crypto.createHmac("sha256", process.env.RAZORPAY_KEY_SECRET).update(`${razorpay_order_id}|${razorpay_payment_id}`).digest("hex");
+    if (!timingSafeEqualText(expected, razorpay_signature)) return res.status(400).json({ error: "Payment signature verification failed." });
+
+    const ref = db.collection("donations").doc(razorpay_order_id);
+    const snap = await ref.get();
+    if (!snap.exists) return res.status(404).json({ error: "Donation order not found." });
+    const donation = snap.data();
+    const payment = await razorpay.payments.fetch(razorpay_payment_id);
+    if (payment.status !== "captured") return res.status(400).json({ error: "Payment has not been captured." });
+    if (payment.order_id !== razorpay_order_id) return res.status(400).json({ error: "Payment order does not match." });
+    if (num(payment.amount) !== Math.round(num(donation.amount) * 100)) return res.status(400).json({ error: "Payment amount does not match the donation." });
+
+    if (donation.status !== "paid") {
+      await ref.update({ status: "paid", paymentId: razorpay_payment_id, verifiedAt: FieldValue.serverTimestamp() });
+    }
+    const result = await getRankForDonation(donation.name, donation.amount, razorpay_order_id);
+    res.json({ success: true, ...result });
+  } catch (e) {
+    console.error(e); res.status(500).json({ error: e.message || "Payment verification failed." });
+  }
 });
 
-app.post("/api/admin/categories",requireAdmin,async(req,res)=>{
-  try{const d=req.body||{},id=String(d.id||d.title||"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");if(!id)return res.status(400).json({error:"Category title required."});await db.collection("categories").doc(id).set({title:String(d.title||id),icon:String(d.icon||"✦"),description:String(d.description||"")},{merge:true});res.json({ok:true,id})}
-  catch(e){res.status(500).json({error:e.message})}
-});
-app.delete("/api/admin/categories/:id",requireAdmin,async(req,res)=>{try{await db.collection("categories").doc(req.params.id).delete();invalidateStoreCache();res.json({ok:true})}catch(e){res.status(500).json({error:e.message})}});
-
-app.put("/api/admin/settings",requireAdmin,async(req,res)=>{
-  try{await db.collection("settings").doc("main").set(req.body||{},{merge:true});invalidateStoreCache();res.json({ok:true})}
-  catch(e){res.status(500).json({error:e.message})}
-});
-
-app.post("/api/admin/cover-upload",requireAdmin,async(req,res)=>{
-  try{
-    const key=String(process.env.IMGBB_API_KEY||"").trim();
-    if(!key)return res.status(503).json({error:"ImgBB API key is not configured on the server."});
-    let image=String(req.body?.imageBase64||"").trim();
-    if(!image)return res.status(400).json({error:"Image data is required."});
-    image=image.replace(/^data:image\/[^;]+;base64,/i,"");
-    if(Buffer.byteLength(image,"utf8")>10*1024*1024)return res.status(413).json({error:"Thumbnail is too large. Use an image under 7 MB."});
-    const form=new URLSearchParams();form.set("image",image);
-    const name=String(req.body?.fileName||"cover").replace(/[^a-zA-Z0-9._-]/g,"-").slice(0,80);form.set("name",name);
-    const rr=await fetch(`https://api.imgbb.com/1/upload?key=${encodeURIComponent(key)}`,{method:"POST",body:form,headers:{"Content-Type":"application/x-www-form-urlencoded"}});
-    const data=await rr.json().catch(()=>({}));
-    if(!rr.ok||!data?.success)return res.status(502).json({error:data?.error?.message||"ImgBB upload failed."});
-    res.json({ok:true,url:data.data.display_url||data.data.url,thumbUrl:data.data.thumb?.url||data.data.display_url||data.data.url,deleteUrl:data.data.delete_url||""});
-  }catch(e){res.status(500).json({error:e.message})}
+app.post("/api/chatbot", async (req, res) => {
+  try {
+    const chatbot = await getDoc("chatbot", "main", defaults.chatbot);
+    const settings = await getDoc("settings", "main", defaults.settings);
+    const message = clean(req.body.message, 1200);
+    if (!message) return res.status(400).json({ error: "Message is required." });
+    const history = Array.isArray(req.body.history) ? req.body.history.slice(-8) : [];
+    const contents = [];
+    history.forEach(item => {
+      if (item?.role === "user" || item?.role === "model") contents.push({ role: item.role, parts: [{ text: clean(item.text, 1200) }] });
+    });
+    contents.push({ role: "user", parts: [{ text: message }] });
+    const context = publicSettings(settings);
+    const system = `You are ${clean(chatbot.name, 80) || defaults.chatbot.name}, the donation-support assistant for ${clean(context.ngoName, 120)}.\nTopic controlled by admin: ${clean(chatbot.topic, 1800)}\nAdmin behavior instructions: ${clean(chatbot.prompt, 1800)}\nNGO summary: ${clean(context.heroText, 1200)}\nAbout: ${clean(context.about, 2200)}\n\nDo not fabricate facts. Do not guilt-trip the visitor. Do not promise guaranteed outcomes. You may explain why donating can help and invite the visitor to use the donation box. Keep replies conversational and concise.`;
+    const answer = await geminiGenerate(contents, system);
+    res.json({ ok: true, name: clean(chatbot.name, 80) || defaults.chatbot.name, answer });
+  } catch (e) {
+    console.error(e); res.status(500).json({ error: e.message || "Chatbot is unavailable right now." });
+  }
 });
 
-app.post("/api/admin/upload-url",requireAdmin,async(req,res)=>{
-  try{
-    if(!R2_READY)return res.status(503).json({error:"R2 environment variables are missing."});
-    const contentType=String(req.body.contentType||"application/pdf");
-    if(contentType!=="application/pdf")return res.status(400).json({error:"Only PDF uploads are allowed."});
-    const safe=String(req.body.fileName||"book.pdf").replace(/[^a-zA-Z0-9._-]/g,"-");
-    const key=`ebooks/${Date.now()}-${crypto.randomBytes(4).toString("hex")}-${safe}`;
-    const url=await getSignedUrl(r2,new PutObjectCommand({Bucket:process.env.R2_BUCKET,Key:key,ContentType:"application/pdf"}),{expiresIn:900});
-    res.json({url,key,expiresIn:900});
-  }catch(e){res.status(500).json({error:e.message})}
+app.post("/api/admin/login", (req, res) => {
+  const password = String(req.body.password || "");
+  if (!timingSafeEqualText(password, ADMIN_PASSWORD)) return res.status(401).json({ error: "Wrong password." });
+  setAdminCookie(res, createAdminToken());
+  res.json({ ok: true });
 });
 
-ensureSeeds().catch(()=>{});
-module.exports=app;
+app.post("/api/admin/logout", (req, res) => {
+  res.setHeader("Set-Cookie", `${ADMIN_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${process.env.NODE_ENV === "production" ? "; Secure" : ""}`);
+  res.json({ ok: true });
+});
+
+app.get("/api/admin/me", (req, res) => res.json({ authenticated: isAdmin(req) }));
+
+app.get("/api/admin/data", guard, async (req, res) => {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  try {
+    const [settings, chatbot, bannersSnap, faqSnap, donationsSnap] = await Promise.all([
+      getDoc("settings", "main", defaults.settings),
+      getDoc("chatbot", "main", defaults.chatbot),
+      db.collection("banners").get(),
+      db.collection("faq").get(),
+      db.collection("donations").get(),
+    ]);
+    const donations = donationsSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => num(b.amount) - num(a.amount));
+    const paid = donations.filter(x => x.status === "paid");
+    const now = new Date();
+    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const toMs = x => x?.toDate?.()?.getTime?.() || new Date(x?.createdAt || x).getTime();
+    const today = paid.filter(x => toMs(x.verifiedAt || x.createdAt) >= dayStart);
+    const month = paid.filter(x => toMs(x.verifiedAt || x.createdAt) >= monthStart);
+    res.json({
+      settings: publicSettings(settings), chatbot,
+      banners: bannersSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => num(a.sortOrder) - num(b.sortOrder)),
+      faqs: faqSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => num(a.sortOrder) - num(b.sortOrder)),
+      donations,
+      stats: {
+        donorCount: paid.length,
+        totalRaised: paid.reduce((s, x) => s + num(x.amount), 0),
+        todayAmount: today.reduce((s, x) => s + num(x.amount), 0),
+        monthAmount: month.reduce((s, x) => s + num(x.amount), 0),
+        seedCount: paid.filter(x => x.seed === true).length,
+      },
+      publicDonorCount: paid.length,
+      _source: "firestore-admin-v3",
+    });
+  } catch (e) {
+    console.error("Admin data error:", e);
+    res.status(500).json({ error: e.message || "Unable to load admin data." });
+  }
+});
+
+app.post("/api/admin/settings", guard, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const theme = b.theme || {};
+    const payload = {
+      ngoName: clean(b.ngoName, 120) || defaults.settings.ngoName,
+      tagline: clean(b.tagline, 240),
+      heroTitle: clean(b.heroTitle, 240),
+      heroText: clean(b.heroText, 1500),
+      marqueeText: clean(b.marqueeText, 700),
+      about: clean(b.about, 6000), terms: clean(b.terms, 6000), privacy: clean(b.privacy, 6000), refund: clean(b.refund, 6000),
+      supportEmail: clean(b.supportEmail, 180),
+      theme: {
+        primary: cleanHex(theme.primary, defaults.settings.theme.primary),
+        secondary: cleanHex(theme.secondary, defaults.settings.theme.secondary),
+        background: cleanHex(theme.background, defaults.settings.theme.background),
+        surface: cleanHex(theme.surface, defaults.settings.theme.surface),
+        text: cleanHex(theme.text, defaults.settings.theme.text),
+        muted: cleanHex(theme.muted, defaults.settings.theme.muted),
+        accent: cleanHex(theme.accent, defaults.settings.theme.accent),
+      },
+    };
+    await db.collection("settings").doc("main").set(payload, { merge: true });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message || "Unable to save settings." }); }
+});
+
+app.post("/api/admin/chatbot", guard, async (req, res) => {
+  try {
+    await db.collection("chatbot").doc("main").set({
+      name: clean(req.body.name, 80) || defaults.chatbot.name,
+      topic: clean(req.body.topic, 2500),
+      intro: clean(req.body.intro, 700),
+      prompt: clean(req.body.prompt, 2500),
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message || "Unable to save chatbot settings." }); }
+});
+
+app.post("/api/admin/upload-image", guard, async (req, res) => {
+  try {
+    const key = String(process.env.IMGBB_API_KEY || "").trim();
+    if (!key) return res.status(503).json({ error: "ImgBB API is not configured on the server." });
+    const raw = String(req.body?.image || "");
+    if (!raw) return res.status(400).json({ error: "Please select an image first." });
+    const base64 = raw.includes(",") ? raw.split(",").slice(1).join(",") : raw;
+    if (!/^[A-Za-z0-9+/=\r\n]+$/.test(base64)) return res.status(400).json({ error: "Invalid image data." });
+    const bytes = Math.floor((base64.replace(/\s/g, "").length * 3) / 4);
+    if (bytes > 8 * 1024 * 1024) return res.status(413).json({ error: "Image is too large. Please use an image under 8 MB." });
+
+    const params = new URLSearchParams();
+    params.set("image", base64.replace(/\s/g, ""));
+    if (req.body?.name) params.set("name", clean(req.body.name, 120));
+    const r = await fetch(`https://api.imgbb.com/1/upload?key=${encodeURIComponent(key)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: params,
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d?.success || !d?.data?.url) {
+      return res.status(502).json({ error: d?.error?.message || "ImgBB upload failed." });
+    }
+    res.json({ ok: true, imageUrl: d.data.url, displayUrl: d.data.display_url || d.data.url });
+  } catch (e) {
+    console.error(e); res.status(500).json({ error: e.message || "Unable to upload image." });
+  }
+});
+
+app.post("/api/admin/reset-section", guard, async (req, res) => {
+  try {
+    const section = clean(req.body?.section, 80);
+    const contentFields = new Set(["ngoName", "supportEmail", "tagline", "heroTitle", "heroText", "marqueeText", "about", "terms", "privacy", "refund"]);
+    if (contentFields.has(section)) {
+      await db.collection("settings").doc("main").set({ [section]: defaults.settings[section] }, { merge: true });
+      return res.json({ ok: true });
+    }
+    if (section === "chatbot") {
+      await db.collection("chatbot").doc("main").set({ ...defaults.chatbot, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      return res.json({ ok: true });
+    }
+    if (section === "theme") {
+      await db.collection("settings").doc("main").set({ theme: { ...defaults.settings.theme } }, { merge: true });
+      return res.json({ ok: true });
+    }
+    return res.status(400).json({ error: "Invalid section." });
+  } catch (e) {
+    console.error(e); res.status(500).json({ error: e.message || "Unable to reset section." });
+  }
+});
+
+app.post("/api/admin/banner", guard, async (req, res) => {
+  try {
+    const id = clean(req.body.id, 80) || `banner_${Date.now()}`;
+    const imageUrl = clean(req.body.imageUrl, 1200);
+    if (!/^https:\/\//i.test(imageUrl)) return res.status(400).json({ error: "Banner image must use an HTTPS URL." });
+    await db.collection("banners").doc(id).set({
+      title: clean(req.body.title, 160), imageUrl, linkUrl: clean(req.body.linkUrl, 1200),
+      active: req.body.active !== false, sortOrder: num(req.body.sortOrder) || Date.now(), updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message || "Unable to save banner." }); }
+});
+
+app.post("/api/admin/faq", guard, async (req, res) => {
+  try {
+    const id = clean(req.body.id, 80) || `faq_${Date.now()}`;
+    await db.collection("faq").doc(id).set({
+      question: clean(req.body.question, 300), answer: clean(req.body.answer, 2500),
+      active: req.body.active !== false, sortOrder: num(req.body.sortOrder) || Date.now(), updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message || "Unable to save FAQ." }); }
+});
+
+app.post("/api/admin/delete", guard, async (req, res) => {
+  try {
+    const collection = ["banners", "faq"].includes(String(req.body.collection)) ? String(req.body.collection) : "";
+    const id = clean(req.body.id, 120);
+    if (!collection || !id) return res.status(400).json({ error: "Invalid delete request." });
+    await db.collection(collection).doc(id).delete();
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message || "Unable to delete record." }); }
+});
+
+app.post("/api/admin/donations/delete-all", guard, async (req, res) => {
+  try {
+    res.json({ ok: true, ...(await deleteAllDonations()) });
+  } catch (e) {
+    console.error(e); res.status(500).json({ error: e.message || "Unable to delete donations." });
+  }
+});
+
+app.post("/api/admin/donations/manual", guard, async (req, res) => {
+  try {
+    const name = clean(req.body.name, 100);
+    const amount = Math.round(num(req.body.amount));
+    if (!name || name.length < 2) return res.status(400).json({ error: "Please enter a donor name." });
+    if (!Number.isInteger(amount) || amount < 1 || amount > 10000000) return res.status(400).json({ error: "Enter a valid amount between ₹1 and ₹1,00,00,000." });
+    const result = await addManualDonation(name, amount);
+    res.json({ ok: true, ...result, name, amount });
+  } catch (e) {
+    console.error(e); res.status(500).json({ error: e.message || "Unable to add manual donor." });
+  }
+});
+
+app.post("/api/admin/seed-supporters", guard, async (req, res) => {
+  try { res.json({ ok: true, ...(await seedSupporters()) }); }
+  catch (e) { console.error(e); res.status(500).json({ error: e.message || "Unable to seed supporters." }); }
+});
+
+app.get("/api/health", (req, res) => res.json({
+  ok: true,
+  firebaseConfigured: !!process.env.FIREBASE_SERVICE_ACCOUNT_JSON,
+  razorpayConfigured: !!process.env.RAZORPAY_KEY_ID && !!process.env.RAZORPAY_KEY_SECRET,
+  geminiConfigured: !!process.env.GEMINI_API_KEY,
+}));
+
+module.exports = app;
