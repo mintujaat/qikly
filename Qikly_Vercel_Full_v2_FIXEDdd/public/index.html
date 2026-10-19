@@ -1,93 +1,52 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>NGO Donation</title>
-  <meta name="description" content="Support a meaningful cause through a secure donation.">
-  <link rel="stylesheet" href="/style.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#74112b">
+<meta name="description" content="Qikly Diwali Fashion Sale — ethnic wear, western wear, men's and kids fashion with festive deals.">
+<title>Qikly — Diwali Fashion Sale</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='25' fill='%2374112b'/%3E%3Ctext x='50' y='68' font-size='60' text-anchor='middle' fill='%23ffd66b'%3EQ%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <div id="site" class="site">
-    <header class="header">
-      <a class="brand" href="#home"><span id="brandMark">♥</span><span id="ngoName">Seva Jyoti Foundation</span></a>
-      <nav class="nav">
-        <a href="#donate">Donate</a><a href="#supporters">Supporters</a><a href="#about">About</a><a href="#faq">FAQ</a>
-      </nav>
-    </header>
-
-    <div class="marquee"><div id="marqueeText">❤️ Aapka har donation kisi ki umeed ko mazboot banata hai.</div></div>
-
-    <main>
-      <section id="home" class="hero wrap">
-        <div class="hero-copy">
-          <span class="eyebrow">MAKE A DIFFERENCE</span>
-          <h1 id="heroTitle">Milkar kisi ki zindagi mein roshni laayein</h1>
-          <p id="heroText">Aapka donation education, food, healthcare aur emergency support jaise ground-level kaamon ko fund karne mein madad karta hai.</p>
-          <div class="hero-actions"><a class="btn primary" href="#donate">Donate Now <span>→</span></a><a class="text-link" href="#about">Know our mission ↓</a></div>
-          <div class="trust-row"><span>🔒 Secure payment</span><span>⚡ Razorpay checkout</span><span>❤️ Every contribution counts</span></div>
-        </div>
-        <div class="banner-card">
-          <div id="bannerTrack" class="banner-track"></div>
-          <div id="bannerDots" class="banner-dots"></div>
-        </div>
-      </section>
-
-      <section id="donate" class="wrap donate-section">
-        <div class="section-heading"><span class="eyebrow">YOUR SUPPORT</span><h2>Donate what feels right.</h2><p>Apni marzi se amount enter karein. Koi fixed plan nahi hai.</p></div>
-        <div class="donation-grid">
-          <div class="donation-card card">
-            <form id="donationForm">
-              <label>Your name<input id="donorName" maxlength="100" placeholder="Enter your name" required></label>
-              <label>Donation amount (₹)<input id="donorAmount" inputmode="numeric" type="number" min="1" step="1" placeholder="501" required></label>
-              <div class="quick-amounts"><button type="button" data-amount="101">₹101</button><button type="button" data-amount="501">₹501</button><button type="button" data-amount="1001">₹1,001</button><button type="button" data-amount="2501">₹2,501</button></div>
-              <button id="donateBtn" class="btn primary full" type="submit">Donate Securely <span>↗</span></button>
-              <p class="tiny-note">Payment Razorpay ke secure checkout par complete hoga. Payment details humare server par store nahi hote.</p>
-              <div id="donateError" class="error"></div><div id="donateSuccess" class="success"></div>
-            </form>
-          </div>
-          <aside class="impact-card card">
-            <div class="impact-top"><div><span class="eyebrow">COMMUNITY</span><h3>We grow together.</h3></div><div class="heart-badge">♥</div></div>
-            <div class="impact-stats"><div><strong id="totalRaised">₹0</strong><span>raised</span></div><div><strong id="donorCount">0</strong><span>supporters</span></div></div>
-            <div class="rank-box"><div><span>Your donation can appear here</span><strong id="myRank">#—</strong></div><small>Payment ke baad aapka live donor rank yahin dikhega.</small></div>
-            <p id="tagline">Aapki chhoti si madad kisi ki badi zarurat ban sakti hai.</p>
-          </aside>
-        </div>
-      </section>
-
-      <section id="supporters" class="wrap supporters-section">
-        <div class="section-heading row-heading"><div><span class="eyebrow">DONOR WALL</span><h2>Our supporters</h2><p>Jo log is cause ko support kar rahe hain, unki leaderboard yahan dikhti hai.</p></div><div class="live-pill">● LIVE</div></div>
-        <div id="donorList" class="donor-grid"><div class="loading">Loading supporters…</div></div>
-      </section>
-
-      <section id="about" class="wrap content-section">
-        <div class="content-card card"><span class="eyebrow">ABOUT US</span><h2>Why we do this</h2><p id="aboutText" class="long-copy"></p></div>
-        <div class="content-card card"><span class="eyebrow">TRANSPARENCY</span><h2>Our promise</h2><p class="long-copy">Hum donation experience ko simple, secure aur honest rakhne ki koshish karte hain. Public donor wall social recognition ke liye hai; impact claims wahi honge jo verified information par based hain.</p></div>
-      </section>
-
-      <section id="faq" class="wrap faq-section">
-        <div class="section-heading"><span class="eyebrow">FAQ</span><h2>Common questions</h2><p>Donation se pehle jo jaana zaruri ho, woh yahan mil jayega.</p></div>
-        <div id="faqList" class="faq-list"></div>
-      </section>
-
-      <section class="wrap legal-grid">
-        <details class="legal-card card"><summary>Terms & Conditions</summary><p id="termsText" class="long-copy"></p></details>
-        <details class="legal-card card"><summary>Privacy Policy</summary><p id="privacyText" class="long-copy"></p></details>
-        <details class="legal-card card"><summary>Refund Policy</summary><p id="refundText" class="long-copy"></p></details>
-      </section>
-    </main>
-
-    <footer class="footer wrap"><div><strong id="footerName">Seva Jyoti Foundation</strong><p id="footerTag">Aapki madad, kisi ki umeed.</p></div><div class="footer-links"><a href="#donate">Donate</a><a href="#about">About</a><a href="#faq">FAQ</a><a href="mailto:support@example.org" id="supportEmail">Email</a><a href="/admin.html">Admin</a></div></footer>
-
-    <button id="chatOpen" class="chat-fab" aria-label="Open donation assistant"><span>✦</span><em id="chatNameShort">Sakhi</em></button>
-    <div id="chatWidget" class="chat-widget hidden">
-      <div class="chat-head"><div><span class="eyebrow">DONATION ASSISTANT</span><strong id="chatName">Sakhi</strong></div><button id="chatClose" aria-label="Close">×</button></div>
-      <div id="chatMessages" class="chat-messages"></div>
-      <form id="chatForm" class="chat-form"><input id="chatInput" maxlength="1200" placeholder="Ask about the donation…" autocomplete="off"><button aria-label="Send">➤</button></form>
+<div class="sale-bar" id="announcement">🪔 Diwali Fashion Sale • Up to 80% off • Free shipping above ₹999</div>
+<header class="site-header">
+  <div class="header-main container">
+    <button class="icon-btn mobile-only" data-action="menu">☰</button>
+    <a class="brand" href="#home" data-route="home"><span class="brand-mark" id="logoMark">Q</span><span><strong id="siteName">Qikly</strong><small id="siteTagline">Diwali Fashion Edit</small></span></a>
+    <button class="category-btn" data-action="categories">☰ Categories⌄</button>
+    <form class="searchbar" id="searchForm"><span>⌕</span><input id="searchInput" placeholder="Search sarees, kurtas, dresses, shirts…" autocomplete="off"><button>Search</button></form>
+    <div class="header-actions">
+      <button class="head-btn" data-route="wishlist"><span>♡<i id="wishCount">0</i></span><small>Wishlist</small></button>
+      <button class="head-btn" data-action="account"><span>👤</span><small>Account</small></button>
+      <button class="head-btn" data-action="cart"><span>🛍️<i id="cartCount">0</i></span><small>Bag</small></button>
     </div>
   </div>
-  <div id="toast" class="toast"></div>
-  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-  <script src="/app.js"></script>
+  <div class="category-nav"><div class="container" id="categoryNav"></div></div>
+  <div class="mega-panel" id="megaPanel"><div class="container" id="megaContent"></div></div>
+</header>
+
+<main id="app" class="container"></main>
+
+<footer class="site-footer">
+  <div class="container footer-grid">
+    <div><a class="brand" href="#home"><span class="brand-mark">Q</span><span><strong id="footerName">Qikly</strong><small>Diwali Fashion Edit</small></span></a><p id="footerText">Festive fashion, everyday style and fast checkout — curated for the Diwali season.</p></div>
+    <div><h4>Shop</h4><a href="#shop">All Fashion</a><a href="#shop?cat=women">Women</a><a href="#shop?cat=men">Men</a><a href="#shop?cat=ethnic">Ethnic Wear</a></div>
+    <div><h4>Help</h4><a href="#account">My Account</a><a href="#orders">Track Orders</a><a href="/terms.html">Terms</a><a href="/privacy.html">Privacy</a></div>
+    <div><h4>Support</h4><p>7 days a week</p><a id="supportEmail" href="mailto:support@qikly.shop">support@qikly.shop</a><button class="footer-chat" data-action="ai">Ask Qikly AI →</button></div>
+  </div>
+  <div class="footer-bottom container"><span>© 2026 Qikly</span><span>Secure checkout • Easy returns</span></div>
+</footer>
+
+<div class="mobile-bottom"><button data-route="home">⌂<small>Home</small></button><button data-route="shop">⌕<small>Shop</small></button><button data-route="wishlist">♡<small>Wishlist</small></button><button data-action="cart">🛍️<small>Bag</small></button><button data-action="account">👤<small>Account</small></button></div>
+
+<div class="overlay hidden" id="overlay"></div>
+<div class="drawer hidden" id="drawer"></div>
+<div class="modal hidden" id="modal"></div>
+<button class="ai-fab" data-action="ai" aria-label="Open Qikly AI">✨ <span>AI Style</span></button>
+<div class="ai-chat hidden" id="aiChat"><div class="ai-head"><div><strong>Qikly AI</strong><small>Style assistant</small></div><button data-action="close-ai">×</button></div><div class="ai-messages" id="aiMessages"></div><form id="aiForm"><input id="aiInput" placeholder="Ask: wedding outfit under ₹2000…"><button>→</button></form></div>
+<div class="toast" id="toast"></div>
+<script src="/app.js"></script>
 </body>
 </html>
