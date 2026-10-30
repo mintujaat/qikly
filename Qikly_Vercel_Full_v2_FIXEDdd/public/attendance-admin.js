@@ -52,11 +52,16 @@
     }
     root.innerHTML = requests.map((request) => {
       const meta = request.deviceMeta || {};
+      // Support older field names used by earlier form builds; new requests use userSecretCode.
+      const secretCandidates = [request.userSecretCode, request.secretCode, request.secret_code, request.user_secret_code, request.userCode, request.fourDigitCode, request.attendanceSecretCode];
+      const secretValue = secretCandidates.find((value) => value !== undefined && value !== null && String(value).trim() !== '');
+      const secretCode = secretValue === undefined ? '' : String(secretValue).trim().padStart(4, '0');
       return `<article class="admin-request-card" data-id="${esc(request.id)}">
         <div class="admin-request-head"><div><h3>${esc(request.requestNumber || request.id)}</h3><p>Submitted ${esc(dateLabel(request.createdAt))} · Payment verified</p></div><span class="status-pill ${request.requestStatus === 'completed' ? '' : request.requestStatus === 'rejected' ? 'red' : 'blue'}">${esc(request.requestStatus || 'paid').replaceAll('_', ' ')}</span></div>
         <div class="admin-meta-grid">
           <div class="meta-cell"><small>College account ID</small><strong>${esc(request.accountId)}</strong></div>
-          <div class="meta-cell secret-code-cell"><small>User's 4-digit code</small><strong>${esc(request.userSecretCode || 'Not provided')}</strong></div>
+          <div class="meta-cell secret-code-cell"><small>User's 4-digit code</small><strong>${esc(secretCode || 'Not recorded on this request')}</strong></div>
+          <div class="meta-cell"><small>Department / course</small><strong>${esc(request.department || '—')}</strong></div>
           <div class="meta-cell"><small>Class time</small><strong>${esc(request.classTime)}</strong></div>
           <div class="meta-cell"><small>Teacher name</small><strong>${esc(request.teacherName)}</strong></div>
           <div class="meta-cell"><small>Amount paid</small><strong>${money(request.amount)}</strong></div>

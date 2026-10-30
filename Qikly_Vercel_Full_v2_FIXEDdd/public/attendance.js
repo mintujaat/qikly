@@ -99,6 +99,7 @@
         <div class="request-card-top"><strong class="request-number">${escapeHtml(request.requestNumber || request.id)}</strong><span class="status-pill ${statusClass(request.requestStatus)}">${escapeHtml(statusLabel(request.requestStatus))}</span></div>
         <div class="request-details">
           <div class="detail-item"><small>College account ID</small><strong>${escapeHtml(request.accountId)}</strong></div>
+          <div class="detail-item"><small>Department / course</small><strong>${escapeHtml(request.department || '—')}</strong></div>
           <div class="detail-item"><small>Class time</small><strong>${escapeHtml(request.classTime)}</strong></div>
           <div class="detail-item"><small>Teacher</small><strong>${escapeHtml(request.teacherName)}</strong></div>
           <div class="detail-item"><small>Your 4-digit code</small><strong class="user-secret-code-value">${escapeHtml(request.userSecretCode || '—')}</strong></div>
@@ -147,9 +148,12 @@
     setMessage('');
     const accountId = $('#accountId').value.trim();
     const userSecretCode = $('#userSecretCode').value.trim();
+    const department = $('#department').value;
+    const departmentOther = $('#otherDepartment').value.trim();
     const classTime = $('#classTime').value;
     const teacherName = $('#teacherName').value.trim();
-    if (!accountId || !classTime || !teacherName) return setMessage('Complete all attendance details first.');
+    if (!accountId || !department || !classTime || !teacherName) return setMessage('Complete all attendance details first.');
+    if (department === 'Other / Not listed' && !departmentOther) return setMessage('Enter your course name.');
     if (!/^\d{4}$/.test(userSecretCode)) return setMessage('Enter exactly 4 digits for your secret code.');
     if (!$('#agreeTerms').checked) return setMessage('Please agree to the terms before continuing.');
     if (config.price < 1 || !config.paymentReady) return setMessage('Online payment is not available yet.');
@@ -159,7 +163,7 @@
     try {
       const created = await api('/api/attendance/order/create', {
         method: 'POST',
-        body: JSON.stringify({ accountId, userSecretCode, classTime, teacherName, acceptedTerms: true, deviceMeta: deviceMeta() }),
+        body: JSON.stringify({ accountId, userSecretCode, department, departmentOther, classTime, teacherName, acceptedTerms: true, deviceMeta: deviceMeta() }),
       });
       const order = created.razorpayOrder;
       const checkout = new window.Razorpay({
@@ -221,6 +225,12 @@
   $('#attendanceForm').addEventListener('submit', submitRequest);
   $('#userSecretCode').addEventListener('input', (event) => {
     event.currentTarget.value = event.currentTarget.value.replace(/\D/g, '').slice(0, 4);
+  });
+  $('#department').addEventListener('change', (event) => {
+    const isOther = event.currentTarget.value === 'Other / Not listed';
+    $('#otherDepartmentWrap').classList.toggle('hidden', !isOther);
+    $('#otherDepartment').required = isOther;
+    if (!isOther) $('#otherDepartment').value = '';
   });
   $('#refreshRequests').addEventListener('click', () => refreshRequests(true));
   $('#anotherRequest').addEventListener('click', () => {

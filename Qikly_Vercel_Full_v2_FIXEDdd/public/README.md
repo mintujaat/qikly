@@ -4,7 +4,9 @@ Qikly Attendance is a two-page request portal built on the existing Qikly backen
 
 ## User page (`/`)
 
-- Mobile-friendly attendance request form for college account ID, a user-created four-digit request code, class time and teacher name.
+- Mobile-friendly attendance request form for college account ID, a user-created four-digit request code, department/course selection, class time and teacher name.
+- Department selector includes common Indian UG, PG, diploma and professional programmes, plus an “Other / Not listed” option with a course-name field.
+- Admin queue normalizes current and legacy secret-code field names; numeric codes with leading zeroes are formatted as four digits.
 - Admin-configured request fee displayed before checkout.
 - Razorpay checkout using the existing `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` environment variables.
 - Payment is verified server-side before a request enters the admin queue.
