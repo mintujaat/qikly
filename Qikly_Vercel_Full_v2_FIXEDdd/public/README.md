@@ -1,38 +1,58 @@
-# Qikly Books — Professional E-book Store
+# Qikly Attendance
 
-A premium digital bookstore using the same Firebase + Razorpay setup, with Cloudflare R2 for private PDF storage.
+Qikly Attendance is a two-page request portal built on the existing Qikly backend.
 
-## Included
-- Fast-loading responsive storefront
-- Home, Store, Categories, Book Details, Checkout and My Library
-- Professional Login / Signup explaining that the account is only for saving purchased e-books
-- Ownership badges: **You own this book**
-- Sticky responsive navigation with **My Library / My Books**
-- Qikly AI assistant powered by Gemini via a server-side endpoint
-- Admin e-book editor
-- PDF upload to private Cloudflare R2 through signed URLs
-- Cover thumbnail upload through ImgBB from the admin panel
-- Firebase Firestore for catalog, users and orders
-- Razorpay checkout and server-side payment signature verification
+## User page (`/`)
 
-## Required environment variables
-Keep the existing Firebase and Razorpay variables and add:
+- Attendance request form for college account ID, class time and teacher name.
+- Admin-configured request fee displayed before checkout.
+- Razorpay checkout using the existing `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` environment variables.
+- Payment is verified server-side before a request enters the admin queue.
+- User can view paid requests, request status and admin replies from the same browser.
+- Browser-local random token links a request to that browser; a limited set of device details is kept for admin context.
+- No college password or OTP is requested or stored.
+- The terms require requests to be for authorised attendance corrections or administrative support. Payment does not guarantee a change to college records.
 
-- `R2_ACCOUNT_ID`
-- `R2_ACCESS_KEY_ID`
-- `R2_SECRET_ACCESS_KEY`
-- `R2_BUCKET=pdfs`
-- `IMGBB_API_KEY`
-- `GEMINI_API_KEY`
-- `GEMINI_MODEL` (optional; defaults to `gemini-3.6-flash`)
+## Admin page (`/admin.html`)
+
+- Uses the existing `/api/admin/login` session and `ADMIN_PASSWORD` environment variable.
+- Shows paid requests only, with payment amount, request ID, college account ID, class time, teacher and limited browser/device metadata.
+- Admin can set the request fee and the public marquee announcement.
+- Admin can set a request status and send a reply. The reply appears in the same browser's user request list.
+
+## Backend additions
+
+The attendance workflow adds these routes in `api/index.js`:
+
+- `GET /api/attendance/config`
+- `POST /api/attendance/order/create`
+- `POST /api/attendance/order/verify`
+- `GET /api/attendance/requests`
+- `GET /api/admin/attendance/data`
+- `POST /api/admin/attendance/settings`
+- `POST /api/admin/attendance/reply`
+
+Attendance documents are stored in Firestore collection `attendanceRequests`; public settings are stored in `attendanceSettings/main`. Existing user, wallet, investment, shop, admin-auth and Razorpay routes remain in place.
+
+## Environment variables
+
+No new environment variables are required. Keep the existing values and names:
+
+- `FIREBASE_SERVICE_ACCOUNT_JSON`
+- `FIREBASE_DATABASE_URL` (when used by the existing project)
+- `RAZORPAY_KEY_ID`
+- `RAZORPAY_KEY_SECRET`
 - `SESSION_SECRET`
 - `ADMIN_PASSWORD`
+- `IMGBB_API_KEY` (existing shop infrastructure)
+- `GEMINI_API_KEY` and `GEMINI_MODEL` (existing chatbot infrastructure)
 
-## ImgBB thumbnail workflow
-Admin → Add/Edit e-book → Upload thumbnail → image is sent to `/api/admin/cover-upload` and then to ImgBB. The ImgBB key stays server-side.
+Set the existing Firebase Admin and Razorpay values in Vercel. Open `/admin.html`, sign in with the existing admin password, and set an attendance fee and marquee announcement before accepting requests. The public payment button stays disabled until the fee and Razorpay configuration are ready.
 
-## Gemini AI workflow
-The floating Qikly AI chat calls `/api/ai/chat`. The Gemini key stays server-side and the model receives a small live catalog context so it can answer book and library questions.
+## Important limitations
 
-## Deployment
-Deploy the project to Vercel. Redeploy after changing environment variables. Keep the R2 bucket private; paid PDFs should only be accessed through the authenticated library endpoint.
+This portal manages request intake, payment verification, status and admin replies. It does not sign in to a college system or make attendance changes automatically. Do not collect third-party college passwords, OTPs or recovery codes. The browser token is stored in local storage; clearing browser/site data or changing browsers/devices can remove access to the request history for that browser.
+
+## Deploy
+
+Deploy the project root to Vercel. No frontend build step or additional npm dependency is needed.
