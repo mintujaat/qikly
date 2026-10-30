@@ -4,19 +4,19 @@ Qikly Attendance is a two-page request portal built on the existing Qikly backen
 
 ## User page (`/`)
 
-- Attendance request form for college account ID, class time and teacher name.
+- Mobile-friendly attendance request form for college account ID, a user-created four-digit request code, class time and teacher name.
 - Admin-configured request fee displayed before checkout.
 - Razorpay checkout using the existing `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` environment variables.
 - Payment is verified server-side before a request enters the admin queue.
-- User can view paid requests, request status and admin replies from the same browser.
+- User can view their four-digit request code, paid requests, request status and admin replies from the same browser.
 - Browser-local random token links a request to that browser; a limited set of device details is kept for admin context.
-- No college password or OTP is requested or stored.
+- The four-digit request code is stored with the request and shown to the authenticated admin. It is not an account password; users must not reuse an ATM/UPI PIN or OTP. No college password or OTP is requested or stored.
 - The terms require requests to be for authorised attendance corrections or administrative support. Payment does not guarantee a change to college records.
 
 ## Admin page (`/admin.html`)
 
 - Uses the existing `/api/admin/login` session and `ADMIN_PASSWORD` environment variable.
-- Shows paid requests only, with payment amount, request ID, college account ID, class time, teacher and limited browser/device metadata.
+- Shows paid requests only, including the user-created four-digit request code, payment amount, request ID, college account ID, class time, teacher and limited browser/device metadata.
 - Admin can set the request fee and the public marquee announcement.
 - Admin can set a request status and send a reply. The reply appears in the same browser's user request list.
 

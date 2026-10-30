@@ -6,3 +6,19 @@
 @media(max-width:390px){.field-grid{grid-template-columns:1fr}.hero-copy h1{font-size:42px}.feature-row{gap:12px}.feature{gap:8px}.feature-icon{width:32px;height:32px}.request-panel{padding:20px 15px}.payment-bar>div strong{font-size:18px}}
 
 .form-message.success-message{color:#12875f}
+
+/* User-form usability improvements */
+.form-section-label{display:flex;align-items:center;gap:11px;margin:0 0 15px;padding:11px 12px;border:1px solid #e8f1f1;background:#f8fbfb;border-radius:11px}
+.form-step-number{width:27px;height:27px;flex:0 0 27px;border-radius:9px;background:#e3f6f3;color:#0c9087;display:grid;place-items:center;font:800 11px Manrope,sans-serif}
+.form-section-label strong,.form-section-label small{display:block}
+.form-section-label strong{font-size:10px;color:#26364a;font-weight:800}
+.form-section-label small{font-size:9px;color:#8b97a7;margin-top:3px}
+.secret-code-field{margin-top:17px}
+.secret-code-field input{text-align:center;letter-spacing:9px;font:800 19px Manrope,sans-serif;padding-left:19px}
+.secret-code-field input::placeholder{font:500 11px 'DM Sans',sans-serif;letter-spacing:1px}
+.secret-code-field>small{line-height:1.6}
+.class-section-label{margin-top:22px}
+.user-secret-code-value{color:#0b8d83!important;letter-spacing:2px;font:800 13px Manrope,sans-serif}
+.secret-code-cell{background:#eef9f7;border:1px solid #dff1ee;border-radius:9px;padding:9px 10px}
+.secret-code-cell strong{color:#087f78;font:800 15px Manrope,sans-serif;letter-spacing:2px}
+@media(max-width:680px){.form-section-label{margin-bottom:13px}.class-section-label{margin-top:20px}.secret-code-field{margin-top:15px}.secret-code-field input{height:49px}.request-panel form{margin-top:21px}}

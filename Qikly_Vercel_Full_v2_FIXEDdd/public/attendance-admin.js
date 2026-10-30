@@ -56,6 +56,7 @@
         <div class="admin-request-head"><div><h3>${esc(request.requestNumber || request.id)}</h3><p>Submitted ${esc(dateLabel(request.createdAt))} · Payment verified</p></div><span class="status-pill ${request.requestStatus === 'completed' ? '' : request.requestStatus === 'rejected' ? 'red' : 'blue'}">${esc(request.requestStatus || 'paid').replaceAll('_', ' ')}</span></div>
         <div class="admin-meta-grid">
           <div class="meta-cell"><small>College account ID</small><strong>${esc(request.accountId)}</strong></div>
+          <div class="meta-cell secret-code-cell"><small>User's 4-digit code</small><strong>${esc(request.userSecretCode || 'Not provided')}</strong></div>
           <div class="meta-cell"><small>Class time</small><strong>${esc(request.classTime)}</strong></div>
           <div class="meta-cell"><small>Teacher name</small><strong>${esc(request.teacherName)}</strong></div>
           <div class="meta-cell"><small>Amount paid</small><strong>${money(request.amount)}</strong></div>

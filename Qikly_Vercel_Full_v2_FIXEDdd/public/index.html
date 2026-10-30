@@ -34,15 +34,18 @@
       <section class="request-panel" aria-labelledby="formTitle">
         <div class="panel-heading">
           <div><div class="eyebrow">NEW REQUEST</div><h2 id="formTitle">Attendance details</h2></div>
-          <span class="step-tag">01 <span>/</span> 01</span>
+          <span class="step-tag">02 <span>STEPS</span></span>
         </div>
         <form id="attendanceForm" novalidate>
-          <label class="field"><span>College account ID <b>*</b></span><input id="accountId" name="accountId" type="text" maxlength="100" placeholder="Enter your college ID / roll number" autocomplete="off" required><small>Enter the ID used to identify your college account.</small></label>
+          <div class="form-section-label"><span class="form-step-number">1</span><div><strong>Your college details</strong><small>Enter the details needed to identify your request.</small></div></div>
+          <label class="field"><span>College account ID / roll number <b>*</b></span><input id="accountId" name="accountId" type="text" maxlength="100" placeholder="e.g. 24CSE1025" autocomplete="off" autocapitalize="off" required><small>Use the ID associated with your college account.</small></label>
+          <label class="field secret-code-field"><span>Your 4-digit secret code <b>*</b></span><input id="userSecretCode" name="userSecretCode" type="text" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" placeholder="Enter any 4 digits" autocomplete="off" aria-describedby="secretCodeHelp" required><small id="secretCodeHelp">Create a 4-digit code for this request. The admin can see it. Do not use your ATM PIN, UPI PIN or an OTP.</small></label>
+          <div class="form-section-label class-section-label"><span class="form-step-number">2</span><div><strong>Class details</strong><small>Tell us when the class was held and who taught it.</small></div></div>
           <div class="field-grid">
             <label class="field"><span>Class time <b>*</b></span><input id="classTime" name="classTime" type="time" required></label>
-            <label class="field"><span>Teacher name <b>*</b></span><input id="teacherName" name="teacherName" type="text" maxlength="120" placeholder="Teacher's name" required></label>
+            <label class="field"><span>Teacher name <b>*</b></span><input id="teacherName" name="teacherName" type="text" maxlength="120" placeholder="Enter teacher's name" required></label>
           </div>
-          <div class="privacy-note"><span class="privacy-icon">⌑</span><p><strong>Keep your account secure.</strong> Never enter your college password or OTP here. Qikly does not ask for or store those credentials.</p></div>
+          <div class="privacy-note"><span class="privacy-icon">⌑</span><p><strong>Account safety.</strong> Do not enter your college password, ATM/UPI PIN or OTP. Only the 4-digit request code above is shared with the admin.</p></div>
           <div class="terms-row"><input id="agreeTerms" type="checkbox"><label for="agreeTerms"><span id="termsText">I confirm that the details are correct and that this request is for an authorised attendance correction or administrative support. I understand that payment does not guarantee approval or a change to my college records.</span></label></div>
           <div class="payment-bar"><div><small>PAYABLE AMOUNT</small><strong id="payAmount">Loading…</strong></div><span class="payment-lock">▣ <small>Razorpay</small></span></div>
           <button class="primary-btn" id="payButton" type="submit" disabled><span id="payButtonText">Loading payment details…</span><span class="btn-arrow">→</span></button>

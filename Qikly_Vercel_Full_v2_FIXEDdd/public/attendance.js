@@ -101,6 +101,7 @@
           <div class="detail-item"><small>College account ID</small><strong>${escapeHtml(request.accountId)}</strong></div>
           <div class="detail-item"><small>Class time</small><strong>${escapeHtml(request.classTime)}</strong></div>
           <div class="detail-item"><small>Teacher</small><strong>${escapeHtml(request.teacherName)}</strong></div>
+          <div class="detail-item"><small>Your 4-digit code</small><strong class="user-secret-code-value">${escapeHtml(request.userSecretCode || '—')}</strong></div>
           <div class="detail-item"><small>Payment</small><strong>₹${Number(request.amount || 0).toLocaleString('en-IN')} · Paid</strong></div>
         </div>
         <div class="reply-box"><small>Admin reply · ${escapeHtml(dateLabel(request.repliedAt || request.updatedAt))}</small><p class="${request.adminReply ? '' : 'reply-empty'}">${escapeHtml(request.adminReply || 'No admin reply yet. Your update will appear here.')}</p></div>
@@ -145,9 +146,11 @@
     if (submitting) return;
     setMessage('');
     const accountId = $('#accountId').value.trim();
+    const userSecretCode = $('#userSecretCode').value.trim();
     const classTime = $('#classTime').value;
     const teacherName = $('#teacherName').value.trim();
-    if (!accountId || !classTime || !teacherName) return setMessage('Complete all three attendance details first.');
+    if (!accountId || !classTime || !teacherName) return setMessage('Complete all attendance details first.');
+    if (!/^\d{4}$/.test(userSecretCode)) return setMessage('Enter exactly 4 digits for your secret code.');
     if (!$('#agreeTerms').checked) return setMessage('Please agree to the terms before continuing.');
     if (config.price < 1 || !config.paymentReady) return setMessage('Online payment is not available yet.');
     if (!window.Razorpay) return setMessage('Razorpay checkout did not load. Refresh the page and try again.');
@@ -156,7 +159,7 @@
     try {
       const created = await api('/api/attendance/order/create', {
         method: 'POST',
-        body: JSON.stringify({ accountId, classTime, teacherName, acceptedTerms: true, deviceMeta: deviceMeta() }),
+        body: JSON.stringify({ accountId, userSecretCode, classTime, teacherName, acceptedTerms: true, deviceMeta: deviceMeta() }),
       });
       const order = created.razorpayOrder;
       const checkout = new window.Razorpay({
@@ -216,6 +219,9 @@
     }
   }
   $('#attendanceForm').addEventListener('submit', submitRequest);
+  $('#userSecretCode').addEventListener('input', (event) => {
+    event.currentTarget.value = event.currentTarget.value.replace(/\D/g, '').slice(0, 4);
+  });
   $('#refreshRequests').addEventListener('click', () => refreshRequests(true));
   $('#anotherRequest').addEventListener('click', () => {
     $('#accountId').focus({ preventScroll: true });
