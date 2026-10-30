@@ -1,105 +1,58 @@
-# Qikly Fashion — Diwali E-commerce
+# Qikly Attendance
 
-This build converts the storefront into a **general fashion/clothing shopping website** for the Diwali sale. It keeps the existing server/payment infrastructure and adds a separate commerce UI + shop data layer.
+Qikly Attendance is a two-page request portal built on the existing Qikly backend.
 
-## Customer website
+## User page (`/`)
 
-- Diwali fashion storefront
-- Women, Men, Ethnic Wear, Dresses, Kids, Winter Wear, Footwear, Accessories
-- Product search, category filters, price/rating filters, sorting
-- Product detail page with image gallery
-- Size + colour selection
-- Add to bag
-- Buy Now -> delivery address first -> payment
-- Shopping bag with quantity/remove controls
-- Wishlist
-- Product compare
-- Coupons
-- Saved address book (device-local)
-- Guest checkout
-- Login / signup
-- My account
-- My orders + status + cancellation where allowed
-- Product reviews for logged-in users
-- Razorpay online checkout using the existing environment variables
-- COD controlled from Admin -> Storefront
-- Gemini shopping assistant using the existing chatbot backend
-- Diwali sale countdown and promotional banners
-- Mobile bottom navigation
+- Attendance request form for college account ID, class time and teacher name.
+- Admin-configured request fee displayed before checkout.
+- Razorpay checkout using the existing `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` environment variables.
+- Payment is verified server-side before a request enters the admin queue.
+- User can view paid requests, request status and admin replies from the same browser.
+- Browser-local random token links a request to that browser; a limited set of device details is kept for admin context.
+- No college password or OTP is requested or stored.
+- The terms require requests to be for authorised attendance corrections or administrative support. Payment does not guarantee a change to college records.
 
-## Admin panel (`/admin.html`)
+## Admin page (`/admin.html`)
 
-- Admin password login using the existing admin auth route
-- Overview / order / customer metrics
-- Product create / edit / delete
-- Clothing fields: sizes, colours, gender, fabric, occasion, fit
-- Product stock and pricing controls
-- Product image upload through the existing **ImgBB server-side API**
-- Category create / edit / delete
-- Category image upload through ImgBB
-- Coupon create / edit / delete
-- Order status management
-- Customer list
-- Storefront branding controls
-- Hero image upload through ImgBB
-- Promo banner management + ImgBB upload
-- Shipping fee / free-shipping threshold
-- Return window
-- **Cash on Delivery ON/OFF**
-- Diwali sale label + end time
+- Uses the existing `/api/admin/login` session and `ADMIN_PASSWORD` environment variable.
+- Shows paid requests only, with payment amount, request ID, college account ID, class time, teacher and limited browser/device metadata.
+- Admin can set the request fee and the public marquee announcement.
+- Admin can set a request status and send a reply. The reply appears in the same browser's user request list.
 
-## Existing backend/payment
+## Backend additions
 
-The original wallet/investment/payment handlers are kept in `api/index.js`. The shop uses separate `/api/shop/*` routes. Existing Razorpay environment variable names are preserved.
+The attendance workflow adds these routes in `api/index.js`:
 
-The commerce backend was additionally corrected for:
+- `GET /api/attendance/config`
+- `POST /api/attendance/order/create`
+- `POST /api/attendance/order/verify`
+- `GET /api/attendance/requests`
+- `GET /api/admin/attendance/data`
+- `POST /api/admin/attendance/settings`
+- `POST /api/admin/attendance/reply`
 
-- Dynamic COD configuration from Firestore settings
-- Clothing variant validation (size / colour)
-- Correct stock restoration when cancelling COD/paid orders
-- Versioned shop seed migration so the old general-product seed is hidden and the Diwali fashion catalogue is inserted
+Attendance documents are stored in Firestore collection `attendanceRequests`; public settings are stored in `attendanceSettings/main`. Existing user, wallet, investment, shop, admin-auth and Razorpay routes remain in place.
 
-## Old frontend files removed
+## Environment variables
 
-These were obsolete for the new clothing storefront and were removed from `public/`:
-
-- `active-plans.html`
-- `auth.html`, `auth.js`
-- `chat.html`, `chat.js`
-- `donate.html`
-- `legal.js`
-- `nav.js`
-- `profile.html`, `profile.js`
-- `refer.html`, `refer.js`
-- `transactions.html`, `transactions.js`
-- `withdrawal.html`
-- `admin.js`
-- `theme.js`
-
-Kept because they are still useful/legal/store infrastructure:
-
-- `index.html`
-- `app.js`
-- `style.css`
-- `admin.html`
-- `admin-shop.js`
-- `admin-shop.css`
-- `terms.html`
-- `privacy.html`
-- `refund.html`
-
-## Deployment
-
-Deploy the project root to Vercel. No React/Vite build step is required.
-
-Environment variables still use the existing names:
+No new environment variables are required. Keep the existing values and names:
 
 - `FIREBASE_SERVICE_ACCOUNT_JSON`
-- `FIREBASE_DATABASE_URL` (if your existing setup uses it)
+- `FIREBASE_DATABASE_URL` (when used by the existing project)
 - `RAZORPAY_KEY_ID`
 - `RAZORPAY_KEY_SECRET`
 - `SESSION_SECRET`
-- `IMGBB_API_KEY`
-- `GEMINI_API_KEY`
-- `GEMINI_MODEL`
 - `ADMIN_PASSWORD`
+- `IMGBB_API_KEY` (existing shop infrastructure)
+- `GEMINI_API_KEY` and `GEMINI_MODEL` (existing chatbot infrastructure)
+
+Set the existing Firebase Admin and Razorpay values in Vercel. Open `/admin.html`, sign in with the existing admin password, and set an attendance fee and marquee announcement before accepting requests. The public payment button stays disabled until the fee and Razorpay configuration are ready.
+
+## Important limitations
+
+This portal manages request intake, payment verification, status and admin replies. It does not sign in to a college system or make attendance changes automatically. Do not collect third-party college passwords, OTPs or recovery codes. The browser token is stored in local storage; clearing browser/site data or changing browsers/devices can remove access to the request history for that browser.
+
+## Deploy
+
+Deploy the project root to Vercel. No frontend build step or additional npm dependency is needed.

@@ -827,6 +827,169 @@ app.post("/api/admin/shop/coupon",guardAdmin,async(req,res)=>{try{const b=req.bo
 app.post("/api/admin/shop/delete-coupon",guardAdmin,async(req,res)=>{try{const id=clean(req.body.id,80);if(!id)return res.status(400).json({error:"Coupon id required."});await db.collection("shopCoupons").doc(id).delete();res.json({ok:true});}catch(e){res.status(500).json({error:e.message});}});
 app.post("/api/admin/shop/order-status",guardAdmin,async(req,res)=>{try{const id=clean(req.body.id,120),status=clean(req.body.status,40);const allowed=["payment_pending","placed","packed","shipped","out_for_delivery","delivered","cancelled"];if(!allowed.includes(status))return res.status(400).json({error:"Invalid order status."});const ref=db.collection("shopOrders").doc(id);const snap=await ref.get();if(!snap.exists)return res.status(404).json({error:"Order not found."});await ref.set({orderStatus:status,updatedAt:FieldValue.serverTimestamp()},{merge:true});res.json({ok:true});}catch(e){res.status(500).json({error:e.message});}});
 
+// Qikly Attendance — separate workflow; the existing auth, shop and payment routes remain unchanged.
+const attendanceDefaults = {
+  price: 0,
+  marqueeText: "Qikly Attendance • Submit your request • Secure online payment • Track admin replies here",
+  termsText: "I confirm that the details are correct and that this request is for an authorised attendance correction or administrative support. I understand that payment does not guarantee approval or a change to my college records."
+};
+async function getAttendanceSettings() {
+  const saved = await getDoc("attendanceSettings", "main", {});
+  return {
+    ...attendanceDefaults,
+    ...saved,
+    price: Math.max(0, money(saved.price)),
+    marqueeText: clean(saved.marqueeText, 300) || attendanceDefaults.marqueeText,
+    termsText: clean(saved.termsText, 700) || attendanceDefaults.termsText,
+  };
+}
+function attendanceDeviceHash(req) {
+  const token = clean(req.headers["x-qikly-device"], 120);
+  if (!/^[A-Za-z0-9_-]{32,100}$/.test(token)) return "";
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+function attendanceMetadata(value = {}) {
+  return {
+    userAgent: clean(value.userAgent, 500),
+    platform: clean(value.platform, 100),
+    language: clean(value.language, 35),
+    timezone: clean(value.timezone, 80),
+    screen: clean(value.screen, 40),
+  };
+}
+app.get("/api/attendance/config", async (req,res) => {
+  try {
+    const settings = await getAttendanceSettings();
+    res.set("Cache-Control", "no-store");
+    res.json({ price: settings.price, marqueeText: settings.marqueeText, termsText: settings.termsText,
+      razorpayKeyId: process.env.RAZORPAY_KEY_ID || "", paymentReady: !!process.env.RAZORPAY_KEY_ID && !!process.env.RAZORPAY_KEY_SECRET });
+  } catch (e) { res.status(500).json({ error: e.message || "Unable to load attendance settings." }); }
+});
+app.post("/api/attendance/order/create", async (req,res) => {
+  try {
+    const deviceTokenHash = attendanceDeviceHash(req);
+    if (!deviceTokenHash) return res.status(400).json({ error: "This browser session could not be verified. Refresh the page and try again." });
+    const accountId = clean(req.body?.accountId, 100);
+    const classTime = clean(req.body?.classTime, 30);
+    const teacherName = clean(req.body?.teacherName, 120);
+    if (!accountId || !classTime || !teacherName) return res.status(400).json({ error: "College account ID, class time and teacher name are required." });
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(classTime)) return res.status(400).json({ error: "Enter a valid class time." });
+    if (req.body?.acceptedTerms !== true) return res.status(400).json({ error: "Please agree to the terms before continuing." });
+    const settings = await getAttendanceSettings();
+    const amount = Math.max(0, money(settings.price));
+    if (amount < 1) return res.status(409).json({ error: "Attendance payment is not configured yet. Please contact the administrator." });
+    const rpayKey = String(process.env.RAZORPAY_KEY_ID || "");
+    const rpaySecret = String(process.env.RAZORPAY_KEY_SECRET || "");
+    if (!rpayKey || !rpaySecret) return res.status(503).json({ error: "Online payment is not configured on the server." });
+    const ref = db.collection("attendanceRequests").doc();
+    const receipt = `att_${Date.now().toString().slice(-10)}_${crypto.randomBytes(2).toString("hex")}`;
+    const rp = await razorpay.orders.create({ amount: amount * 100, currency: "INR", receipt,
+      notes: { attendanceRequestId: ref.id, service: "qikly_attendance" } });
+    const request = {
+      id: ref.id,
+      requestNumber: `QA-${Date.now().toString().slice(-8)}-${crypto.randomBytes(2).toString("hex").toUpperCase()}`,
+      accountId,
+      classTime,
+      teacherName,
+      deviceMeta: attendanceMetadata(req.body?.deviceMeta || {}),
+      deviceTokenHash,
+      amount,
+      currency: "INR",
+      paymentStatus: "created",
+      requestStatus: "payment_pending",
+      razorpayOrderId: rp.id,
+      adminReply: "",
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+    await ref.set(request);
+    res.json({ ok: true, keyId: rpayKey,
+      razorpayOrder: { id: rp.id, amount: rp.amount, currency: rp.currency },
+      request: { id: ref.id, requestNumber: request.requestNumber, amount } });
+  } catch (e) { res.status(400).json({ error: e.message || "Unable to create attendance payment." }); }
+});
+app.post("/api/attendance/order/verify", async (req,res) => {
+  try {
+    const deviceTokenHash = attendanceDeviceHash(req);
+    if (!deviceTokenHash) return res.status(400).json({ error: "Browser session could not be verified." });
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body || {};
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) return res.status(400).json({ error: "Payment details are incomplete." });
+    const expected = crypto.createHmac("sha256", String(process.env.RAZORPAY_KEY_SECRET || ""))
+      .update(`${razorpay_order_id}|${razorpay_payment_id}`).digest("hex");
+    if (!timingSafeEqualText(expected, razorpay_signature)) return res.status(400).json({ error: "Payment verification failed." });
+    const snap = await db.collection("attendanceRequests").where("razorpayOrderId", "==", clean(razorpay_order_id, 120)).limit(1).get();
+    if (snap.empty) return res.status(404).json({ error: "Attendance request not found." });
+    const requestRef = snap.docs[0].ref;
+    const existing = snap.docs[0].data();
+    if (existing.deviceTokenHash !== deviceTokenHash) return res.status(403).json({ error: "This request belongs to another browser session." });
+    if (existing.paymentStatus === "paid") return res.json({ ok: true, request: { id: requestRef.id, requestNumber: existing.requestNumber } });
+    const payment = await razorpay.payments.fetch(razorpay_payment_id);
+    if (payment.status !== "captured" || Number(payment.amount) !== Number(existing.amount) * 100) {
+      return res.status(400).json({ error: "Payment amount or status could not be verified." });
+    }
+    await db.runTransaction(async t => {
+      const latest = await t.get(requestRef);
+      const current = latest.data() || {};
+      if (current.paymentStatus === "paid") return;
+      if (current.deviceTokenHash !== deviceTokenHash || current.razorpayOrderId !== razorpay_order_id) throw new Error("Request verification mismatch.");
+      t.set(requestRef, { paymentStatus: "paid", requestStatus: "paid", razorpayPaymentId: razorpay_payment_id,
+        razorpaySignature: razorpay_signature, paidAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    });
+    res.json({ ok: true, request: { id: requestRef.id, requestNumber: existing.requestNumber } });
+  } catch (e) { res.status(400).json({ error: e.message || "Payment verification failed." }); }
+});
+app.get("/api/attendance/requests", async (req,res) => {
+  try {
+    const deviceTokenHash = attendanceDeviceHash(req);
+    if (!deviceTokenHash) return res.status(400).json({ error: "Browser session token is missing." });
+    const snap = await db.collection("attendanceRequests").where("deviceTokenHash", "==", deviceTokenHash).get();
+    const requests = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .filter(r => r.paymentStatus === "paid")
+      .sort((a,b) => dateMs(b.createdAt) - dateMs(a.createdAt))
+      .map(r => ({ id: r.id, requestNumber: r.requestNumber, accountId: r.accountId, classTime: r.classTime,
+        teacherName: r.teacherName, amount: r.amount, requestStatus: r.requestStatus, adminReply: r.adminReply || "",
+        createdAt: r.createdAt, updatedAt: r.updatedAt, repliedAt: r.repliedAt || null }));
+    res.set("Cache-Control", "no-store");
+    res.json({ requests: jsonSafe(requests) });
+  } catch (e) { res.status(500).json({ error: e.message || "Unable to load your requests." }); }
+});
+app.get("/api/admin/attendance/data", guardAdmin, async (req,res) => {
+  try {
+    const [settings, all] = await Promise.all([getAttendanceSettings(), listCollection("attendanceRequests")]);
+    const paid = all.filter(r => r.paymentStatus === "paid").sort((a,b) => dateMs(b.createdAt) - dateMs(a.createdAt));
+    res.set("Cache-Control", "no-store");
+    res.json(jsonSafe({ settings, requests: paid, stats: {
+      paidRequests: paid.length,
+      totalPaid: paid.reduce((sum,r) => sum + money(r.amount), 0),
+      awaitingReply: paid.filter(r => ["paid", "in_progress"].includes(r.requestStatus)).length,
+      completed: paid.filter(r => r.requestStatus === "completed").length,
+    }}));
+  } catch (e) { res.status(500).json({ error: e.message || "Unable to load attendance admin data." }); }
+});
+app.post("/api/admin/attendance/settings", guardAdmin, async (req,res) => {
+  try {
+    const price = Math.max(0, Math.min(100000, money(req.body?.price)));
+    const marqueeText = clean(req.body?.marqueeText, 300) || attendanceDefaults.marqueeText;
+    await db.collection("attendanceSettings").doc("main").set({ price, marqueeText, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message || "Unable to save attendance settings." }); }
+});
+app.post("/api/admin/attendance/reply", guardAdmin, async (req,res) => {
+  try {
+    const id = clean(req.body?.id, 120);
+    const reply = clean(req.body?.reply, 2000);
+    const status = clean(req.body?.status, 30);
+    const allowed = ["paid", "in_progress", "completed", "rejected"];
+    if (!id || !allowed.includes(status)) return res.status(400).json({ error: "Choose a valid request status." });
+    const ref = db.collection("attendanceRequests").doc(id);
+    const snap = await ref.get();
+    if (!snap.exists || snap.data()?.paymentStatus !== "paid") return res.status(404).json({ error: "Paid attendance request not found." });
+    await ref.set({ adminReply: reply, requestStatus: status, repliedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message || "Unable to send admin reply." }); }
+});
+
 app.get("/api/health",(req,res)=>res.json({ok:true,firebaseConfigured:!!process.env.FIREBASE_SERVICE_ACCOUNT_JSON,razorpayConfigured:!!process.env.RAZORPAY_KEY_ID&&!!process.env.RAZORPAY_KEY_SECRET,geminiConfigured:!!process.env.GEMINI_API_KEY}));
 
 module.exports=app;
