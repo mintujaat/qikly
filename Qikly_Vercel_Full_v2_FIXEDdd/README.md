@@ -1,32 +1,31 @@
-# Qikly Request Portal
+# Qikly Attendance
 
-Qikly Request Portal is a mobile-friendly, admin-configurable form and payment workflow built on the existing Qikly backend.
+Qikly Attendance is a two-page request portal built on the existing Qikly backend.
 
 ## User page (`/`)
 
-- The administrator controls the public form title, description, fee, announcement and confirmation text.
-- The form is built dynamically from admin-created fields. Supported field types: short text, long text, number, email, phone, date, time, date and time, dropdown, single choice, checkbox and website URL.
-- Fields can be added, removed, reordered, marked required and configured with placeholder text, help text, choices and numeric minimum/maximum values.
-- Users complete the current published form, agree to the confirmation text and pay through the existing Razorpay checkout.
-- Payment is verified server-side before a submission is added to the paid request queue.
-- Users can see their submitted field values, payment status, request status and admin reply from the same browser.
-- A browser-local random token links a submission to the browser that created it. A limited set of device details is kept for admin context.
-- The portal must not be used to collect passwords, OTPs, UPI PINs, ATM PINs or other confidential credentials.
+- Mobile-friendly attendance request form for college account ID, a user-created four-digit request code, department/course selection, class time and teacher name.
+- Department selector includes common Indian UG, PG, diploma and professional programmes, plus an “Other / Not listed” option with a course-name field.
+- Admin queue normalizes current and legacy secret-code field names; numeric codes with leading zeroes are formatted as four digits.
+- For older paid requests with missing code/course fields, the admin can complete those details after confirming them with the user; this is an admin-session-protected endpoint.
+- Admin-configured request fee displayed before checkout.
+- Razorpay checkout using the existing `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` environment variables.
+- Payment is verified server-side before a request enters the admin queue.
+- User can view their four-digit request code, paid requests, request status and admin replies from the same browser.
+- Browser-local random token links a request to that browser; a limited set of device details is kept for admin context.
+- The four-digit request code is stored with the request and shown to the authenticated admin. It is not an account password; users must not reuse an ATM/UPI PIN or OTP. No college password or OTP is requested or stored.
+- The terms require requests to be for authorised attendance corrections or administrative support. Payment does not guarantee a change to college records.
 
 ## Admin page (`/admin.html`)
 
 - Uses the existing `/api/admin/login` session and `ADMIN_PASSWORD` environment variable.
-- Build the public form by adding as many as 40 fields, selecting each field type, editing labels and placeholders, adding help text or choices, setting numeric limits and marking fields required.
-- Set the form title, description, payment fee, announcement and confirmation text.
-- View all successfully paid submissions, their saved form fields, amount, Razorpay payment ID, request ID and submission time.
-- Update a request status and send a reply. The reply appears in the user's submission list in the same browser.
-- The dashboard shows verified payment totals and request status counts.
+- Shows paid requests only, including the user-created four-digit request code, payment amount, request ID, college account ID, class time, teacher and limited browser/device metadata.
+- Admin can set the request fee and the public marquee announcement.
+- Admin can set a request status and send a reply. The reply appears in the same browser's user request list.
 
-## Backend and storage
+## Backend additions
 
-The configurable form workflow reuses the existing `attendanceRequests` Firestore collection, `attendanceSettings/main` document, admin session and Razorpay credentials. Each new request stores a snapshot of the field labels/types and the values submitted by the user, so later form edits do not change old submissions.
-
-Routes used:
+The attendance workflow adds these routes in `api/index.js`:
 
 - `GET /api/attendance/config`
 - `POST /api/attendance/order/create`
@@ -36,11 +35,11 @@ Routes used:
 - `POST /api/admin/attendance/settings`
 - `POST /api/admin/attendance/reply`
 
-The rest of the Qikly API, wallet, shop, admin authentication and existing payment routes are retained.
+Attendance documents are stored in Firestore collection `attendanceRequests`; public settings are stored in `attendanceSettings/main`. Existing user, wallet, investment, shop, admin-auth and Razorpay routes remain in place.
 
 ## Environment variables
 
-No new environment variables are required. Keep the existing Vercel values:
+No new environment variables are required. Keep the existing values and names:
 
 - `FIREBASE_SERVICE_ACCOUNT_JSON`
 - `FIREBASE_DATABASE_URL` (when used by the existing project)
@@ -51,15 +50,16 @@ No new environment variables are required. Keep the existing Vercel values:
 - `IMGBB_API_KEY` (existing shop infrastructure)
 - `GEMINI_API_KEY` and `GEMINI_MODEL` (existing chatbot infrastructure)
 
-Open `/admin.html`, sign in with the existing admin password, configure the form and fee, then save. The public form uses the saved configuration. The payment button remains unavailable until a fee and Razorpay credentials are configured.
+Set the existing Firebase Admin and Razorpay values in Vercel. Open `/admin.html`, sign in with the existing admin password, and set an attendance fee and marquee announcement before accepting requests. The public payment button stays disabled until the fee and Razorpay configuration are ready.
 
 ## Important limitations
 
-- The portal collects submissions, verifies payments, tracks status and delivers admin replies. It does not automatically perform actions in third-party services or guarantee approval/outcomes.
-- Do not configure fields that ask users for passwords, OTPs, UPI PINs, ATM PINs or recovery codes.
-- The browser token is stored in local storage. Clearing browser/site data or changing browser/device can remove access to that browser's submission history.
-- Older paid attendance submissions remain visible in the admin queue and their legacy fields are displayed where available.
+This portal manages request intake, payment verification, status and admin replies. It does not sign in to a college system or make attendance changes automatically. Do not collect third-party college passwords, OTPs or recovery codes. The browser token is stored in local storage; clearing browser/site data or changing browsers/devices can remove access to the request history for that browser.
 
 ## Deploy
 
-Deploy the project root to Vercel. No frontend build step or additional npm dependency is needed.
+Deploy the directory containing `package.json`, `vercel.json`, `api/`, `index.html` and `admin.html` as the Vercel project root. No frontend build step or additional npm dependency is needed.
+
+## Firebase connection check
+
+After deployment, open `https://YOUR-DOMAIN/api/health`. The response includes `firebaseConfigured` and `firebaseConnected`. If `firebaseConnected` is false, follow the returned `firebaseError` and check the Vercel Function Logs. The API supports the existing `FIREBASE_SERVICE_ACCOUNT_JSON` variable, and also accepts `FIREBASE_SERVICE_ACCOUNT_BASE64` or the three separate variables `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL` and `FIREBASE_PRIVATE_KEY`. Do not paste service-account secrets into chat or commit them to GitHub. After changing Vercel environment variables, redeploy the project.
