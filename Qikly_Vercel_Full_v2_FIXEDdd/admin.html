@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0c1424">
+  <title>Qikly Attendance — Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/attendance.css">
+</head>
+<body class="admin-page">
+  <div id="loginView" class="admin-login-wrap">
+    <form id="loginForm" class="admin-login-card">
+      <a class="brand" href="/"><span class="brand-mark">Q</span><span><strong>qikly<span>.</span></strong><small>ADMIN CONSOLE</small></span></a>
+      <div class="eyebrow">RESTRICTED ACCESS</div><h1>Admin login</h1><p>Sign in to manage paid attendance requests and portal settings.</p>
+      <label class="field"><span>Admin password</span><input id="adminPassword" type="password" autocomplete="current-password" placeholder="Enter admin password" required></label>
+      <button class="primary-btn" id="loginButton" type="submit"><span>Sign in</span><span class="btn-arrow">→</span></button>
+      <p class="form-message" id="loginMessage" role="status" aria-live="polite"></p>
+      <a class="back-link" href="/">← Back to user portal</a>
+    </form>
+  </div>
+
+  <div id="adminApp" class="admin-shell hidden">
+    <header class="admin-topbar"><a class="brand" href="/"><span class="brand-mark">Q</span><span><strong>qikly<span>.</span></strong><small>ATTENDANCE ADMIN</small></span></a><div class="topbar-right"><span class="admin-online"><i></i> Admin session</span><button class="small-btn" id="logoutButton" type="button">Log out ↗</button></div></header>
+    <main class="admin-content">
+      <div class="admin-title-row"><div><div class="eyebrow">CONTROL CENTER</div><h1>Attendance overview</h1><p>Only successfully paid requests are shown in this queue.</p></div><button class="small-btn" id="adminRefresh" type="button">↻ Refresh data</button></div>
+      <section class="stats-grid">
+        <article class="stat-card"><span>PAID REQUESTS</span><strong id="statPaid">0</strong><small>Verified payments</small></article>
+        <article class="stat-card"><span>TOTAL COLLECTION</span><strong id="statRevenue">₹0</strong><small>Successful payments only</small></article>
+        <article class="stat-card"><span>AWAITING REPLY</span><strong id="statPending">0</strong><small>Paid or in progress</small></article>
+        <article class="stat-card"><span>COMPLETED</span><strong id="statCompleted">0</strong><small>Requests marked complete</small></article>
+      </section>
+
+      <section class="admin-settings-card">
+        <div class="admin-card-heading"><div><div class="eyebrow">PORTAL CONFIGURATION</div><h2>Payment & announcement</h2><p>Changes apply to the user page immediately.</p></div><span class="settings-mark">⚙</span></div>
+        <form id="settingsForm" class="settings-form">
+          <label class="field"><span>Attendance fee (₹)</span><input id="settingPrice" type="number" min="1" max="100000" step="1" required placeholder="Example: 49"></label>
+          <label class="field"><span>Marquee announcement</span><input id="settingMarquee" type="text" maxlength="300" required placeholder="Announcement shown above the form"></label>
+          <div class="settings-actions"><p class="form-message" id="settingsMessage" role="status" aria-live="polite"></p><button class="primary-btn compact-btn" type="submit"><span>Save settings</span><span class="btn-arrow">→</span></button></div>
+        </form>
+      </section>
+
+      <section class="admin-queue-section">
+        <div class="admin-card-heading queue-heading"><div><div class="eyebrow">PAYMENT VERIFIED</div><h2>Paid attendance requests</h2><p>Review details, update status and send a reply to the same browser that submitted the request.</p></div><span class="queue-count" id="queueCount">0 PAID</span></div>
+        <div id="adminRequests" class="admin-requests"><div class="empty-state"><span class="empty-symbol">⌁</span><strong>No paid requests</strong><p>Successfully paid requests will appear here.</p></div></div>
+      </section>
+    </main>
+  </div>
+  <div class="toast" id="adminToast" role="status" aria-live="polite"></div>
+  <script src="/attendance-admin.js"></script>
+</body>
+</html>

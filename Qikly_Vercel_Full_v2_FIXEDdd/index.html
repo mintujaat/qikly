@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0c1424">
+  <meta name="description" content="Qikly Attendance request and response portal.">
+  <title>Qikly Attendance</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/attendance.css">
+</head>
+<body class="user-page">
+  <div class="announcement"><div class="announcement-track"><span id="marqueeText">Qikly Attendance • Submit your request • Secure online payment • Track admin replies here</span><span aria-hidden="true" id="marqueeCopy">Qikly Attendance • Submit your request • Secure online payment • Track admin replies here</span></div></div>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Qikly Attendance home"><span class="brand-mark">Q</span><span><strong>qikly<span>.</span></strong><small>ATTENDANCE PORTAL</small></span></a>
+    <div class="topbar-right"><span class="secure-note"><i></i> Secure checkout</span><a class="admin-link" href="/admin.html">Admin</a></div>
+  </header>
+
+  <main class="page-wrap">
+    <section class="hero-grid">
+      <div class="hero-copy">
+        <div class="eyebrow"><span class="eyebrow-dot"></span> REQUEST PORTAL</div>
+        <h1>Attendance,<br><em>made simpler.</em></h1>
+        <p class="hero-text">Submit your attendance-related request with the correct class details. Pay securely, then follow the status and admin response from this page.</p>
+        <div class="feature-row">
+          <div class="feature"><span class="feature-icon">₹</span><span><b>One-time payment</b><small>Fee set by admin</small></span></div>
+          <div class="feature"><span class="feature-icon">↻</span><span><b>Live request updates</b><small>Replies saved in this browser</small></span></div>
+        </div>
+        <div class="hero-footnote"><span class="check-mark">✓</span> Payment processed securely by Razorpay. Qikly does not store college passwords.</div>
+      </div>
+
+      <section class="request-panel" aria-labelledby="formTitle">
+        <div class="panel-heading">
+          <div><div class="eyebrow">NEW REQUEST</div><h2 id="formTitle">Attendance details</h2></div>
+          <span class="step-tag">02 <span>STEPS</span></span>
+        </div>
+        <form id="attendanceForm" novalidate>
+          <div class="form-section-label"><span class="form-step-number">1</span><div><strong>Your college details</strong><small>Enter the details needed to identify your request.</small></div></div>
+          <label class="field"><span>College account ID / roll number <b>*</b></span><input id="accountId" name="accountId" type="text" maxlength="100" placeholder="e.g. 24CSE1025" autocomplete="off" autocapitalize="off" required><small>Use the ID associated with your college account.</small></label>
+          <label class="field secret-code-field"><span>Your 4-digit secret code <b>*</b></span><input id="userSecretCode" name="userSecretCode" type="text" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" placeholder="Enter any 4 digits" autocomplete="off" aria-describedby="secretCodeHelp" required><small id="secretCodeHelp">Create a 4-digit code for this request. The admin can see it. Do not use your ATM PIN, UPI PIN or an OTP.</small></label>
+          <label class="field department-field"><span>Select your department / course <b>*</b></span><select id="department" name="department" required>
+            <option value="" selected disabled>Choose your department or course</option>
+            <optgroup label="Engineering & Technology">
+              <option>B.Tech / B.E. - Computer Science & Engineering (CSE)</option><option>B.Tech / B.E. - Information Technology (IT)</option><option>B.Tech / B.E. - Artificial Intelligence & Machine Learning</option><option>B.Tech / B.E. - Artificial Intelligence & Data Science</option><option>B.Tech / B.E. - Data Science</option><option>B.Tech / B.E. - Cyber Security</option><option>B.Tech / B.E. - Electronics & Communication (ECE)</option><option>B.Tech / B.E. - Electrical Engineering</option><option>B.Tech / B.E. - Electrical & Electronics (EEE)</option><option>B.Tech / B.E. - Mechanical Engineering</option><option>B.Tech / B.E. - Civil Engineering</option><option>B.Tech / B.E. - Chemical Engineering</option><option>B.Tech / B.E. - Biotechnology</option><option>B.Tech / B.E. - Biomedical Engineering</option><option>B.Tech / B.E. - Automobile Engineering</option><option>B.Tech / B.E. - Aerospace / Aeronautical Engineering</option><option>B.Tech / B.E. - Mechatronics</option><option>B.Tech / B.E. - Robotics & Automation</option><option>B.Tech / B.E. - Instrumentation & Control</option><option>B.Tech / B.E. - Production / Industrial Engineering</option><option>B.Tech / B.E. - Food Technology</option><option>B.Tech / B.E. - Textile Technology</option><option>B.Tech / B.E. - Agricultural Engineering</option><option>B.Tech / B.E. - Environmental Engineering</option><option>B.Tech / B.E. - Mining / Petroleum / Metallurgical Engineering</option><option>B.Arch - Architecture</option><option>B.Plan - Planning</option>
+            </optgroup>
+            <optgroup label="Computer Applications & IT">
+              <option>BCA - Computer Applications</option><option>MCA - Computer Applications</option><option>B.Sc. Computer Science</option><option>B.Sc. Information Technology</option><option>B.Sc. Data Science</option><option>B.Sc. Artificial Intelligence</option><option>M.Sc. Computer Science / IT</option><option>PGDCA - Computer Applications</option><option>Diploma - Computer Engineering</option><option>Diploma - Information Technology</option><option>B.Voc. Software Development</option>
+            </optgroup>
+            <optgroup label="Science">
+              <option>B.Sc. Physics</option><option>B.Sc. Chemistry</option><option>B.Sc. Mathematics</option><option>B.Sc. Biology</option><option>B.Sc. Botany</option><option>B.Sc. Zoology</option><option>B.Sc. Biotechnology</option><option>B.Sc. Microbiology</option><option>B.Sc. Biochemistry</option><option>B.Sc. Statistics</option><option>B.Sc. Forensic Science</option><option>B.Sc. Environmental Science</option><option>B.Sc. Agriculture</option><option>M.Sc. / Integrated M.Sc.</option><option>Ph.D. / Research Programme - Science</option>
+            </optgroup>
+            <optgroup label="Commerce, Business & Management">
+              <option>B.Com</option><option>B.Com (Hons.)</option><option>M.Com</option><option>BBA - Business Administration</option><option>MBA - Business Administration</option><option>BMS - Management Studies</option><option>BBM - Business Management</option><option>PGDM - Management</option><option>Commerce / Finance / Accounting - Other</option>
+            </optgroup>
+            <optgroup label="Arts, Humanities & Social Sciences">
+              <option>BA - English</option><option>BA - Hindi</option><option>BA - History</option><option>BA - Political Science</option><option>BA - Economics</option><option>BA - Sociology</option><option>BA - Psychology</option><option>BA - Geography</option><option>BA - Public Administration</option><option>BA - Mathematics</option><option>BA - Philosophy</option><option>BA - Journalism & Mass Communication</option><option>MA - Arts / Humanities / Social Sciences</option><option>MSW - Social Work</option><option>Other BA / MA Programme</option>
+            </optgroup>
+            <optgroup label="Law & Education">
+              <option>LL.B.</option><option>BA LL.B.</option><option>BBA LL.B.</option><option>LL.M.</option><option>B.Ed.</option><option>M.Ed.</option><option>D.El.Ed. - Diploma in Elementary Education</option><option>Integrated BA B.Ed. / B.Sc. B.Ed.</option><option>Other Law / Education Programme</option>
+            </optgroup>
+            <optgroup label="Medical, Nursing & Health Sciences">
+              <option>MBBS</option><option>BDS - Dental Surgery</option><option>BAMS - Ayurveda</option><option>BHMS - Homoeopathy</option><option>BUMS - Unani Medicine</option><option>BNYS - Naturopathy & Yogic Sciences</option><option>B.Sc. Nursing</option><option>GNM - General Nursing & Midwifery</option><option>ANM - Auxiliary Nursing & Midwifery</option><option>Post Basic B.Sc. Nursing</option><option>MD / MS</option><option>Pharm.D.</option><option>BPT - Physiotherapy</option><option>MPT - Physiotherapy</option><option>BMLT - Medical Laboratory Technology</option><option>Radiology / Medical Imaging Technology</option><option>Operation Theatre Technology</option><option>Optometry</option><option>Public Health</option><option>Other Medical / Allied Health Programme</option>
+            </optgroup>
+            <optgroup label="Pharmacy">
+              <option>D.Pharm - Diploma in Pharmacy</option><option>B.Pharm - Pharmacy</option><option>M.Pharm - Pharmacy</option>
+            </optgroup>
+            <optgroup label="Agriculture & Veterinary">
+              <option>B.Sc. Agriculture</option><option>M.Sc. Agriculture</option><option>B.Tech. Agricultural Engineering</option><option>B.V.Sc. & A.H. - Veterinary Science</option><option>Dairy Technology</option><option>Horticulture</option><option>Forestry</option><option>Food & Nutrition</option>
+            </optgroup>
+            <optgroup label="Design, Media & Creative Arts">
+              <option>B.Des. - Design</option><option>M.Des. - Design</option><option>BFA - Fine Arts</option><option>MFA - Fine Arts</option><option>Fashion Design</option><option>Interior Design</option><option>Animation / VFX / Multimedia</option><option>Film / TV / Media Production</option>
+            </optgroup>
+            <optgroup label="Hotel, Tourism & Other Professional Courses">
+              <option>BHM - Hotel Management</option><option>Diploma in Hotel Management</option><option>BTTM - Travel & Tourism Management</option><option>Event Management</option><option>Library & Information Science</option><option>Physical Education / Sports</option><option>CA / CS / CMA Professional Course</option><option>ITI - Trade Programme</option><option>Polytechnic Diploma - Other Branch</option><option>Other / Not listed</option>
+            </optgroup>
+          </select><small>Choose the course or department shown on your college record.</small></label>
+          <label class="field hidden" id="otherDepartmentWrap"><span>Enter your course name <b>*</b></span><input id="otherDepartment" name="otherDepartment" type="text" maxlength="120" placeholder="Type your course / department name" autocomplete="off"></label>
+          <div class="form-section-label class-section-label"><span class="form-step-number">2</span><div><strong>Class details</strong><small>Tell us when the class was held and who taught it.</small></div></div>
+          <div class="field-grid">
+            <label class="field"><span>Class time <b>*</b></span><input id="classTime" name="classTime" type="time" required></label>
+            <label class="field"><span>Teacher name <b>*</b></span><input id="teacherName" name="teacherName" type="text" maxlength="120" placeholder="Enter teacher's name" required></label>
+          </div>
+          <div class="privacy-note"><span class="privacy-icon">⌑</span><p><strong>Account safety.</strong> Do not enter your college password, ATM/UPI PIN or OTP. Only the 4-digit request code above is shared with the admin.</p></div>
+          <div class="terms-row"><input id="agreeTerms" type="checkbox"><label for="agreeTerms"><span id="termsText">I confirm that the details are correct and that this request is for an authorised attendance correction or administrative support. I understand that payment does not guarantee approval or a change to my college records.</span></label></div>
+          <div class="payment-bar"><div><small>PAYABLE AMOUNT</small><strong id="payAmount">Loading…</strong></div><span class="payment-lock">▣ <small>Razorpay</small></span></div>
+          <button class="primary-btn" id="payButton" type="submit" disabled><span id="payButtonText">Loading payment details…</span><span class="btn-arrow">→</span></button>
+          <p class="form-message" id="formMessage" role="status" aria-live="polite"></p>
+          <p class="form-legal">By continuing, you agree to the terms above. Payment alone does not guarantee an attendance change.</p>
+        </form>
+      </section>
+    </section>
+
+    <section class="requests-section" id="myRequests">
+      <div class="section-heading"><div><div class="eyebrow">YOUR ACTIVITY</div><h2>My requests</h2><p>Paid requests and admin replies linked to this browser.</p></div><button class="small-btn" id="refreshRequests" type="button">↻ Refresh</button></div>
+      <div id="requestsList" class="requests-list"><div class="empty-state"><span class="empty-symbol">⌁</span><strong>No paid requests yet</strong><p>After a successful payment, your request and its latest reply will appear here.</p></div></div>
+      <div class="another-row"><button class="another-btn" id="anotherRequest" type="button"><span>＋</span> Mark another attendance</button></div>
+    </section>
+  </main>
+
+  <footer class="site-footer"><div class="footer-inner"><a class="brand footer-brand" href="/"><span class="brand-mark">Q</span><span><strong>qikly<span>.</span></strong><small>ATTENDANCE PORTAL</small></span></a><p>Use this portal only for authorised attendance corrections or administrative support. Do not share passwords or OTPs.</p><span class="copyright">© 2026 Qikly</span></div></footer>
+  <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+  <script src="/attendance.js"></script>
+</body>
+</html>
