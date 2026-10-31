@@ -6,22 +6,82 @@ const { promisify } = require("util");
 
 const app = express();
 app.use(express.json({ limit: "12mb" }));
+app.use("/api", (_req, res, next) => {
+  res.setHeader("Cache-Control", "no-store, max-age=0, must-revalidate");
+  next();
+});
 
-if (!admin.apps.length) {
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-  if (!raw) throw new Error("Missing FIREBASE_SERVICE_ACCOUNT_JSON");
-  const serviceAccount = typeof raw === "string" ? JSON.parse(raw) : raw;
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-    databaseURL: process.env.FIREBASE_DATABASE_URL || undefined,
-  });
+// Initialize Firebase only when a route actually accesses Firestore. This keeps
+// public health checks and admin login available even when Firebase env vars
+// are missing, and lets the health route report a useful configuration error.
+let firestoreDb = null;
+let firebaseInitError = null;
+function readFirebaseServiceAccount() {
+  const base64Value = String(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64 || "").trim();
+  const rawValue = String(
+    process.env.FIREBASE_SERVICE_ACCOUNT_JSON ||
+    process.env.FIREBASE_SERVICE_ACCOUNT ||
+    ""
+  ).trim();
+  if (!base64Value && !rawValue) {
+    const projectId = String(process.env.FIREBASE_PROJECT_ID || "").trim();
+    const clientEmail = String(process.env.FIREBASE_CLIENT_EMAIL || "").trim();
+    const privateKey = String(process.env.FIREBASE_PRIVATE_KEY || "").replace(/\\n/g, "\n").trim();
+    if (projectId && clientEmail && privateKey) {
+      return { project_id: projectId, client_email: clientEmail, private_key: privateKey };
+    }
+    throw new Error("Firebase credentials are missing. Set FIREBASE_SERVICE_ACCOUNT_JSON in Vercel Environment Variables.");
+  }
+
+  let source = rawValue;
+  if (base64Value) source = Buffer.from(base64Value, "base64").toString("utf8");
+  else if (source.startsWith("base64:")) source = Buffer.from(source.slice(7), "base64").toString("utf8");
+
+  let serviceAccount;
+  try {
+    serviceAccount = JSON.parse(source);
+    if (typeof serviceAccount === "string") serviceAccount = JSON.parse(serviceAccount);
+  } catch (_error) {
+    throw new Error("FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON. Paste the complete Firebase service-account JSON, or use FIREBASE_SERVICE_ACCOUNT_BASE64.");
+  }
+
+  if (!serviceAccount || typeof serviceAccount !== "object" ||
+      !serviceAccount.project_id || !serviceAccount.client_email || !serviceAccount.private_key) {
+    throw new Error("Firebase service-account JSON is incomplete. project_id, client_email and private_key are required.");
+  }
+  serviceAccount.private_key = String(serviceAccount.private_key).replace(/\\n/g, "\n");
+  return serviceAccount;
 }
-
-const db = admin.firestore();
+function getFirestoreDb() {
+  if (firestoreDb) return firestoreDb;
+  if (firebaseInitError) throw firebaseInitError;
+  try {
+    const serviceAccount = readFirebaseServiceAccount();
+    if (!admin.apps.length) {
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        databaseURL: process.env.FIREBASE_DATABASE_URL || undefined,
+      });
+    }
+    firestoreDb = admin.firestore();
+    return firestoreDb;
+  } catch (error) {
+    firebaseInitError = error;
+    console.error("[Qikly] Firebase initialization failed:", error.code || error.name || "Error", error.message);
+    throw error;
+  }
+}
+const db = new Proxy({}, {
+  get(_target, property) {
+    const realDb = getFirestoreDb();
+    const value = realDb[property];
+    return typeof value === "function" ? value.bind(realDb) : value;
+  },
+});
 const FieldValue = admin.firestore.FieldValue;
 const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
+  key_id: process.env.RAZORPAY_KEY_ID || "",
+  key_secret: process.env.RAZORPAY_KEY_SECRET || "",
 });
 
 const ADMIN_COOKIE = "qikly_admin";
@@ -1050,6 +1110,35 @@ app.post("/api/admin/attendance/reply", guardAdmin, async (req,res) => {
   } catch (e) { res.status(500).json({ error: e.message || "Unable to send admin reply." }); }
 });
 
-app.get("/api/health",(req,res)=>res.json({ok:true,firebaseConfigured:!!process.env.FIREBASE_SERVICE_ACCOUNT_JSON,razorpayConfigured:!!process.env.RAZORPAY_KEY_ID&&!!process.env.RAZORPAY_KEY_SECRET,geminiConfigured:!!process.env.GEMINI_API_KEY}));
+app.get("/api/health", async (_req, res) => {
+  const result = {
+    ok: true,
+    firebaseConfigured: !!(
+      process.env.FIREBASE_SERVICE_ACCOUNT_JSON ||
+      process.env.FIREBASE_SERVICE_ACCOUNT ||
+      process.env.FIREBASE_SERVICE_ACCOUNT_BASE64 ||
+      (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY)
+    ),
+    firebaseConnected: false,
+    razorpayConfigured: !!process.env.RAZORPAY_KEY_ID && !!process.env.RAZORPAY_KEY_SECRET,
+    geminiConfigured: !!process.env.GEMINI_API_KEY,
+  };
+  try {
+    await db.collection("_qiklyHealthChecks").doc("firestore-connectivity").get();
+    result.firebaseConnected = true;
+  } catch (error) {
+    result.ok = false;
+    // Avoid exposing credential values or full SDK stack traces from a public endpoint.
+    const message = String(error?.message || "");
+    if (/credentials are missing/i.test(message)) result.firebaseError = "Missing Firebase service-account environment variables in Vercel.";
+    else if (/not valid JSON/i.test(message)) result.firebaseError = "Firebase service-account JSON is invalid. Re-paste the complete JSON value in Vercel.";
+    else if (/incomplete/i.test(message)) result.firebaseError = "Firebase service-account JSON is incomplete. Check project_id, client_email and private_key.";
+    else if (error?.code === 5 || /NOT_FOUND|not found/i.test(message)) result.firebaseError = "Firestore database was not found. Enable or create Firestore in the Firebase project selected by the service account.";
+    else if (error?.code === 7 || /PERMISSION_DENIED|permission/i.test(message)) result.firebaseError = "Firebase service account does not have permission to access Firestore.";
+    else result.firebaseError = "Firebase could not connect. Check the Vercel Function Logs for the Firebase error.";
+    result.firebaseErrorCode = error?.code || error?.name || "FIREBASE_ERROR";
+  }
+  res.status(result.firebaseConnected ? 200 : 503).json(result);
+});
 
 module.exports=app;

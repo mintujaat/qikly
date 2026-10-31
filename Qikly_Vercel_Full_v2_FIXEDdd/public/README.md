@@ -58,4 +58,8 @@ This portal manages request intake, payment verification, status and admin repli
 
 ## Deploy
 
-Deploy the project root to Vercel. No frontend build step or additional npm dependency is needed.
+Deploy the directory containing `package.json`, `vercel.json`, `api/`, `index.html` and `admin.html` as the Vercel project root. No frontend build step or additional npm dependency is needed.
+
+## Firebase connection check
+
+After deployment, open `https://YOUR-DOMAIN/api/health`. The response includes `firebaseConfigured` and `firebaseConnected`. If `firebaseConnected` is false, follow the returned `firebaseError` and check the Vercel Function Logs. The API supports the existing `FIREBASE_SERVICE_ACCOUNT_JSON` variable, and also accepts `FIREBASE_SERVICE_ACCOUNT_BASE64` or the three separate variables `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL` and `FIREBASE_PRIVATE_KEY`. Do not paste service-account secrets into chat or commit them to GitHub. After changing Vercel environment variables, redeploy the project.
