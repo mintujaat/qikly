@@ -26,6 +26,32 @@
   function money(value) {
     return `₹${Number(value || 0).toLocaleString('en-IN')}`;
   }
+  function getSecretCode(request) {
+    const sources = [request, request?.attendanceDetails, request?.details, request?.formData].filter(value => value && typeof value === 'object');
+    const keys = ['userSecretCode', 'secretCode', 'secret_code', 'user_secret_code', 'userCode', 'fourDigitCode', 'attendanceSecretCode', 'requestCode', 'accessCode'];
+    for (const source of sources) {
+      for (const key of keys) {
+        const value = source[key];
+        if (value !== undefined && value !== null && String(value).trim() !== '') {
+          const normalized = String(value).trim();
+          return /^\d{1,4}$/.test(normalized) ? normalized.padStart(4, '0') : normalized;
+        }
+      }
+    }
+    return '';
+  }
+  function getDepartment(request) {
+    const sources = [request, request?.attendanceDetails, request?.details, request?.formData].filter(value => value && typeof value === 'object');
+    const keys = ['departmentDisplay', 'department', 'departmentName', 'departmentChoice', 'courseName', 'course', 'programme', 'program'];
+    for (const source of sources) {
+      if (String(source.departmentChoice || '').trim() === 'Other / Not listed' && String(source.departmentOther || '').trim()) return `Other: ${String(source.departmentOther).trim()}`;
+      for (const key of keys) {
+        const value = source[key];
+        if (value !== undefined && value !== null && String(value).trim() !== '' && String(value).trim() !== 'Other / Not listed') return String(value).trim();
+      }
+    }
+    return '';
+  }
   function dateLabel(value) {
     if (!value) return '—';
     const date = new Date(value);
@@ -52,16 +78,15 @@
     }
     root.innerHTML = requests.map((request) => {
       const meta = request.deviceMeta || {};
-      // Support older field names used by earlier form builds; new requests use userSecretCode.
-      const secretCandidates = [request.userSecretCode, request.secretCode, request.secret_code, request.user_secret_code, request.userCode, request.fourDigitCode, request.attendanceSecretCode];
-      const secretValue = secretCandidates.find((value) => value !== undefined && value !== null && String(value).trim() !== '');
-      const secretCode = secretValue === undefined ? '' : String(secretValue).trim().padStart(4, '0');
+      const secretCode = getSecretCode(request);
+      const department = getDepartment(request);
+      const needsDetailsCorrection = !/^\d{4}$/.test(secretCode) || !department;
       return `<article class="admin-request-card" data-id="${esc(request.id)}">
         <div class="admin-request-head"><div><h3>${esc(request.requestNumber || request.id)}</h3><p>Submitted ${esc(dateLabel(request.createdAt))} · Payment verified</p></div><span class="status-pill ${request.requestStatus === 'completed' ? '' : request.requestStatus === 'rejected' ? 'red' : 'blue'}">${esc(request.requestStatus || 'paid').replaceAll('_', ' ')}</span></div>
         <div class="admin-meta-grid">
           <div class="meta-cell"><small>College account ID</small><strong>${esc(request.accountId)}</strong></div>
-          <div class="meta-cell secret-code-cell"><small>User's 4-digit code</small><strong>${esc(secretCode || 'Not recorded on this request')}</strong></div>
-          <div class="meta-cell"><small>Department / course</small><strong>${esc(request.department || '—')}</strong></div>
+          <div class="meta-cell secret-code-cell"><small>User's 4-digit code</small><strong>${esc(/^\d{4}$/.test(secretCode) ? secretCode : 'Not recorded')}</strong></div>
+          <div class="meta-cell"><small>Department / course</small><strong>${esc(department || 'Not recorded')}</strong></div>
           <div class="meta-cell"><small>Class time</small><strong>${esc(request.classTime)}</strong></div>
           <div class="meta-cell"><small>Teacher name</small><strong>${esc(request.teacherName)}</strong></div>
           <div class="meta-cell"><small>Amount paid</small><strong>${money(request.amount)}</strong></div>
@@ -70,6 +95,14 @@
           <div class="meta-cell"><small>Paid at</small><strong>${esc(dateLabel(request.paidAt))}</strong></div>
           <div class="meta-cell"><small>Last reply</small><strong>${esc(dateLabel(request.repliedAt))}</strong></div>
         </div>
+        ${needsDetailsCorrection ? `<div class="details-correction">
+          <div class="details-correction-heading"><strong>Complete missing request details</strong><small>For older requests only. Enter values confirmed by the user; details that were never submitted cannot be recovered automatically.</small></div>
+          <div class="details-correction-grid">
+            <label class="field"><span>CONFIRMED 4-DIGIT CODE</span><input class="correct-secret-code" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" value="${esc(/^\d{4}$/.test(secretCode) ? secretCode : '')}" placeholder="4 digits"></label>
+            <label class="field"><span>CONFIRMED DEPARTMENT / COURSE</span><input class="correct-department" type="text" maxlength="180" value="${esc(department)}" placeholder="Enter course name"></label>
+          </div>
+          <button class="small-btn save-details" type="button">Save corrected details</button>
+        </div>` : ''}
         <div class="device-meta"><strong>Browser / device details:</strong> ${esc(meta.platform || 'Platform unavailable')} · ${esc(meta.language || 'Language unavailable')} · ${esc(meta.timezone || 'Timezone unavailable')} · Screen ${esc(meta.screen || 'unavailable')}<br><strong>Browser user agent:</strong> ${esc(meta.userAgent || 'Unavailable')}</div>
         <div class="reply-editor">
           <label class="field"><span>REPLY TO USER</span><textarea class="reply-text" maxlength="2000" placeholder="Write an update for this user…">${esc(request.adminReply || '')}</textarea></label>
@@ -155,6 +188,26 @@
     } finally { button.disabled = false; }
   });
   $('#adminRequests').addEventListener('click', async (event) => {
+    const detailsButton = event.target.closest('.save-details');
+    if (detailsButton) {
+      const card = detailsButton.closest('.admin-request-card');
+      const id = card?.dataset.id;
+      const userSecretCode = $('.correct-secret-code', card)?.value.trim() || '';
+      const department = $('.correct-department', card)?.value.trim() || '';
+      if (!id) return;
+      if (!/^\d{4}$/.test(userSecretCode)) return toast('Enter exactly 4 digits for the confirmed code.');
+      if (!department) return toast('Enter the confirmed department or course.');
+      detailsButton.disabled = true;
+      try {
+        await api('/api/admin/attendance/details', { method: 'POST', body: JSON.stringify({ id, userSecretCode, secretCode: userSecretCode, department }) });
+        toast('Missing request details saved');
+        await loadData();
+      } catch (error) {
+        toast(error.message);
+      } finally { detailsButton.disabled = false; }
+      return;
+    }
+
     const button = event.target.closest('.save-reply');
     if (!button) return;
     const card = button.closest('.admin-request-card');

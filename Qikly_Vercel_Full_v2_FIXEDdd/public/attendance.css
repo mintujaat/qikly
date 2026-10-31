@@ -22,3 +22,7 @@
 .secret-code-cell{background:#eef9f7;border:1px solid #dff1ee;border-radius:9px;padding:9px 10px}
 .secret-code-cell strong{color:#087f78;font:800 15px Manrope,sans-serif;letter-spacing:2px}
 @media(max-width:680px){.form-section-label{margin-bottom:13px}.class-section-label{margin-top:20px}.secret-code-field{margin-top:15px}.secret-code-field input{height:49px}.request-panel form{margin-top:21px}}
+
+/* Admin recovery editor for paid requests created before all form fields were stored. */
+.details-correction{border:1px solid #f0e4bf;background:#fffaf0;border-radius:11px;padding:13px 14px;margin:0 0 13px}.details-correction-heading strong,.details-correction-heading small{display:block}.details-correction-heading strong{font-size:10px;color:#705319}.details-correction-heading small{font-size:9px;color:#8e8060;line-height:1.6;margin-top:4px}.details-correction-grid{display:grid;grid-template-columns:1fr 1.4fr;gap:10px;margin:11px 0}.details-correction .field>span{font-size:8px}.details-correction .field input{height:39px;font-size:10px;background:#fff}.details-correction .save-details{border-color:#e8d59f;background:#fff;color:#755d24;font-size:9px}.details-correction .save-details:hover{border-color:#c6a95b;color:#604815}
+@media(max-width:680px){.details-correction-grid{grid-template-columns:1fr}.details-correction .save-details{width:100%;height:39px}}

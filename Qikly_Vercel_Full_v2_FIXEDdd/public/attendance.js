@@ -99,10 +99,10 @@
         <div class="request-card-top"><strong class="request-number">${escapeHtml(request.requestNumber || request.id)}</strong><span class="status-pill ${statusClass(request.requestStatus)}">${escapeHtml(statusLabel(request.requestStatus))}</span></div>
         <div class="request-details">
           <div class="detail-item"><small>College account ID</small><strong>${escapeHtml(request.accountId)}</strong></div>
-          <div class="detail-item"><small>Department / course</small><strong>${escapeHtml(request.department || '—')}</strong></div>
+          <div class="detail-item"><small>Department / course</small><strong>${escapeHtml(request.departmentDisplay || request.department || request.departmentName || request.courseName || 'Not recorded')}</strong></div>
           <div class="detail-item"><small>Class time</small><strong>${escapeHtml(request.classTime)}</strong></div>
           <div class="detail-item"><small>Teacher</small><strong>${escapeHtml(request.teacherName)}</strong></div>
-          <div class="detail-item"><small>Your 4-digit code</small><strong class="user-secret-code-value">${escapeHtml(request.userSecretCode || '—')}</strong></div>
+          <div class="detail-item"><small>Your 4-digit code</small><strong class="user-secret-code-value">${escapeHtml(request.userSecretCode || request.secretCode || request.fourDigitCode || 'Not recorded')}</strong></div>
           <div class="detail-item"><small>Payment</small><strong>₹${Number(request.amount || 0).toLocaleString('en-IN')} · Paid</strong></div>
         </div>
         <div class="reply-box"><small>Admin reply · ${escapeHtml(dateLabel(request.repliedAt || request.updatedAt))}</small><p class="${request.adminReply ? '' : 'reply-empty'}">${escapeHtml(request.adminReply || 'No admin reply yet. Your update will appear here.')}</p></div>
@@ -163,7 +163,7 @@
     try {
       const created = await api('/api/attendance/order/create', {
         method: 'POST',
-        body: JSON.stringify({ accountId, userSecretCode, department, departmentOther, classTime, teacherName, acceptedTerms: true, deviceMeta: deviceMeta() }),
+        body: JSON.stringify({ accountId, userSecretCode, secretCode: userSecretCode, department, departmentChoice: department, departmentOther, departmentLabel: department === 'Other / Not listed' ? `Other: ${departmentOther}` : department, classTime, teacherName, acceptedTerms: true, deviceMeta: deviceMeta() }),
       });
       const order = created.razorpayOrder;
       const checkout = new window.Razorpay({
