@@ -7,6 +7,9 @@
   let deviceToken = '';
   let submitting = false;
   let currentUser = null;
+  let currentAuthMode = 'login';
+  let firebaseAuth = null;
+  let googleSignInBusy = false;
   let walletBalance = 0;
   let referralSummary = { successfulTransactions: 0, totalEarned: 0, rewardAmount: 3 };
   const locationMaps = new Map();
@@ -127,6 +130,7 @@
   }
   function setAuthMode(mode) {
     const selected = mode === 'signup' ? 'signup' : 'login';
+    currentAuthMode = selected;
     $('#accountLoginForm').classList.toggle('hidden', selected !== 'login');
     $('#accountSignupForm').classList.toggle('hidden', selected !== 'signup');
     document.querySelectorAll('[data-auth-mode]').forEach(tab => {
@@ -338,6 +342,87 @@
     if (!response.ok) throw new Error(data.error || 'Unable to load the form.');
     config = { ...config, ...data };
     renderForm();
+    try {
+      await setupFirebaseGoogleSignIn();
+    } catch (error) {
+      const area = $('#googleAuthArea');
+      if (area) area.classList.add('hidden');
+      setAccountMessage(error.message || 'Firebase Google sign-in is not configured.');
+    }
+  }
+  async function setupFirebaseGoogleSignIn() {
+    const area = $('#googleAuthArea');
+    const button = $('#googleSignInButton');
+    const firebaseConfig = config.firebaseConfig;
+    if (!area || !button || !firebaseConfig || !firebaseConfig.apiKey || !firebaseConfig.authDomain || !firebaseConfig.projectId || !firebaseConfig.appId) {
+      if (area) area.classList.add('hidden');
+      return;
+    }
+    if (!window.firebase?.initializeApp || !window.firebase?.auth) {
+      throw new Error('Firebase Authentication SDK could not be loaded. Refresh the page and try again.');
+    }
+    if (!window.firebase.apps.length) window.firebase.initializeApp(firebaseConfig);
+    firebaseAuth = window.firebase.auth();
+    area.classList.remove('hidden');
+    button.addEventListener('click', handleFirebaseGoogleSignIn);
+    const result = await firebaseAuth.getRedirectResult();
+    if (result && result.user) {
+      const savedReferralCode = sessionStorage.getItem('qikly_firebase_google_signup_referral') || '';
+      sessionStorage.removeItem('qikly_firebase_google_signup_referral');
+      await finishFirebaseGoogleSignIn(result.user, savedReferralCode);
+    }
+  }
+  function firebaseAuthError(error) {
+    const code = String(error?.code || '');
+    if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') return 'Google sign-in was cancelled. Please try again.';
+    if (code === 'auth/popup-blocked') return 'Your browser blocked the sign-in popup. Allow popups for this website and try again.';
+    if (code === 'auth/unauthorized-domain') return 'This website domain is not authorized in Firebase Authentication settings.';
+    if (code === 'auth/operation-not-allowed') return 'Google sign-in is not enabled in Firebase Authentication.';
+    if (code === 'auth/network-request-failed') return 'Network error. Check your internet connection and try again.';
+    return error?.message || 'Firebase Google sign-in failed. Please try again.';
+  }
+  async function handleFirebaseGoogleSignIn() {
+    if (!firebaseAuth || googleSignInBusy) return;
+    googleSignInBusy = true;
+    const button = $('#googleSignInButton');
+    button.disabled = true;
+    setAccountMessage('Connecting to Firebase Authentication…', true);
+    try {
+      const provider = new window.firebase.auth.GoogleAuthProvider();
+      provider.addScope('profile');
+      provider.addScope('email');
+      provider.setCustomParameters({ prompt: 'select_account' });
+      const useRedirect = window.matchMedia?.('(pointer: coarse)').matches || window.innerWidth < 650;
+      if (useRedirect) {
+        const referralCode = currentAuthMode === 'signup' ? $('#signupReferralCode').value.trim().toUpperCase() : '';
+        if (referralCode) sessionStorage.setItem('qikly_firebase_google_signup_referral', referralCode);
+        else sessionStorage.removeItem('qikly_firebase_google_signup_referral');
+        await firebaseAuth.signInWithRedirect(provider);
+        return;
+      }
+      const result = await firebaseAuth.signInWithPopup(provider);
+      await finishFirebaseGoogleSignIn(result.user);
+    } catch (error) {
+      setAccountMessage(firebaseAuthError(error));
+    } finally {
+      googleSignInBusy = false;
+      if (button) button.disabled = false;
+    }
+  }
+  async function finishFirebaseGoogleSignIn(firebaseUser, referralOverride = null) {
+    if (!firebaseUser) throw new Error('Firebase did not return a signed-in user.');
+    setAccountMessage('Verifying your Firebase account…', true);
+    try {
+      const idToken = await firebaseUser.getIdToken(true);
+      const referralCode = referralOverride !== null ? String(referralOverride || '').trim().toUpperCase() : (currentAuthMode === 'signup' ? $('#signupReferralCode').value.trim().toUpperCase() : '');
+      await api('/api/auth/google', { method: 'POST', body: JSON.stringify({ idToken, referralCode }) });
+      await refreshAccountState();
+      $('#signedInMessage').textContent = 'Signed in with Google successfully.';
+      await refreshRequests();
+      $('#heroGrid').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (error) {
+      setAccountMessage(error.message || 'Google sign-in failed. Please try again.');
+    }
   }
   function collectFormData() {
     const values = {};
@@ -545,6 +630,7 @@
   $('#accountLogout').addEventListener('click', async () => {
     try { await api('/api/auth/logout', { method: 'POST', body: '{}' }); }
     catch {}
+    if (firebaseAuth) await firebaseAuth.signOut().catch(() => {});
     currentUser = null;
     walletBalance = 0;
     referralSummary = { successfulTransactions: 0, totalEarned: 0, rewardAmount: Number(config.referralReward || 3) };

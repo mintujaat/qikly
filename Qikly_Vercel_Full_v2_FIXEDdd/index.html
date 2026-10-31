@@ -43,6 +43,10 @@
           <label class="field"><span>Referral code <small>(optional)</small></span><input id="signupReferralCode" type="text" maxlength="40" autocapitalize="characters" placeholder="Enter the code shared by a friend"></label>
           <button class="primary-btn" id="accountSignupButton" type="submit"><span>Create account</span><span class="btn-arrow">→</span></button>
         </form>
+        <div class="google-auth-area hidden" id="googleAuthArea">
+          <div class="auth-divider"><span></span><small>OR CONTINUE WITH</small><span></span></div>
+          <div class="google-button-wrap"><button type="button" id="googleSignInButton" class="google-sign-in-button"><span class="google-g-mark" aria-hidden="true">G</span><span>Continue with Google</span></button></div>
+        </div>
         <p class="form-message" id="accountMessage" role="status" aria-live="polite"></p>
         <p class="account-privacy-note">Your password is securely hashed by the server. Never enter your college password, UPI PIN or OTP here.</p>
       </div>
@@ -104,6 +108,8 @@
   <footer class="site-footer"><div class="footer-inner"><a class="brand footer-brand" href="/"><span class="brand-mark">Q</span><span><strong>qikly<span>.</span></strong><small>REQUEST PORTAL</small></span></a><p>Keep your request reference for support. Do not submit passwords, OTPs, UPI PINs or other confidential credentials.</p><span class="copyright">© 2026 Qikly</span></div></footer>
   <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="https://www.gstatic.com/firebasejs/13.1.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/13.1.0/firebase-auth-compat.js"></script>
   <script src="/attendance.js"></script>
 </body>
 </html>

@@ -166,16 +166,24 @@
     if (!accounts.length) {
       accountsRoot.innerHTML = '<div class="empty-state"><strong>No registered accounts yet.</strong><p>User accounts will appear here after signup.</p></div>';
     } else {
-      accountsRoot.innerHTML = `<table class="admin-data-table"><thead><tr><th>User</th><th>Referral code</th><th>Wallet balances</th><th>Referral earned</th><th>Paid referrals</th><th>Joined / last login</th><th>Status</th></tr></thead><tbody>${accounts.map(user => `
-        <tr>
-          <td><strong>${esc(user.name || '—')}</strong><small>${esc(user.email || user.id)}</small><small class="table-id">${esc(user.id)}</small></td>
+      accountsRoot.innerHTML = `<table class="admin-data-table"><thead><tr><th>Profile</th><th>Email address</th><th>Sign-in method</th><th>Referral code</th><th>Wallet balances</th><th>Referral earned</th><th>Paid referrals</th><th>Signup date & time</th><th>Last login date & time</th><th>Status</th></tr></thead><tbody>${accounts.map(user => {
+        const initials = String(user.name || user.email || 'U').trim().slice(0, 1).toUpperCase();
+        const photo = /^https:\/\//i.test(String(user.profileImage || '')) ? `<img class="account-avatar-image" src="${esc(user.profileImage)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '';
+        const methods = Array.isArray(user.authProviders) ? user.authProviders : [];
+        const methodLabel = methods.includes('google') && methods.includes('password') ? 'Email + Google' : (methods.includes('google') ? 'Google' : 'Email/password');
+        return `<tr>
+          <td><div class="admin-account-identity"><span class="admin-account-avatar">${esc(initials)}${photo}</span><span><strong>${esc(user.name || '—')}</strong><small class="table-id">${esc(user.id)}</small></span></div></td>
+          <td><strong>${esc(user.email || '—')}</strong>${user.emailVerified ? '<small class="verified-email">Verified email</small>' : '<small>Email not verified</small>'}</td>
+          <td><strong>${esc(methodLabel)}</strong><small>Last used: ${esc(user.lastLoginMethod === 'google' ? 'Google' : 'Email/password')}</small></td>
           <td><span class="referral-code-chip">${esc(user.referralCode || 'Not generated')}</span>${user.referredBy ? `<small>Referred by: ${esc(user.referredByName || user.referredBy)}</small><small>${esc(user.referredByEmail || '')}</small>` : ''}</td>
           <td><strong>Available: ${money(user.balance)}</strong><small>Referral bonus: ${money(user.bonusBalance)}</small><small>Deposits: ${money(user.depositBalance)} · Earnings: ${money(user.earningsBalance)}</small><small>Reserved: ${money(user.reservedBalance)}</small></td>
           <td><strong>${money(user.referralEarned)}</strong></td>
           <td>${Number(user.successfulReferralPayments || 0).toLocaleString('en-IN')}</td>
-          <td><small>Joined: ${esc(dateLabel(user.createdAt))}</small><small>Last login: ${esc(dateLabel(user.lastLoginAt))}</small></td>
+          <td><small>${esc(dateLabel(user.createdAt))}</small></td>
+          <td><small>${esc(dateLabel(user.lastLoginAt))}</small></td>
           <td><span class="status-pill ${user.active ? '' : 'red'}">${user.active ? 'Active' : 'Disabled'}</span></td>
-        </tr>`).join('')}</tbody></table>`;
+        </tr>`;
+      }).join('')}</tbody></table>`;
     }
 
     const rewards = Array.isArray(data.rewards) ? data.rewards : [];

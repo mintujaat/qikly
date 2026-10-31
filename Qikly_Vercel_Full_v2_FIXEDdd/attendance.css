@@ -72,6 +72,21 @@
 .account-form .primary-btn{margin-top:3px;width:100%}
 .account-privacy-note{grid-column:1/-1;margin:0;color:#8994a5;font-size:10px;line-height:1.6}
 .account-message{grid-column:1/-1;margin:0;font-size:11px;color:#66748a;min-height:14px}
+.google-auth-area{grid-column:2;margin-top:0}
+.auth-divider{display:flex;align-items:center;gap:12px;margin:14px 0;color:#98a3b3}
+.auth-divider span{height:1px;flex:1;background:#e8edf2}
+.auth-divider small{font-size:8px;font-weight:900;letter-spacing:1.1px;white-space:nowrap}
+.google-button-wrap{display:flex;justify-content:center;width:100%;min-height:42px}
+#googleSignInButton{max-width:100%}
+.google-sign-in-button{display:flex;align-items:center;justify-content:center;gap:12px;width:100%;min-height:46px;padding:10px 16px;border:1px solid #d7dee8;border-radius:11px;background:#fff;color:#253044;font:700 12px "DM Sans",sans-serif;cursor:pointer;transition:border-color .18s ease,box-shadow .18s ease,transform .18s ease}
+.google-sign-in-button:hover{border-color:#aeb9c8;box-shadow:0 5px 18px #17243a12;transform:translateY(-1px)}
+.google-sign-in-button:disabled{opacity:.6;cursor:wait;transform:none}
+.google-g-mark{display:grid;place-items:center;width:21px;height:21px;border:1px solid #e5e9ef;border-radius:50%;color:#4285f4;font:800 14px Arial,sans-serif;background:#fff}
+.account-avatar-image{width:100%;height:100%;object-fit:cover;border-radius:50%;position:absolute;inset:0}
+.admin-account-identity{display:flex;align-items:center;gap:10px;min-width:150px}
+.admin-account-identity>span:last-child{min-width:0}
+.admin-account-avatar{width:38px;height:38px;flex:0 0 38px;display:grid;place-items:center;position:relative;overflow:hidden;border-radius:50%;background:#e7f5f2;color:#087f78;font:800 13px Manrope,sans-serif}
+.verified-email{color:#087f78!important;font-weight:700}
 .account-summary-card{padding:23px 25px}
 .account-summary-head{display:flex;justify-content:space-between;align-items:center;gap:18px;margin-bottom:18px}
 .account-summary-head h2{margin-bottom:3px}
@@ -99,7 +114,7 @@
 .admin-nav{display:flex;gap:8px;overflow-x:auto}
 .admin-nav-tab{white-space:nowrap}
 .admin-table-wrap{width:100%;overflow-x:auto;border:1px solid var(--line);border-radius:13px;background:#fff}
-.admin-data-table{width:100%;border-collapse:collapse;min-width:780px;text-align:left}
+.admin-data-table{width:100%;border-collapse:collapse;min-width:1180px;text-align:left}
 .admin-data-table th{font-size:9px;letter-spacing:.8px;color:#8290a2;background:#f6f8fa;padding:13px 14px;white-space:nowrap}
 .admin-data-table td{padding:13px 14px;border-top:1px solid #edf0f4;color:#324258;font-size:11px;vertical-align:top}
 .admin-data-table td strong{display:block;font-size:11px;color:#26364b}
@@ -112,6 +127,7 @@
 @media(max-width:760px){
   .account-section{margin-bottom:24px}
   .account-auth-card{grid-template-columns:1fr;padding:20px;gap:13px}
+  .google-auth-area{grid-column:1}
   .account-intro{grid-row:auto}
   .account-summary-card{padding:18px}
   .account-summary-grid{grid-template-columns:1fr 1fr}

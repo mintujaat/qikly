@@ -332,7 +332,7 @@ async function userDashboard(uid) {
   const wallet = walletSnap.exists ? walletSnap.data() : {};
   return jsonSafe({ user: sanitizeUser({...user,referralCode:referral.code}), wallet: money(wallet.balance), walletBreakdown: { total: money(wallet.balance), deposit: money(wallet.depositBalance), earnings: money(wallet.earningsBalance), bonus: money(wallet.bonusBalance), withdrawable: money(wallet.earningsBalance) }, investments, transactions, minWithdrawal: Math.max(1, money(savedSettings.minWithdrawal) || MIN_WITHDRAWAL), referral });
 }
-function sanitizeUser(user) { const { passwordHash, ...safe } = user || {}; return safe; }
+function sanitizeUser(user) { const { passwordHash, googleSub, firebaseUid, ...safe } = user || {}; return safe; }
 
 async function createReferralCode() {
   for (let i=0;i<8;i++) {
@@ -403,7 +403,7 @@ app.post("/api/auth/signup", async (req,res)=>{
     }
     const ref=db.collection("users").doc();
     const newReferralCode=await createReferralCode();
-    await ref.set({name,email,passwordHash:await hashPassword(password),active:true,upiId:"",phone:"",profileImage:"",referralCode:newReferralCode,referredBy:referrer?.id||"",createdAt:FieldValue.serverTimestamp(),lastLoginAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
+    await ref.set({name,email,passwordHash:await hashPassword(password),active:true,upiId:"",phone:"",profileImage:"",emailVerified:false,authProvider:"email/password",authProviders:["password"],lastLoginMethod:"password",referralCode:newReferralCode,referredBy:referrer?.id||"",createdAt:FieldValue.serverTimestamp(),lastLoginAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
     await db.collection("wallets").doc(ref.id).set({uid:ref.id,balance:0,depositBalance:0,earningsBalance:0,bonusBalance:0,balanceSourceVersion:2,updatedAt:FieldValue.serverTimestamp()});
     if(referrer) await db.collection("referrals").doc(ref.id).set({referrerUid:referrer.id,referredUid:ref.id,referralCode,createdAt:FieldValue.serverTimestamp(),status:"joined"});
     setCookie(res,SESSION_COOKIE,createToken("user",ref.id,168,SESSION_SECRET),7*24*60*60);
@@ -416,10 +416,129 @@ app.post("/api/auth/login", async (req,res)=>{
     const snap=await db.collection("users").where("email","==",email).limit(1).get();
     if(snap.empty || !(await verifyPassword(password,snap.docs[0].data().passwordHash))) return res.status(401).json({error:"Invalid email or password."});
     const user={id:snap.docs[0].id,...snap.docs[0].data()}; if(user.active===false) return res.status(403).json({error:"This account is disabled."});
-    await db.collection("users").doc(user.id).set({lastLoginAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()},{merge:true});
+    const providers=Array.isArray(user.authProviders)?user.authProviders.slice():["password"];
+    if(!providers.includes("password")) providers.push("password");
+    await db.collection("users").doc(user.id).set({authProviders:providers,authProvider:providers.includes("google")?"email + Google":"email/password",lastLoginMethod:"password",lastLoginAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()},{merge:true});
     setCookie(res,SESSION_COOKIE,createToken("user",user.id,168,SESSION_SECRET),7*24*60*60);
-    res.json({ok:true,user:sanitizeUser(user),balance:await getWallet(user.id)});
+    res.set("Cache-Control", "no-store");
+    res.json({ok:true,user:sanitizeUser({...user,authProviders:providers,authProvider:providers.includes("google")?"email + Google":"email/password"}),balance:await getWallet(user.id)});
   } catch(e){res.status(500).json({error:e.message||"Login failed."});}
+});
+
+async function verifyFirebaseGoogleCredential(idToken) {
+  const credential = String(idToken || "");
+  if (!credential || credential.length > 16000) throw new Error("Firebase sign-in token is missing or invalid.");
+
+  let decoded;
+  try {
+    decoded = await admin.auth().verifyIdToken(credential, true);
+  } catch (error) {
+    const authError = new Error("Firebase could not verify this sign-in. Please sign in with Google again.");
+    authError.statusCode = 401;
+    throw authError;
+  }
+
+  if (!decoded?.uid || decoded.firebase?.sign_in_provider !== "google.com") {
+    const authError = new Error("Please use the Continue with Google option from this Firebase project.");
+    authError.statusCode = 401;
+    throw authError;
+  }
+
+  const authUser = await admin.auth().getUser(decoded.uid);
+  if (authUser.disabled) {
+    const authError = new Error("This Google account is disabled.");
+    authError.statusCode = 403;
+    throw authError;
+  }
+
+  const userEmail = cleanEmail(authUser.email || decoded.email);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userEmail) || !(authUser.emailVerified || decoded.email_verified === true)) {
+    throw new Error("Firebase did not return a verified Google email address.");
+  }
+
+  let profileImage = "";
+  try {
+    const photo = new URL(String(authUser.photoURL || decoded.picture || ""));
+    if (photo.protocol === "https:") profileImage = photo.toString().slice(0, 1200);
+  } catch {}
+
+  return {
+    firebaseUid: clean(decoded.uid, 128),
+    email: userEmail,
+    name: clean(authUser.displayName || decoded.name, 100) || "Google user",
+    profileImage
+  };
+}
+
+app.post("/api/auth/google", async (req,res)=>{
+  try {
+    const identity = await verifyFirebaseGoogleCredential(req.body?.idToken);
+    const byFirebaseUid = await db.collection("users").where("firebaseUid", "==", identity.firebaseUid).limit(1).get();
+    let matched = byFirebaseUid.empty ? null : byFirebaseUid.docs[0];
+    if (!matched) {
+      const byEmail = await db.collection("users").where("email", "==", identity.email).limit(1).get();
+      matched = byEmail.empty ? null : byEmail.docs[0];
+    }
+
+    let uid, userData, isNewUser = false;
+    if (matched) {
+      uid = matched.id;
+      userData = matched.data() || {};
+      if (userData.active === false) return res.status(403).json({ error: "This account is disabled." });
+      if (userData.firebaseUid && userData.firebaseUid !== identity.firebaseUid) {
+        return res.status(409).json({ error: "This account is already connected to a different Firebase Google account." });
+      }
+      const emailOwner = await db.collection("users").where("email", "==", identity.email).limit(1).get();
+      if (!emailOwner.empty && emailOwner.docs[0].id !== uid) return res.status(409).json({ error: "This Google email is already used by another account." });
+      const providers = Array.isArray(userData.authProviders) ? userData.authProviders.slice() : (userData.passwordHash ? ["password"] : []);
+      if (!providers.includes("google")) providers.push("google");
+      const patch = {
+        firebaseUid: identity.firebaseUid,
+        email: identity.email,
+        name: identity.name || userData.name || "Google user",
+        profileImage: identity.profileImage || userData.profileImage || "",
+        emailVerified: true,
+        authProviders: providers,
+        authProvider: providers.includes("password") ? "email + Google" : "Google",
+        lastLoginMethod: "google",
+        lastLoginAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp()
+      };
+      await db.collection("users").doc(uid).set(patch, { merge: true });
+      userData = { ...userData, ...patch };
+    } else {
+      const referralCode = clean(req.body?.referralCode, 40).toUpperCase();
+      let referrer = null;
+      if (referralCode) {
+        const rs = await db.collection("users").where("referralCode", "==", referralCode).limit(1).get();
+        if (rs.empty || rs.docs[0].data()?.active === false) return res.status(400).json({ error: "Referral code is invalid or unavailable. Leave it blank or check the code." });
+        referrer = { id: rs.docs[0].id, ...rs.docs[0].data() };
+      }
+      const userRef = db.collection("users").doc();
+      const referral = await createReferralCode();
+      userData = {
+        name: identity.name || "Google user", email: identity.email, firebaseUid: identity.firebaseUid,
+        profileImage: identity.profileImage, emailVerified: true, authProvider: "Google", authProviders: ["google"],
+        lastLoginMethod: "google", active: true, upiId: "", phone: "", referralCode: referral,
+        referredBy: referrer?.id || "", createdAt: FieldValue.serverTimestamp(),
+        lastLoginAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp()
+      };
+      await userRef.set(userData);
+      uid = userRef.id;
+      await db.collection("wallets").doc(uid).set({ uid, balance: 0, depositBalance: 0, earningsBalance: 0, bonusBalance: 0, balanceSourceVersion: 2, updatedAt: FieldValue.serverTimestamp() });
+      if (referrer) await db.collection("referrals").doc(uid).set({ referrerUid: referrer.id, referredUid: uid, referralCode, createdAt: FieldValue.serverTimestamp(), status: "joined" });
+      isNewUser = true;
+    }
+
+    const referral = await ensureReferralCode(uid);
+    const latest = await db.collection("users").doc(uid).get();
+    const user = sanitizeUser({ id: uid, ...(latest.exists ? latest.data() : userData), referralCode: referral });
+    setCookie(res, SESSION_COOKIE, createToken("user", uid, 168, SESSION_SECRET), 7 * 24 * 60 * 60);
+    res.set("Cache-Control", "no-store");
+    res.json({ ok: true, isNewUser, user, balance: await getWallet(uid) });
+  } catch(e) {
+    res.status(e.statusCode || 400).json({ error: e.message || "Firebase Google sign-in failed." });
+  }
 });
 app.post("/api/auth/logout",(req,res)=>{clearCookie(res,SESSION_COOKIE);res.json({ok:true});});
 app.get("/api/auth/me",async(req,res)=>{try{const u=await currentUser(req);if(!u)return res.json({authenticated:false});const referralCode=await ensureReferralCode(u.id);const safe=sanitizeUser({...u,referralCode});res.json({authenticated:true,user:safe,balance:await getWallet(u.id)});}catch(e){res.status(500).json({error:e.message});}});
@@ -994,13 +1113,27 @@ function validateAttendanceFormData(input, fields) {
   }
   return values;
 }
+function getFirebaseWebConfig() {
+  const projectId = clean(process.env.FIREBASE_PROJECT_ID || admin.app().options.projectId || "", 180);
+  const apiKey = clean(process.env.FIREBASE_WEB_API_KEY || process.env.FIREBASE_API_KEY || "", 300);
+  const authDomain = clean(process.env.FIREBASE_AUTH_DOMAIN || (projectId ? `${projectId}.firebaseapp.com` : ""), 300);
+  const appId = clean(process.env.FIREBASE_APP_ID || "", 300);
+  if (!apiKey || !projectId || !authDomain || !appId) return null;
+  const config = { apiKey, authDomain, projectId, appId };
+  const senderId = clean(process.env.FIREBASE_MESSAGING_SENDER_ID || "", 100);
+  const storageBucket = clean(process.env.FIREBASE_STORAGE_BUCKET || "", 300);
+  if (senderId) config.messagingSenderId = senderId;
+  if (storageBucket) config.storageBucket = storageBucket;
+  return config;
+}
+
 app.get("/api/attendance/config", async (req,res) => {
   try {
     const settings = await getAttendanceSettings();
     res.set("Cache-Control", "no-store");
     res.json({ price: settings.price, marqueeText: settings.marqueeText, termsText: settings.termsText,
       formTitle: settings.formTitle, formDescription: settings.formDescription, formFields: settings.formFields,
-      referralReward: settings.referralReward,
+      referralReward: settings.referralReward, firebaseConfig: getFirebaseWebConfig(),
       razorpayKeyId: process.env.RAZORPAY_KEY_ID || "", paymentReady: !!process.env.RAZORPAY_KEY_ID && !!process.env.RAZORPAY_KEY_SECRET });
   } catch (e) { res.status(500).json({ error: e.message || "Unable to load form settings." }); }
 });
@@ -1374,6 +1507,9 @@ app.get("/api/admin/attendance/referrals", guardAdmin, async (req,res) => {
       const inviter = users.get(String(u.referredBy || "")) || {};
       return {
         id: u.id, name: clean(u.name, 100), email: cleanEmail(u.email),
+        profileImage: clean(u.profileImage, 1200), authProvider: clean(u.authProvider, 40) || (u.googleSub ? "Google" : "Email/password"),
+        authProviders: Array.isArray(u.authProviders) ? u.authProviders.filter(x => ["google", "password"].includes(x)) : (u.googleSub ? ["google"] : ["password"]),
+        lastLoginMethod: clean(u.lastLoginMethod, 30), emailVerified: u.emailVerified === true,
         referralCode: clean(u.referralCode, 40), referredBy: clean(u.referredBy, 140),
         referredByName: clean(inviter.name, 100), referredByEmail: cleanEmail(inviter.email),
         balance: money(wallet.balance), depositBalance: money(wallet.depositBalance),
