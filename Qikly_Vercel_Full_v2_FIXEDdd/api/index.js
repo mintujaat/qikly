@@ -6,82 +6,22 @@ const { promisify } = require("util");
 
 const app = express();
 app.use(express.json({ limit: "12mb" }));
-app.use("/api", (_req, res, next) => {
-  res.setHeader("Cache-Control", "no-store, max-age=0, must-revalidate");
-  next();
-});
 
-// Initialize Firebase only when a route actually accesses Firestore. This keeps
-// public health checks and admin login available even when Firebase env vars
-// are missing, and lets the health route report a useful configuration error.
-let firestoreDb = null;
-let firebaseInitError = null;
-function readFirebaseServiceAccount() {
-  const base64Value = String(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64 || "").trim();
-  const rawValue = String(
-    process.env.FIREBASE_SERVICE_ACCOUNT_JSON ||
-    process.env.FIREBASE_SERVICE_ACCOUNT ||
-    ""
-  ).trim();
-  if (!base64Value && !rawValue) {
-    const projectId = String(process.env.FIREBASE_PROJECT_ID || "").trim();
-    const clientEmail = String(process.env.FIREBASE_CLIENT_EMAIL || "").trim();
-    const privateKey = String(process.env.FIREBASE_PRIVATE_KEY || "").replace(/\\n/g, "\n").trim();
-    if (projectId && clientEmail && privateKey) {
-      return { project_id: projectId, client_email: clientEmail, private_key: privateKey };
-    }
-    throw new Error("Firebase credentials are missing. Set FIREBASE_SERVICE_ACCOUNT_JSON in Vercel Environment Variables.");
-  }
-
-  let source = rawValue;
-  if (base64Value) source = Buffer.from(base64Value, "base64").toString("utf8");
-  else if (source.startsWith("base64:")) source = Buffer.from(source.slice(7), "base64").toString("utf8");
-
-  let serviceAccount;
-  try {
-    serviceAccount = JSON.parse(source);
-    if (typeof serviceAccount === "string") serviceAccount = JSON.parse(serviceAccount);
-  } catch (_error) {
-    throw new Error("FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON. Paste the complete Firebase service-account JSON, or use FIREBASE_SERVICE_ACCOUNT_BASE64.");
-  }
-
-  if (!serviceAccount || typeof serviceAccount !== "object" ||
-      !serviceAccount.project_id || !serviceAccount.client_email || !serviceAccount.private_key) {
-    throw new Error("Firebase service-account JSON is incomplete. project_id, client_email and private_key are required.");
-  }
-  serviceAccount.private_key = String(serviceAccount.private_key).replace(/\\n/g, "\n");
-  return serviceAccount;
+if (!admin.apps.length) {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  if (!raw) throw new Error("Missing FIREBASE_SERVICE_ACCOUNT_JSON");
+  const serviceAccount = typeof raw === "string" ? JSON.parse(raw) : raw;
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+    databaseURL: process.env.FIREBASE_DATABASE_URL || undefined,
+  });
 }
-function getFirestoreDb() {
-  if (firestoreDb) return firestoreDb;
-  if (firebaseInitError) throw firebaseInitError;
-  try {
-    const serviceAccount = readFirebaseServiceAccount();
-    if (!admin.apps.length) {
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-        databaseURL: process.env.FIREBASE_DATABASE_URL || undefined,
-      });
-    }
-    firestoreDb = admin.firestore();
-    return firestoreDb;
-  } catch (error) {
-    firebaseInitError = error;
-    console.error("[Qikly] Firebase initialization failed:", error.code || error.name || "Error", error.message);
-    throw error;
-  }
-}
-const db = new Proxy({}, {
-  get(_target, property) {
-    const realDb = getFirestoreDb();
-    const value = realDb[property];
-    return typeof value === "function" ? value.bind(realDb) : value;
-  },
-});
+
+const db = admin.firestore();
 const FieldValue = admin.firestore.FieldValue;
 const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID || "",
-  key_secret: process.env.RAZORPAY_KEY_SECRET || "",
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
 const ADMIN_COOKIE = "qikly_admin";
@@ -887,18 +827,61 @@ app.post("/api/admin/shop/coupon",guardAdmin,async(req,res)=>{try{const b=req.bo
 app.post("/api/admin/shop/delete-coupon",guardAdmin,async(req,res)=>{try{const id=clean(req.body.id,80);if(!id)return res.status(400).json({error:"Coupon id required."});await db.collection("shopCoupons").doc(id).delete();res.json({ok:true});}catch(e){res.status(500).json({error:e.message});}});
 app.post("/api/admin/shop/order-status",guardAdmin,async(req,res)=>{try{const id=clean(req.body.id,120),status=clean(req.body.status,40);const allowed=["payment_pending","placed","packed","shipped","out_for_delivery","delivered","cancelled"];if(!allowed.includes(status))return res.status(400).json({error:"Invalid order status."});const ref=db.collection("shopOrders").doc(id);const snap=await ref.get();if(!snap.exists)return res.status(404).json({error:"Order not found."});await ref.set({orderStatus:status,updatedAt:FieldValue.serverTimestamp()},{merge:true});res.json({ok:true});}catch(e){res.status(500).json({error:e.message});}});
 
-// Qikly Attendance — separate workflow; the existing auth, shop and payment routes remain unchanged.
+// Qikly configurable form workflow — reuses the existing Firebase collection,
+// admin session, browser token and Razorpay verification flow.
+const attendanceFieldTypes = new Set([
+  "text", "textarea", "number", "email", "tel", "date", "time",
+  "datetime-local", "select", "radio", "checkbox", "url", "location"
+]);
+const attendanceDefaultFields = [
+  { id: "full_name", label: "Full name", type: "text", placeholder: "Enter your full name", helpText: "", required: true, options: [], min: "", max: "" },
+  { id: "phone_number", label: "Phone number", type: "tel", placeholder: "Enter your contact number", helpText: "", required: true, options: [], min: "", max: "" },
+  { id: "request_details", label: "Request details", type: "textarea", placeholder: "Write the details here", helpText: "", required: true, options: [], min: "", max: "" }
+];
 const attendanceDefaults = {
   price: 0,
-  marqueeText: "Qikly Attendance • Submit your request • Secure online payment • Track admin replies here",
-  termsText: "I confirm that the details are correct and that this request is for an authorised attendance correction or administrative support. I understand that payment does not guarantee approval or a change to my college records."
+  formTitle: "New Request Form",
+  formDescription: "Complete the details below and submit your request securely.",
+  formFields: attendanceDefaultFields,
+  marqueeText: "Qikly • Secure request portal • Online payment • Admin support",
+  termsText: "I confirm that the information provided is accurate. I understand that payment is processed securely and that submission does not guarantee a particular outcome."
 };
+function sanitizeAttendanceFields(input) {
+  if (!Array.isArray(input)) return attendanceDefaultFields;
+  const seen = new Set();
+  return input.slice(0, 40).map((item, index) => {
+    const source = item && typeof item === "object" ? item : {};
+    const label = clean(source.label, 100);
+    const rawType = clean(source.type, 30);
+    const type = attendanceFieldTypes.has(rawType) ? rawType : "text";
+    let id = clean(source.id, 64);
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(id) || seen.has(id)) id = `field_${index}_${crypto.createHash("sha256").update(String(source.id || "")).digest("hex").slice(0, 8)}`;
+    seen.add(id);
+    const options = type === "select" || type === "radio"
+      ? [...new Set((Array.isArray(source.options) ? source.options : []).map(option => clean(option, 80)).filter(Boolean))].slice(0, 30)
+      : [];
+    const min = source.min === "" || source.min === null || source.min === undefined ? "" : Number(source.min);
+    const max = source.max === "" || source.max === null || source.max === undefined ? "" : Number(source.max);
+    return {
+      id, label, type,
+      placeholder: clean(source.placeholder, 120),
+      helpText: clean(source.helpText, 180),
+      required: source.required === true,
+      options,
+      min: Number.isFinite(min) ? min : "",
+      max: Number.isFinite(max) ? max : ""
+    };
+  }).filter(field => field.label);
+}
 async function getAttendanceSettings() {
   const saved = await getDoc("attendanceSettings", "main", {});
   return {
     ...attendanceDefaults,
     ...saved,
     price: Math.max(0, money(saved.price)),
+    formTitle: clean(saved.formTitle, 100) || attendanceDefaults.formTitle,
+    formDescription: clean(saved.formDescription, 240) || attendanceDefaults.formDescription,
+    formFields: sanitizeAttendanceFields(Array.isArray(saved.formFields) && saved.formFields.length ? saved.formFields : attendanceDefaultFields),
     marqueeText: clean(saved.marqueeText, 300) || attendanceDefaults.marqueeText,
     termsText: clean(saved.termsText, 700) || attendanceDefaults.termsText,
   };
@@ -918,101 +901,113 @@ function attendanceMetadata(value = {}) {
   };
 }
 function attendanceSecretCode(request = {}) {
-  const sources = [request, request.attendanceDetails, request.details, request.formData].filter(value => value && typeof value === "object");
-  const keys = ["userSecretCode", "secretCode", "secret_code", "user_secret_code", "userCode", "fourDigitCode", "attendanceSecretCode", "requestCode", "accessCode"];
-  for (const source of sources) {
-    for (const key of keys) {
-      const value = source[key];
-      if (value !== undefined && value !== null && String(value).trim() !== "") {
-        const normalized = String(value).trim();
-        return /^\d{1,4}$/.test(normalized) ? normalized.padStart(4, "0") : normalized;
+  const candidates = [request.userSecretCode, request.secretCode, request.secret_code, request.user_secret_code, request.userCode, request.fourDigitCode, request.attendanceSecretCode];
+  const value = candidates.find(item => item !== undefined && item !== null && String(item).trim() !== "");
+  return value === undefined ? "" : String(value).trim().padStart(4, "0");
+}
+function validateAttendanceFormData(input, fields) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Please complete the form fields.");
+  const values = {};
+  for (const field of fields) {
+    const raw = input[field.id];
+    if (field.type === "location") {
+      const hasLocationObject = raw && typeof raw === "object" && !Array.isArray(raw);
+      const hasCoordinates = hasLocationObject && raw.lat !== undefined && raw.lat !== null && raw.lat !== "" &&
+        raw.lng !== undefined && raw.lng !== null && raw.lng !== "";
+      const lat = hasCoordinates ? Number(raw.lat) : NaN;
+      const lng = hasCoordinates ? Number(raw.lng) : NaN;
+      const validLocation = Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+      if (!validLocation) {
+        if (field.required) throw new Error(`Select a location for ${field.label}.`);
+        values[field.id] = "";
+        continue;
       }
+      values[field.id] = {
+        lat: Number(lat.toFixed(6)),
+        lng: Number(lng.toFixed(6)),
+        label: clean(raw.label, 120),
+        source: raw.source === "gps" ? "gps" : "map"
+      };
+      continue;
+    }
+    if (field.type === "checkbox") {
+      const checked = raw === true || raw === "true" || raw === 1;
+      if (field.required && !checked) throw new Error(`${field.label} is required.`);
+      values[field.id] = checked;
+      continue;
+    }
+    const value = clean(raw, field.type === "textarea" ? 4000 : 2000);
+    if (field.required && !value) throw new Error(`${field.label} is required.`);
+    if (!value) { values[field.id] = ""; continue; }
+    if (field.type === "number") {
+      const number = Number(value);
+      if (!Number.isFinite(number)) throw new Error(`${field.label} must be a valid number.`);
+      if (field.min !== "" && number < field.min) throw new Error(`${field.label} must be at least ${field.min}.`);
+      if (field.max !== "" && number > field.max) throw new Error(`${field.label} must be no more than ${field.max}.`);
+      values[field.id] = number;
+    } else if (field.type === "email") {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) throw new Error(`Enter a valid ${field.label.toLowerCase()}.`);
+      values[field.id] = value.toLowerCase();
+    } else if (field.type === "tel") {
+      if (!/^[+\d\s().-]{7,25}$/.test(value)) throw new Error(`Enter a valid ${field.label.toLowerCase()}.`);
+      values[field.id] = value;
+    } else if (field.type === "date") {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) throw new Error(`Enter a valid date for ${field.label}.`);
+      values[field.id] = value;
+    } else if (field.type === "time") {
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) throw new Error(`Enter a valid time for ${field.label}.`);
+      values[field.id] = value;
+    } else if (field.type === "datetime-local") {
+      if (!/^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d$/.test(value) || Number.isNaN(new Date(value).getTime())) throw new Error(`Enter a valid date and time for ${field.label}.`);
+      values[field.id] = value;
+    } else if (field.type === "select" || field.type === "radio") {
+      if (!field.options.includes(value)) throw new Error(`Choose a valid option for ${field.label}.`);
+      values[field.id] = value;
+    } else if (field.type === "url") {
+      let parsed;
+      try { parsed = new URL(value); } catch { throw new Error(`Enter a valid website URL for ${field.label}.`); }
+      if (!/^https?:$/.test(parsed.protocol)) throw new Error(`${field.label} must start with http:// or https://.`);
+      values[field.id] = value;
+    } else {
+      values[field.id] = value;
     }
   }
-  return "";
-}
-function attendanceDepartment(request = {}) {
-  const sources = [request, request.attendanceDetails, request.details, request.formData].filter(value => value && typeof value === "object");
-  const keys = ["departmentDisplay", "department", "departmentName", "departmentChoice", "courseName", "course", "programme", "program"];
-  for (const source of sources) {
-    if (clean(source.departmentChoice, 180) === "Other / Not listed" && clean(source.departmentOther, 120)) return `Other: ${clean(source.departmentOther, 120)}`;
-    for (const key of keys) {
-      const value = source[key];
-      if (value !== undefined && value !== null && String(value).trim() !== "" && String(value).trim() !== "Other / Not listed") return clean(value, 180);
-    }
-  }
-  return "";
-}
-function attendanceLocation(request = {}) {
-  const raw = request.collegeLocation || request.selectedLocation || request.location || {};
-  const latValue = raw.latitude ?? raw.lat ?? request.locationLatitude ?? request.latitude;
-  const lngValue = raw.longitude ?? raw.lng ?? request.locationLongitude ?? request.longitude;
-  if (latValue === undefined || latValue === null || lngValue === undefined || lngValue === null || String(latValue).trim() === "" || String(lngValue).trim() === "") return null;
-  const latitude = Number(latValue);
-  const longitude = Number(lngValue);
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return null;
-  const label = clean(raw.label ?? raw.address ?? request.locationLabel, 160);
-  const source = clean(raw.source ?? request.locationSource, 30) || "map_pin";
-  const accuracyValue = Number(raw.accuracyMeters ?? request.locationAccuracyMeters);
-  const accuracyMeters = Number.isFinite(accuracyValue) && accuracyValue > 0 ? Math.round(accuracyValue) : null;
-  return { latitude, longitude, label, source, accuracyMeters,
-    mapUrl: `https://www.google.com/maps?q=${latitude},${longitude}` };
+  return values;
 }
 app.get("/api/attendance/config", async (req,res) => {
   try {
     const settings = await getAttendanceSettings();
     res.set("Cache-Control", "no-store");
     res.json({ price: settings.price, marqueeText: settings.marqueeText, termsText: settings.termsText,
+      formTitle: settings.formTitle, formDescription: settings.formDescription, formFields: settings.formFields,
       razorpayKeyId: process.env.RAZORPAY_KEY_ID || "", paymentReady: !!process.env.RAZORPAY_KEY_ID && !!process.env.RAZORPAY_KEY_SECRET });
-  } catch (e) { res.status(500).json({ error: e.message || "Unable to load attendance settings." }); }
+  } catch (e) { res.status(500).json({ error: e.message || "Unable to load form settings." }); }
 });
 app.post("/api/attendance/order/create", async (req,res) => {
   try {
     const deviceTokenHash = attendanceDeviceHash(req);
     if (!deviceTokenHash) return res.status(400).json({ error: "This browser session could not be verified. Refresh the page and try again." });
-    const accountId = clean(req.body?.accountId, 100);
-    // Accept canonical and legacy form keys, then persist stable display and compatibility fields.
-    const userSecretCode = attendanceSecretCode(req.body || {});
-    const departmentChoice = clean(req.body?.departmentChoice || req.body?.department || req.body?.departmentName || req.body?.courseName || req.body?.departmentLabel, 180);
-    const departmentOther = clean(req.body?.departmentOther, 120);
-    const department = departmentChoice === "Other / Not listed" ? `Other: ${departmentOther}` : departmentChoice;
-    const classTime = clean(req.body?.classTime, 30);
-    const teacherName = clean(req.body?.teacherName, 120);
-    const selectedLocation = attendanceLocation({ collegeLocation: req.body?.collegeLocation || req.body?.selectedLocation || {} });
-    if (!accountId || !departmentChoice || !department || !classTime || !teacherName || (departmentChoice === "Other / Not listed" && !departmentOther)) return res.status(400).json({ error: "College account ID, department, class time and teacher name are required." });
-    if (!selectedLocation) return res.status(400).json({ error: "Select a valid college location on the map before continuing." });
-    if (!/^\d{4}$/.test(userSecretCode)) return res.status(400).json({ error: "Enter exactly 4 digits for your secret code." });
-    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(classTime)) return res.status(400).json({ error: "Enter a valid class time." });
-    if (req.body?.acceptedTerms !== true) return res.status(400).json({ error: "Please agree to the terms before continuing." });
+    if (req.body?.acceptedTerms !== true) return res.status(400).json({ error: "Please agree to the confirmation text before continuing." });
     const settings = await getAttendanceSettings();
+    const formFields = settings.formFields;
+    if (!formFields.length) return res.status(409).json({ error: "The administrator has not published any form fields yet." });
+    const formData = validateAttendanceFormData(req.body?.formData, formFields);
     const amount = Math.max(0, money(settings.price));
-    if (amount < 1) return res.status(409).json({ error: "Attendance payment is not configured yet. Please contact the administrator." });
+    if (amount < 1) return res.status(409).json({ error: "Payment fee is not configured yet. Please contact the administrator." });
     const rpayKey = String(process.env.RAZORPAY_KEY_ID || "");
     const rpaySecret = String(process.env.RAZORPAY_KEY_SECRET || "");
     if (!rpayKey || !rpaySecret) return res.status(503).json({ error: "Online payment is not configured on the server." });
     const ref = db.collection("attendanceRequests").doc();
-    const receipt = `att_${Date.now().toString().slice(-10)}_${crypto.randomBytes(2).toString("hex")}`;
+    const receipt = `qik_${Date.now().toString().slice(-10)}_${crypto.randomBytes(2).toString("hex")}`;
     const rp = await razorpay.orders.create({ amount: amount * 100, currency: "INR", receipt,
-      notes: { attendanceRequestId: ref.id, service: "qikly_attendance" } });
+      notes: { attendanceRequestId: ref.id, service: "qikly_dynamic_form" } });
     const request = {
       id: ref.id,
-      requestNumber: `QA-${Date.now().toString().slice(-8)}-${crypto.randomBytes(2).toString("hex").toUpperCase()}`,
-      accountId,
-      userSecretCode,
-      secretCode: userSecretCode,
-      department,
-      departmentChoice,
-      departmentOther: departmentChoice === "Other / Not listed" ? departmentOther : "",
-      departmentLabel: department,
-      classTime,
-      teacherName,
-      collegeLocation: selectedLocation,
-      locationLatitude: selectedLocation.latitude,
-      locationLongitude: selectedLocation.longitude,
-      locationLabel: selectedLocation.label,
-      locationMapUrl: selectedLocation.mapUrl,
-      locationSource: selectedLocation.source,
-      locationAccuracyMeters: selectedLocation.accuracyMeters,
+      requestNumber: `QK-${Date.now().toString().slice(-8)}-${crypto.randomBytes(2).toString("hex").toUpperCase()}`,
+      formTitle: settings.formTitle,
+      formDescription: settings.formDescription,
+      formFields: formFields.map(({ id, label, type, required, options }) => ({ id, label, type, required, options: options || [] })),
+      formData,
       deviceMeta: attendanceMetadata(req.body?.deviceMeta || {}),
       deviceTokenHash,
       amount,
@@ -1028,7 +1023,7 @@ app.post("/api/attendance/order/create", async (req,res) => {
     res.json({ ok: true, keyId: rpayKey,
       razorpayOrder: { id: rp.id, amount: rp.amount, currency: rp.currency },
       request: { id: ref.id, requestNumber: request.requestNumber, amount } });
-  } catch (e) { res.status(400).json({ error: e.message || "Unable to create attendance payment." }); }
+  } catch (e) { res.status(400).json({ error: e.message || "Unable to create payment." }); }
 });
 app.post("/api/attendance/order/verify", async (req,res) => {
   try {
@@ -1040,10 +1035,10 @@ app.post("/api/attendance/order/verify", async (req,res) => {
       .update(`${razorpay_order_id}|${razorpay_payment_id}`).digest("hex");
     if (!timingSafeEqualText(expected, razorpay_signature)) return res.status(400).json({ error: "Payment verification failed." });
     const snap = await db.collection("attendanceRequests").where("razorpayOrderId", "==", clean(razorpay_order_id, 120)).limit(1).get();
-    if (snap.empty) return res.status(404).json({ error: "Attendance request not found." });
+    if (snap.empty) return res.status(404).json({ error: "Form submission not found." });
     const requestRef = snap.docs[0].ref;
     const existing = snap.docs[0].data();
-    if (existing.deviceTokenHash !== deviceTokenHash) return res.status(403).json({ error: "This request belongs to another browser session." });
+    if (existing.deviceTokenHash !== deviceTokenHash) return res.status(403).json({ error: "This submission belongs to another browser session." });
     if (existing.paymentStatus === "paid") return res.json({ ok: true, request: { id: requestRef.id, requestNumber: existing.requestNumber } });
     const payment = await razorpay.payments.fetch(razorpay_payment_id);
     if (payment.status !== "captured" || Number(payment.amount) !== Number(existing.amount) * 100) {
@@ -1053,7 +1048,7 @@ app.post("/api/attendance/order/verify", async (req,res) => {
       const latest = await t.get(requestRef);
       const current = latest.data() || {};
       if (current.paymentStatus === "paid") return;
-      if (current.deviceTokenHash !== deviceTokenHash || current.razorpayOrderId !== razorpay_order_id) throw new Error("Request verification mismatch.");
+      if (current.deviceTokenHash !== deviceTokenHash || current.razorpayOrderId !== razorpay_order_id) throw new Error("Submission verification mismatch.");
       t.set(requestRef, { paymentStatus: "paid", requestStatus: "paid", razorpayPaymentId: razorpay_payment_id,
         razorpaySignature: razorpay_signature, paidAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     });
@@ -1068,12 +1063,14 @@ app.get("/api/attendance/requests", async (req,res) => {
     const requests = snap.docs.map(d => ({ id: d.id, ...d.data() }))
       .filter(r => r.paymentStatus === "paid")
       .sort((a,b) => dateMs(b.createdAt) - dateMs(a.createdAt))
-      .map(r => ({ id: r.id, requestNumber: r.requestNumber, accountId: r.accountId, userSecretCode: attendanceSecretCode(r), department: attendanceDepartment(r), classTime: r.classTime,
-        teacherName: r.teacherName, collegeLocation: attendanceLocation(r), amount: r.amount, requestStatus: r.requestStatus, adminReply: r.adminReply || "",
+      .map(r => ({ id: r.id, requestNumber: r.requestNumber, formTitle: r.formTitle || "Attendance request",
+        formFields: r.formFields || [], formData: r.formData || {}, accountId: r.accountId || "",
+        userSecretCode: attendanceSecretCode(r), department: r.department || "", classTime: r.classTime || "",
+        teacherName: r.teacherName || "", amount: r.amount, requestStatus: r.requestStatus, adminReply: r.adminReply || "",
         createdAt: r.createdAt, updatedAt: r.updatedAt, repliedAt: r.repliedAt || null }));
     res.set("Cache-Control", "no-store");
     res.json({ requests: jsonSafe(requests) });
-  } catch (e) { res.status(500).json({ error: e.message || "Unable to load your requests." }); }
+  } catch (e) { res.status(500).json({ error: e.message || "Unable to load your submissions." }); }
 });
 app.get("/api/admin/attendance/data", guardAdmin, async (req,res) => {
   try {
@@ -1082,9 +1079,7 @@ app.get("/api/admin/attendance/data", guardAdmin, async (req,res) => {
     res.set("Cache-Control", "no-store");
     const normalizedPaid = paid.map(r => ({ ...r,
       userSecretCode: attendanceSecretCode(r),
-      department: attendanceDepartment(r),
-      departmentDisplay: attendanceDepartment(r),
-      collegeLocation: attendanceLocation(r)
+      department: r.department || ""
     }));
     res.json(jsonSafe({ settings, requests: normalizedPaid, stats: {
       paidRequests: paid.length,
@@ -1092,33 +1087,25 @@ app.get("/api/admin/attendance/data", guardAdmin, async (req,res) => {
       awaitingReply: paid.filter(r => ["paid", "in_progress"].includes(r.requestStatus)).length,
       completed: paid.filter(r => r.requestStatus === "completed").length,
     }}));
-  } catch (e) { res.status(500).json({ error: e.message || "Unable to load attendance admin data." }); }
+  } catch (e) { res.status(500).json({ error: e.message || "Unable to load admin data." }); }
 });
 app.post("/api/admin/attendance/settings", guardAdmin, async (req,res) => {
   try {
-    const price = Math.max(0, Math.min(100000, money(req.body?.price)));
+    const price = Number(req.body?.price);
+    const formTitle = clean(req.body?.formTitle, 100);
+    const formDescription = clean(req.body?.formDescription, 240);
     const marqueeText = clean(req.body?.marqueeText, 300) || attendanceDefaults.marqueeText;
-    await db.collection("attendanceSettings").doc("main").set({ price, marqueeText, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    const termsText = clean(req.body?.termsText, 700) || attendanceDefaults.termsText;
+    const formFields = sanitizeAttendanceFields(req.body?.formFields);
+    if (!Number.isInteger(price) || price < 1 || price > 100000) return res.status(400).json({ error: "Enter a payment fee between ₹1 and ₹1,00,000." });
+    if (!formTitle) return res.status(400).json({ error: "Form title is required." });
+    if (!Array.isArray(req.body?.formFields) || !formFields.length) return res.status(400).json({ error: "Add at least one valid form field." });
+    if (formFields.some(field => ["select", "radio"].includes(field.type) && !field.options.length)) return res.status(400).json({ error: "Dropdown and single-choice fields need at least one option." });
+    if (formFields.some(field => field.min !== "" && field.max !== "" && field.min > field.max)) return res.status(400).json({ error: "A field minimum cannot be greater than its maximum." });
+    await db.collection("attendanceSettings").doc("main").set({ price, formTitle, formDescription, formFields, marqueeText, termsText, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message || "Unable to save attendance settings." }); }
+  } catch (e) { res.status(500).json({ error: e.message || "Unable to save form settings." }); }
 });
-app.post("/api/admin/attendance/details", guardAdmin, async (req,res) => {
-  try {
-    const id = clean(req.body?.id, 120);
-    const userSecretCode = attendanceSecretCode(req.body || {});
-    const department = clean(req.body?.department || req.body?.departmentName || req.body?.courseName, 180);
-    if (!id) return res.status(400).json({ error: "Request ID is required." });
-    if (!/^\d{4}$/.test(userSecretCode)) return res.status(400).json({ error: "Enter exactly 4 digits for the user's confirmed request code." });
-    if (!department) return res.status(400).json({ error: "Enter the user's confirmed department or course." });
-    const ref = db.collection("attendanceRequests").doc(id);
-    const snap = await ref.get();
-    if (!snap.exists || snap.data()?.paymentStatus !== "paid") return res.status(404).json({ error: "Paid attendance request not found." });
-    await ref.set({ userSecretCode, secretCode: userSecretCode, department, departmentName: department, departmentLabel: department,
-      detailsCorrectedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-    res.json({ ok: true, userSecretCode, department });
-  } catch (e) { res.status(500).json({ error: e.message || "Unable to update attendance request details." }); }
-});
-
 app.post("/api/admin/attendance/reply", guardAdmin, async (req,res) => {
   try {
     const id = clean(req.body?.id, 120);
@@ -1128,42 +1115,13 @@ app.post("/api/admin/attendance/reply", guardAdmin, async (req,res) => {
     if (!id || !allowed.includes(status)) return res.status(400).json({ error: "Choose a valid request status." });
     const ref = db.collection("attendanceRequests").doc(id);
     const snap = await ref.get();
-    if (!snap.exists || snap.data()?.paymentStatus !== "paid") return res.status(404).json({ error: "Paid attendance request not found." });
+    if (!snap.exists || snap.data()?.paymentStatus !== "paid") return res.status(404).json({ error: "Paid submission not found." });
     await ref.set({ adminReply: reply, requestStatus: status, repliedAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message || "Unable to send admin reply." }); }
 });
 
-app.get("/api/health", async (_req, res) => {
-  const result = {
-    ok: true,
-    firebaseConfigured: !!(
-      process.env.FIREBASE_SERVICE_ACCOUNT_JSON ||
-      process.env.FIREBASE_SERVICE_ACCOUNT ||
-      process.env.FIREBASE_SERVICE_ACCOUNT_BASE64 ||
-      (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY)
-    ),
-    firebaseConnected: false,
-    razorpayConfigured: !!process.env.RAZORPAY_KEY_ID && !!process.env.RAZORPAY_KEY_SECRET,
-    geminiConfigured: !!process.env.GEMINI_API_KEY,
-  };
-  try {
-    await db.collection("_qiklyHealthChecks").doc("firestore-connectivity").get();
-    result.firebaseConnected = true;
-  } catch (error) {
-    result.ok = false;
-    // Avoid exposing credential values or full SDK stack traces from a public endpoint.
-    const message = String(error?.message || "");
-    if (/credentials are missing/i.test(message)) result.firebaseError = "Missing Firebase service-account environment variables in Vercel.";
-    else if (/not valid JSON/i.test(message)) result.firebaseError = "Firebase service-account JSON is invalid. Re-paste the complete JSON value in Vercel.";
-    else if (/incomplete/i.test(message)) result.firebaseError = "Firebase service-account JSON is incomplete. Check project_id, client_email and private_key.";
-    else if (error?.code === 5 || /NOT_FOUND|not found/i.test(message)) result.firebaseError = "Firestore database was not found. Enable or create Firestore in the Firebase project selected by the service account.";
-    else if (error?.code === 7 || /PERMISSION_DENIED|permission/i.test(message)) result.firebaseError = "Firebase service account does not have permission to access Firestore.";
-    else result.firebaseError = "Firebase could not connect. Check the Vercel Function Logs for the Firebase error.";
-    result.firebaseErrorCode = error?.code || error?.name || "FIREBASE_ERROR";
-  }
-  res.status(result.firebaseConnected ? 200 : 503).json(result);
-});
+app.get("/api/health",(req,res)=>res.json({ok:true,firebaseConfigured:!!process.env.FIREBASE_SERVICE_ACCOUNT_JSON,razorpayConfigured:!!process.env.RAZORPAY_KEY_ID&&!!process.env.RAZORPAY_KEY_SECRET,geminiConfigured:!!process.env.GEMINI_API_KEY}));
 
 module.exports=app;
