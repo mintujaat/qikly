@@ -6,6 +6,9 @@
   let config = { price: 0, marqueeText: '', termsText: '', formTitle: 'Request Form', formDescription: '', formFields: [], paymentReady: false };
   let deviceToken = '';
   let submitting = false;
+  let currentUser = null;
+  let walletBalance = 0;
+  let referralSummary = { successfulTransactions: 0, totalEarned: 0, rewardAmount: 3 };
   const locationMaps = new Map();
   const locationValues = Object.create(null);
 
@@ -47,10 +50,96 @@
     el.textContent = text || '';
     el.classList.toggle('success-message', success);
   }
+  function setAccountMessage(text, success = false) {
+    const el = $('#accountMessage');
+    if (!el) return;
+    el.textContent = text || '';
+    el.classList.toggle('success-message', success);
+  }
   function setBusy(busy, text) {
     const button = $('#payButton');
-    button.disabled = busy || !config.paymentReady || config.price < 1 || !config.formFields.length;
-    $('#payButtonText').textContent = text || (busy ? 'Processing…' : 'Continue to secure payment');
+    const useWallet = $('#useWallet')?.checked === true;
+    const walletApplied = useWallet ? Math.min(Number(config.price || 0), walletBalance) : 0;
+    const due = Math.max(0, Number(config.price || 0) - walletApplied);
+    const allowed = !!currentUser && config.price > 0 && config.formFields.length > 0 && (due === 0 || config.paymentReady);
+    button.disabled = busy || !allowed;
+    $('#payButtonText').textContent = text || (busy ? 'Processing…' : (due === 0 ? 'Pay with wallet balance' : 'Continue to secure payment'));
+  }
+  function updatePaymentSummary() {
+    const fee = Math.max(0, Number(config.price || 0));
+    const useWallet = $('#useWallet')?.checked === true;
+    const applied = useWallet ? Math.min(fee, walletBalance) : 0;
+    const due = Math.max(0, fee - applied);
+    $('#payAmount').textContent = `₹${due.toLocaleString('en-IN')}`;
+    $('#paymentBreakdown').textContent = `Form fee ₹${fee.toLocaleString('en-IN')} − Wallet ₹${applied.toLocaleString('en-IN')}`;
+    $('#walletAvailableText').textContent = `Available: ₹${walletBalance.toLocaleString('en-IN')}`;
+    $('#walletUseRow').classList.toggle('hidden', !currentUser || walletBalance <= 0);
+    $('#walletUseHint').textContent = applied > 0 ? `₹${applied.toLocaleString('en-IN')} will be used from your wallet.` : 'Use referral rewards to reduce this payment.';
+    setBusy(submitting);
+  }
+  function renderAccount() {
+    const signedIn = !!currentUser;
+    $('#signedOutView').classList.toggle('hidden', signedIn);
+    $('#signedInView').classList.toggle('hidden', !signedIn);
+    $('#heroGrid').classList.toggle('hidden', !signedIn);
+    $('#myRequests').classList.toggle('hidden', !signedIn);
+    $('#headerAccount').textContent = signedIn ? currentUser.name || currentUser.email : 'Sign in required';
+    if (signedIn) {
+      $('#accountName').textContent = currentUser.name || 'User';
+      $('#accountEmail').textContent = currentUser.email || '';
+      $('#accountReferralCode').textContent = currentUser.referralCode || 'Loading…';
+      $('#accountBalance').textContent = `₹${walletBalance.toLocaleString('en-IN')}`;
+      $('#referralCount').textContent = Number(referralSummary.successfulTransactions || 0).toLocaleString('en-IN');
+      $('#referralTotalEarned').textContent = `₹${Number(referralSummary.totalEarned || 0).toLocaleString('en-IN')}`;
+      $('#referralEarnSummary').textContent = `Earn ₹${Number(referralSummary.rewardAmount || 3).toLocaleString('en-IN')} for each successful paid form using your code.`;
+    }
+    updatePaymentSummary();
+    if (signedIn) window.setTimeout(() => {
+      locationMaps.forEach(info => info.map.invalidateSize());
+    }, 140);
+  }
+  async function refreshAccountState(showErrors = false) {
+    try {
+      const data = await api('/api/auth/me', { cache: 'no-store' });
+      currentUser = data.authenticated ? data.user : null;
+      walletBalance = data.authenticated ? Number(data.balance || 0) : 0;
+      referralSummary = { successfulTransactions: 0, totalEarned: 0, rewardAmount: Number(config.referralReward || 3) };
+      if (currentUser) {
+        try {
+          const info = await api('/api/user/referrals', { cache: 'no-store' });
+          referralSummary = {
+            successfulTransactions: Number(info.successfulTransactions || 0),
+            totalEarned: Number(info.totalEarned || 0),
+            rewardAmount: Number(info.rewardAmount ?? config.referralReward ?? 3),
+          };
+        } catch { /* Account access still works if the referral summary is temporarily unavailable. */ }
+      }
+      renderAccount();
+      if (!currentUser) renderRequests([]);
+      return currentUser;
+    } catch (error) {
+      currentUser = null;
+      walletBalance = 0;
+      renderAccount();
+      if (showErrors) setAccountMessage(error.message);
+      return null;
+    }
+  }
+  function setAuthMode(mode) {
+    const selected = mode === 'signup' ? 'signup' : 'login';
+    $('#accountLoginForm').classList.toggle('hidden', selected !== 'login');
+    $('#accountSignupForm').classList.toggle('hidden', selected !== 'signup');
+    document.querySelectorAll('[data-auth-mode]').forEach(tab => {
+      const active = tab.dataset.authMode === selected;
+      tab.classList.toggle('active', active);
+      tab.setAttribute('aria-selected', String(active));
+    });
+    $('#authHeading').textContent = selected === 'signup' ? 'Create your Qikly account' : 'Sign in to continue';
+    setAccountMessage('');
+  }
+  async function refreshAccountAfterPayment() {
+    await refreshAccountState();
+    updatePaymentSummary();
   }
   function typeInput(field) {
     const id = esc(field.id);
@@ -152,22 +241,19 @@
     root.innerHTML = (config.formFields || []).length ? config.formFields.map(typeInput).join('') : '<div class="empty-form-message">The administrator has not published any fields yet.</div>';
     initLocationFields();
     if (config.price < 1) {
-      $('#payButtonText').textContent = 'Payment fee not configured';
-      setBusy(false);
+      setBusy(false, 'Payment fee not configured');
       setMessage('The administrator has not configured the payment fee yet.');
-    } else if (!config.paymentReady) {
-      $('#payButtonText').textContent = 'Online payment unavailable';
-      setBusy(false);
-      setMessage('Razorpay is not configured on the server. Please contact the administrator.');
     } else if (!(config.formFields || []).length) {
-      $('#payButtonText').textContent = 'Form not published';
-      setBusy(false);
+      setBusy(false, 'Form not published');
       setMessage('The administrator has not published the form fields yet.');
+    } else if (!config.paymentReady && walletBalance < config.price) {
+      setBusy(false, 'Online payment unavailable');
+      setMessage('Razorpay is unavailable. Add enough wallet balance or contact the administrator.');
     } else {
-      $('#payButtonText').textContent = 'Continue to secure payment';
       setBusy(false);
       setMessage('');
     }
+    updatePaymentSummary();
   }
   function statusLabel(status) {
     const map = { paid: 'Paid · Awaiting reply', in_progress: 'In progress', completed: 'Completed', rejected: 'Closed' };
@@ -220,17 +306,20 @@
       const details = requestFields(request).map(item => `<div class="detail-item ${item.value && typeof item.value === 'object' && Number.isFinite(Number(item.value.lat)) ? 'detail-location-item' : ''}"><small>${esc(item.label)}</small>${renderHistoryValue(item.value)}</div>`).join('');
       return `<article class="request-card">
         <div class="request-card-top"><strong class="request-number">${esc(request.requestNumber || request.id)}</strong><span class="status-pill ${statusClass(request.requestStatus)}">${esc(statusLabel(request.requestStatus))}</span></div>
-        <div class="request-details">${details}<div class="detail-item"><small>Payment</small><strong>₹${Number(request.amount || 0).toLocaleString('en-IN')} · Paid</strong></div></div>
+        <div class="request-details">${details}<div class="detail-item"><small>Payment</small><strong>₹${Number(request.amount || 0).toLocaleString('en-IN')} · Paid</strong>${Number(request.walletApplied || 0) > 0 ? `<small>Wallet used: ₹${Number(request.walletApplied).toLocaleString('en-IN')}</small>` : ''}</div>${request.referralCode ? `<div class="detail-item"><small>Referral code used</small><strong>${esc(request.referralCode)}</strong></div>` : ''}</div>
         <div class="reply-box"><small>Admin reply · ${esc(dateLabel(request.repliedAt || request.updatedAt))}</small><p class="${request.adminReply ? '' : 'reply-empty'}">${esc(request.adminReply || 'No admin reply yet. Your update will appear here.')}</p></div>
         <div class="request-date">Submitted ${esc(dateLabel(request.createdAt))}</div>
       </article>`;
     }).join('');
   }
   async function refreshRequests(showMessage = false) {
+    if (!currentUser) { renderRequests([]); return; }
     try {
       const data = await api('/api/attendance/requests');
       const requests = Array.isArray(data.requests) ? data.requests : [];
+      if (Number.isFinite(Number(data.walletBalance))) walletBalance = Number(data.walletBalance);
       localStorage.setItem(CACHE_KEY, JSON.stringify(requests));
+      renderAccount();
       renderRequests(requests);
       if (showMessage) setMessage('Your submission list is up to date.', true);
     } catch (error) {
@@ -285,24 +374,59 @@
     }
     return values;
   }
+  async function cancelPendingRequest(requestId) {
+    if (!requestId || !currentUser) return;
+    try {
+      const result = await api('/api/attendance/order/cancel', { method: 'POST', body: JSON.stringify({ requestId }) });
+      if (Number.isFinite(Number(result.walletBalance))) walletBalance = Number(result.walletBalance);
+      renderAccount();
+    } catch { /* Expiry cleanup also releases abandoned reservations on the next account refresh. */ }
+  }
   async function submitRequest(event) {
     event.preventDefault();
     if (submitting) return;
+    if (!currentUser) return setMessage('Please sign in or create an account before submitting the form.');
     setMessage('');
     let formData;
     try { formData = collectFormData(); }
     catch (error) { return setMessage(error.message); }
     if (!$('#agreeTerms').checked) return setMessage('Please agree to the confirmation text before continuing.');
-    if (config.price < 1 || !config.paymentReady) return setMessage('Online payment is not available yet.');
-    if (!window.Razorpay) return setMessage('Razorpay checkout did not load. Refresh the page and try again.');
+    const useWallet = $('#useWallet').checked;
+    const walletApplied = useWallet ? Math.min(Number(config.price || 0), walletBalance) : 0;
+    const gatewayDue = Math.max(0, Number(config.price || 0) - walletApplied);
+    if (gatewayDue > 0 && !config.paymentReady) return setMessage('Razorpay is unavailable and your wallet does not cover the full fee.');
+    if (gatewayDue > 0 && !window.Razorpay) return setMessage('Razorpay checkout did not load. Refresh the page and try again.');
 
     submitting = true;
     setBusy(true, 'Creating secure payment…');
+    let createdRequestId = '';
     try {
       const created = await api('/api/attendance/order/create', {
-        method: 'POST', body: JSON.stringify({ formData, acceptedTerms: true, deviceMeta: deviceMeta() }),
+        method: 'POST',
+        body: JSON.stringify({
+          formData,
+          acceptedTerms: true,
+          deviceMeta: deviceMeta(),
+          referralCode: String($('#requestReferralCode').value || '').trim().toUpperCase(),
+          useWallet
+        }),
       });
+      createdRequestId = created.request?.id || '';
+      if (created.walletOnly) {
+        $('#attendanceForm').reset();
+        resetLocationSelections();
+        if (Number.isFinite(Number(created.walletBalance))) walletBalance = Number(created.walletBalance);
+        setMessage(`Payment completed using your wallet. Reference ${created.request.requestNumber} has been added below.`, true);
+        await refreshAccountAfterPayment();
+        await refreshRequests();
+        $('#myRequests').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        submitting = false;
+        setBusy(false);
+        return;
+      }
       const order = created.razorpayOrder;
+      let verificationStarted = false;
+      let verificationSucceeded = false;
       const checkout = new window.Razorpay({
         key: created.keyId,
         amount: order.amount,
@@ -312,32 +436,49 @@
         order_id: order.id,
         theme: { color: '#0e9a91' },
         handler: async response => {
+          verificationStarted = true;
           setBusy(true, 'Verifying payment…');
           setMessage('Payment received. Verifying the transaction securely…', true);
           try {
-            await api('/api/attendance/order/verify', { method: 'POST', body: JSON.stringify(response) });
+            const verified = await api('/api/attendance/order/verify', { method: 'POST', body: JSON.stringify(response) });
+            verificationSucceeded = true;
             $('#attendanceForm').reset();
             resetLocationSelections();
+            if (Number.isFinite(Number(verified.walletBalance))) walletBalance = Number(verified.walletBalance);
             setMessage(`Payment successful. Reference ${created.request.requestNumber} has been added below.`, true);
+            await refreshAccountAfterPayment();
             await refreshRequests();
             $('#myRequests').scrollIntoView({ behavior: 'smooth', block: 'start' });
           } catch (error) {
             setMessage(`${error.message} Keep this payment reference: ${created.request.requestNumber}`);
+            await refreshAccountAfterPayment();
             await refreshRequests();
           } finally {
             submitting = false;
             setBusy(false);
           }
         },
-        modal: { ondismiss: () => { submitting = false; setBusy(false); setMessage('Payment window closed. No paid submission was added. You can try again.'); } },
+        modal: { ondismiss: async () => {
+          if (verificationStarted) {
+            submitting = false;
+            setBusy(false);
+            return;
+          }
+          await cancelPendingRequest(createdRequestId);
+          submitting = false;
+          setBusy(false);
+          setMessage('Payment window closed. Any reserved wallet amount has been returned. You can try again.');
+        } },
       });
-      checkout.on('payment.failed', response => {
+      checkout.on('payment.failed', async response => {
+        await cancelPendingRequest(createdRequestId);
         submitting = false;
         setBusy(false);
-        setMessage(response.error?.description || 'Payment did not complete. Please try again.');
+        setMessage(response.error?.description || 'Payment did not complete. Any reserved wallet amount has been returned.');
       });
       checkout.open();
     } catch (error) {
+      if (createdRequestId) await cancelPendingRequest(createdRequestId);
       submitting = false;
       setBusy(false);
       setMessage(error.message);
@@ -346,14 +487,88 @@
   async function boot() {
     try {
       deviceToken = getDeviceToken();
-      loadCachedRequests();
-      await Promise.all([loadConfig(), refreshRequests()]);
+      const inviteCode = new URLSearchParams(window.location.search).get('ref') || '';
+      if (inviteCode) {
+        $('#requestReferralCode').value = inviteCode.toUpperCase().slice(0, 40);
+        $('#signupReferralCode').value = inviteCode.toUpperCase().slice(0, 40);
+      }
+      await loadConfig();
+      await refreshAccountState();
+      if (currentUser) await refreshRequests();
+      else renderRequests([]);
+      setAuthMode('login');
     } catch (error) {
       $('#payButton').disabled = true;
       $('#payButtonText').textContent = 'Unable to load form';
       setMessage(error.message);
     }
   }
+  document.querySelectorAll('[data-auth-mode]').forEach(tab => tab.addEventListener('click', () => setAuthMode(tab.dataset.authMode)));
+  $('#accountLoginForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    const button = $('#accountLoginButton');
+    button.disabled = true;
+    setAccountMessage('Signing in…');
+    try {
+      const data = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({
+        email: $('#loginEmail').value.trim(),
+        password: $('#loginPassword').value
+      }) });
+      $('#loginPassword').value = '';
+      await refreshAccountState();
+      $('#signedInMessage').textContent = 'Signed in successfully.';
+      await refreshRequests();
+      $('#heroGrid').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (error) { setAccountMessage(error.message); }
+    finally { button.disabled = false; }
+  });
+  $('#accountSignupForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    const button = $('#accountSignupButton');
+    button.disabled = true;
+    setAccountMessage('Creating your account…');
+    try {
+      await api('/api/auth/signup', { method: 'POST', body: JSON.stringify({
+        name: $('#signupName').value.trim(),
+        email: $('#signupEmail').value.trim(),
+        password: $('#signupPassword').value,
+        referralCode: $('#signupReferralCode').value.trim().toUpperCase()
+      }) });
+      $('#signupPassword').value = '';
+      await refreshAccountState();
+      $('#signedInMessage').textContent = 'Account created successfully.';
+      await refreshRequests();
+      $('#heroGrid').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (error) { setAccountMessage(error.message); }
+    finally { button.disabled = false; }
+  });
+  $('#accountLogout').addEventListener('click', async () => {
+    try { await api('/api/auth/logout', { method: 'POST', body: '{}' }); }
+    catch {}
+    currentUser = null;
+    walletBalance = 0;
+    referralSummary = { successfulTransactions: 0, totalEarned: 0, rewardAmount: Number(config.referralReward || 3) };
+    localStorage.removeItem(CACHE_KEY);
+    $('#loginPassword').value = '';
+    $('#signupPassword').value = '';
+    renderRequests([]);
+    renderAccount();
+    setAuthMode('login');
+    setAccountMessage('You have been signed out.', true);
+  });
+  $('#copyReferralCode').addEventListener('click', async () => {
+    const code = String(currentUser?.referralCode || '');
+    if (!code) return;
+    const link = `${window.location.origin}/?ref=${encodeURIComponent(code)}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      $('#signedInMessage').textContent = 'Referral link copied.';
+    } catch {
+      $('#signedInMessage').textContent = `Your referral code: ${code}`;
+    }
+  });
+  $('#useWallet').addEventListener('change', updatePaymentSummary);
+
   $('#dynamicFields').addEventListener('click', event => {
     const button = event.target.closest('[data-location-action]');
     if (!button) return;
@@ -394,6 +609,6 @@
     const first = $('#dynamicFields input, #dynamicFields textarea, #dynamicFields select');
     first?.focus({ preventScroll: true });
   });
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && deviceToken) refreshRequests(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && deviceToken && currentUser) { refreshAccountAfterPayment(); refreshRequests(); } });
   boot();
 })();

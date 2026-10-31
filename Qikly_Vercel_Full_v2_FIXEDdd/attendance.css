@@ -52,3 +52,78 @@
   .admin-location-value iframe{height:145px}
   .meta-location-cell{grid-column:1/-1}
 }
+
+
+/* Account access, referral wallet and admin referral ledger */
+.header-account{font-size:10px;font-weight:800;color:#087f78;background:#e9f8f6;padding:8px 11px;border-radius:999px;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.account-section{margin:0 auto 34px;max-width:880px}
+.account-auth-card,.account-summary-card{background:#fff;border:1px solid var(--line);border-radius:22px;padding:25px 28px;box-shadow:var(--shadow)}
+.account-auth-card{display:grid;grid-template-columns:minmax(220px,.9fr) minmax(280px,1.1fr);column-gap:28px;row-gap:15px;align-items:start}
+.account-intro{grid-row:span 2}
+.account-intro h2,.account-summary-head h2{font:800 25px Manrope,sans-serif;letter-spacing:-.8px;margin:9px 0 8px}
+.account-intro p,.account-summary-head p{font-size:12px;line-height:1.7;color:var(--muted);margin:0}
+.auth-tabs{display:flex;gap:6px;padding:4px;background:#f2f5f8;border-radius:12px}
+.auth-tab{border:0;background:transparent;color:#657188;border-radius:9px;padding:10px 15px;font-size:11px;font-weight:800;flex:1}
+.auth-tab.active{background:#fff;color:var(--teal-dark);box-shadow:0 2px 8px #16243a12}
+.account-form{display:grid;gap:11px}
+.account-form .field{margin:0}
+.account-form .field>span,.request-referral-field>span{font-size:10px}
+.account-form input{min-height:43px}
+.account-form .primary-btn{margin-top:3px;width:100%}
+.account-privacy-note{grid-column:1/-1;margin:0;color:#8994a5;font-size:10px;line-height:1.6}
+.account-message{grid-column:1/-1;margin:0;font-size:11px;color:#66748a;min-height:14px}
+.account-summary-card{padding:23px 25px}
+.account-summary-head{display:flex;justify-content:space-between;align-items:center;gap:18px;margin-bottom:18px}
+.account-summary-head h2{margin-bottom:3px}
+.account-summary-head p{font-size:11px}
+.account-summary-grid{display:grid;grid-template-columns:1.05fr 1fr .8fr;gap:12px}
+.account-summary-tile{min-width:0;background:#f6f9fb;border:1px solid #e9eef3;border-radius:15px;padding:15px}
+.account-summary-tile>small{display:block;color:#8190a1;font-size:8px;letter-spacing:1px;font-weight:900;margin-bottom:8px}
+.account-summary-tile>strong{display:block;font:800 23px Manrope,sans-serif;letter-spacing:-.7px;color:#17263d}
+.account-summary-tile>span{display:block;color:#78869a;font-size:9px;line-height:1.5;margin-top:5px}
+.account-summary-tile>span b{color:#127f76}
+.account-code-row{display:flex;align-items:center;gap:8px;justify-content:space-between}
+.account-code-row strong{font:800 15px Manrope,sans-serif;letter-spacing:.8px;color:#087f78;overflow-wrap:anywhere}
+.account-code-row .small-btn{padding:7px 10px;min-height:0}
+.wallet-summary-tile{background:#effaf8;border-color:#d4efea}
+.wallet-use-row{display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid #d9eee9;background:#f3fbf9;padding:12px 14px;border-radius:13px;margin:2px 0 12px}
+.wallet-use-check{display:flex;align-items:center;gap:10px;cursor:pointer}
+.wallet-use-check input{width:17px;height:17px;accent-color:var(--teal-dark)}
+.wallet-use-check span{display:grid;gap:3px}
+.wallet-use-check strong{font-size:11px;color:#26364b}
+.wallet-use-check small,.wallet-use-hint{font-size:9px;color:#748399}
+.payment-breakdown{display:block;margin-top:5px;font-size:9px;color:#7b8797;font-weight:600}
+.request-referral-field{margin:12px 0}
+.request-referral-field small{font-size:9px;color:#8692a3;font-weight:500}
+.payment-bar{align-items:center}
+.admin-nav{display:flex;gap:8px;overflow-x:auto}
+.admin-nav-tab{white-space:nowrap}
+.admin-table-wrap{width:100%;overflow-x:auto;border:1px solid var(--line);border-radius:13px;background:#fff}
+.admin-data-table{width:100%;border-collapse:collapse;min-width:780px;text-align:left}
+.admin-data-table th{font-size:9px;letter-spacing:.8px;color:#8290a2;background:#f6f8fa;padding:13px 14px;white-space:nowrap}
+.admin-data-table td{padding:13px 14px;border-top:1px solid #edf0f4;color:#324258;font-size:11px;vertical-align:top}
+.admin-data-table td strong{display:block;font-size:11px;color:#26364b}
+.admin-data-table td small{display:block;font-size:9px;color:#8591a1;line-height:1.55;margin-top:4px;max-width:240px;overflow-wrap:anywhere}
+.admin-data-table .table-id{font-family:monospace;font-size:8px}
+.referral-code-chip{display:inline-block;background:#e8f7f4;color:#087f78;padding:6px 8px;border-radius:7px;font:800 10px Manrope,sans-serif;letter-spacing:.4px}
+.reward-amount{color:#07836f!important}
+.referral-admin-card{margin-bottom:18px}
+.referral-stats-grid{margin-bottom:18px}
+@media(max-width:760px){
+  .account-section{margin-bottom:24px}
+  .account-auth-card{grid-template-columns:1fr;padding:20px;gap:13px}
+  .account-intro{grid-row:auto}
+  .account-summary-card{padding:18px}
+  .account-summary-grid{grid-template-columns:1fr 1fr}
+  .account-summary-tile:first-child{grid-column:1/-1}
+  .account-summary-head{align-items:flex-start}
+  .header-account{display:none}
+  .wallet-use-row{align-items:flex-start;flex-direction:column}
+  .wallet-use-hint{padding-left:27px}
+}
+@media(max-width:460px){
+  .account-summary-grid{grid-template-columns:1fr}
+  .account-summary-tile:first-child{grid-column:auto}
+  .account-summary-head h2{font-size:21px}
+  .account-auth-card,.account-summary-card{border-radius:17px}
+}

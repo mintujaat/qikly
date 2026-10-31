@@ -16,18 +16,59 @@
   <div class="announcement"><div class="announcement-track"><span id="marqueeText">Qikly • Secure request portal • Online payment • Admin support</span><span aria-hidden="true" id="marqueeCopy">Qikly • Secure request portal • Online payment • Admin support</span></div></div>
   <header class="topbar">
     <a class="brand" href="/" aria-label="Qikly home"><span class="brand-mark">Q</span><span><strong>qikly<span>.</span></strong><small>REQUEST PORTAL</small></span></a>
-    <div class="topbar-right"><span class="secure-note"><i></i> Secure checkout</span><a class="admin-link" href="/admin.html">Admin</a></div>
+    <div class="topbar-right"><span class="secure-note"><i></i> Secure checkout</span><span class="header-account" id="headerAccount">Sign in required</span><a class="admin-link" href="/admin.html">Admin</a></div>
   </header>
 
   <main class="page-wrap">
-    <section class="hero-grid">
+    <section class="account-section" id="accountSection" aria-label="Qikly account">
+      <div class="account-auth-card" id="signedOutView">
+        <div class="account-intro">
+          <div class="eyebrow">QIKLY ACCOUNT</div>
+          <h2 id="authHeading">Sign in to continue</h2>
+          <p>Sign in or create an account to submit forms, use your wallet balance and manage your referral code.</p>
+        </div>
+        <div class="auth-tabs" role="tablist" aria-label="Account access">
+          <button type="button" class="auth-tab active" data-auth-mode="login" aria-selected="true">Sign in</button>
+          <button type="button" class="auth-tab" data-auth-mode="signup" aria-selected="false">Create account</button>
+        </div>
+        <form id="accountLoginForm" class="account-form">
+          <label class="field"><span>Email address</span><input id="loginEmail" type="email" autocomplete="email" maxlength="180" required placeholder="you@example.com"></label>
+          <label class="field"><span>Password</span><input id="loginPassword" type="password" autocomplete="current-password" minlength="6" required placeholder="Enter your password"></label>
+          <button class="primary-btn" id="accountLoginButton" type="submit"><span>Sign in</span><span class="btn-arrow">→</span></button>
+        </form>
+        <form id="accountSignupForm" class="account-form hidden">
+          <label class="field"><span>Your name</span><input id="signupName" type="text" autocomplete="name" maxlength="100" required placeholder="Enter your name"></label>
+          <label class="field"><span>Email address</span><input id="signupEmail" type="email" autocomplete="email" maxlength="180" required placeholder="you@example.com"></label>
+          <label class="field"><span>Create password</span><input id="signupPassword" type="password" autocomplete="new-password" minlength="6" required placeholder="Minimum 6 characters"></label>
+          <label class="field"><span>Referral code <small>(optional)</small></span><input id="signupReferralCode" type="text" maxlength="40" autocapitalize="characters" placeholder="Enter the code shared by a friend"></label>
+          <button class="primary-btn" id="accountSignupButton" type="submit"><span>Create account</span><span class="btn-arrow">→</span></button>
+        </form>
+        <p class="form-message" id="accountMessage" role="status" aria-live="polite"></p>
+        <p class="account-privacy-note">Your password is securely hashed by the server. Never enter your college password, UPI PIN or OTP here.</p>
+      </div>
+
+      <div class="account-summary-card hidden" id="signedInView">
+        <div class="account-summary-head">
+          <div><div class="eyebrow">SIGNED IN</div><h2>Welcome, <span id="accountName">User</span></h2><p id="accountEmail"></p></div>
+          <button type="button" class="small-btn" id="accountLogout">Log out</button>
+        </div>
+        <div class="account-summary-grid">
+          <div class="account-summary-tile wallet-summary-tile"><small>AVAILABLE WALLET BALANCE</small><strong id="accountBalance">₹0</strong><span>Referral rewards can be used for form payments.</span></div>
+          <div class="account-summary-tile"><small>YOUR REFERRAL CODE</small><div class="account-code-row"><strong id="accountReferralCode">—</strong><button type="button" class="small-btn" id="copyReferralCode">Copy</button></div><span id="referralEarnSummary">Earn ₹3 for each successful paid form using your code.</span></div>
+          <div class="account-summary-tile"><small>SUCCESSFUL REFERRAL PAYMENTS</small><strong id="referralCount">0</strong><span>Total earned: <b id="referralTotalEarned">₹0</b></span></div>
+        </div>
+        <p class="account-message" id="signedInMessage" role="status" aria-live="polite">Your account and wallet are ready.</p>
+      </div>
+    </section>
+
+    <section class="hero-grid hidden" id="heroGrid">
       <div class="hero-copy">
         <div class="eyebrow"><span class="eyebrow-dot"></span> ONLINE REQUESTS</div>
         <h1>One form.<br><em>Clear updates.</em></h1>
-        <p class="hero-text">Complete the form configured by the administrator, make the secure payment and track your request status or admin reply here.</p>
+        <p class="hero-text">Complete the form configured by the administrator, pay securely using Razorpay or your wallet balance, and track replies from your account.</p>
         <div class="feature-row">
           <div class="feature"><span class="feature-icon">₹</span><span><b>Secure payment</b><small>Fee configured by admin</small></span></div>
-          <div class="feature"><span class="feature-icon">↻</span><span><b>Request tracking</b><small>Replies linked to this browser</small></span></div>
+          <div class="feature"><span class="feature-icon">↻</span><span><b>Request tracking</b><small>Replies linked to your account</small></span></div>
         </div>
         <div class="hero-footnote"><span class="check-mark">✓</span> Payments are verified on the server through Razorpay.</div>
       </div>
@@ -39,8 +80,13 @@
         </div>
         <form id="attendanceForm" novalidate>
           <div id="dynamicFields" class="dynamic-fields"><div class="loading-fields"><span class="loader"></span> Loading form fields…</div></div>
+          <label class="field request-referral-field"><span>Referral code <small>(optional)</small></span><input id="requestReferralCode" type="text" maxlength="40" autocapitalize="characters" placeholder="Enter referral code, if someone referred you"><small>When a payment using a valid code succeeds, the referrer receives the configured reward.</small></label>
+          <div class="wallet-use-row" id="walletUseRow">
+            <label class="wallet-use-check"><input id="useWallet" type="checkbox"><span><strong>Use my wallet balance</strong><small id="walletAvailableText">Available: ₹0</small></span></label>
+            <span class="wallet-use-hint" id="walletUseHint">Use referral rewards to reduce this payment.</span>
+          </div>
           <div class="terms-row"><input id="agreeTerms" type="checkbox"><label for="agreeTerms"><span id="termsText">I confirm that the information provided is accurate.</span></label></div>
-          <div class="payment-bar"><div><small>PAYABLE AMOUNT</small><strong id="payAmount">Loading…</strong></div><span class="payment-lock"><span class="razorpay-mark">R</span><small>Razorpay</small></span></div>
+          <div class="payment-bar"><div><small>AMOUNT DUE</small><strong id="payAmount">Loading…</strong><small class="payment-breakdown" id="paymentBreakdown">Form fee will appear here.</small></div><span class="payment-lock"><span class="razorpay-mark">R</span><small>Razorpay / Wallet</small></span></div>
           <button class="primary-btn" id="payButton" type="submit" disabled><span id="payButtonText">Loading form…</span><span class="btn-arrow">→</span></button>
           <p class="form-message" id="formMessage" role="status" aria-live="polite"></p>
           <p class="form-legal">Your request will be added after successful payment verification.</p>
@@ -48,7 +94,7 @@
       </section>
     </section>
 
-    <section class="requests-section" id="myRequests">
+    <section class="requests-section hidden" id="myRequests">
       <div class="section-heading"><div><div class="eyebrow">YOUR ACTIVITY</div><h2>My submissions</h2><p>View paid forms, their current status and replies from the administrator.</p></div><button class="small-btn" id="refreshRequests" type="button">↻ Refresh</button></div>
       <div id="requestsList" class="requests-list"><div class="empty-state"><span class="empty-symbol">⌁</span><strong>No paid submissions yet</strong><p>After a successful payment, your submitted form will appear here.</p></div></div>
       <div class="another-row"><button class="another-btn" id="anotherRequest" type="button"><span>＋</span> Submit another form</button></div>

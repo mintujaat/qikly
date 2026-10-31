@@ -42,7 +42,7 @@
     $('#adminApp').classList.remove('hidden');
   }
   function setActivePanel(name) {
-    const selected = name === 'settings' ? 'settings' : 'requests';
+    const selected = ['requests', 'settings', 'referrals'].includes(name) ? name : 'requests';
     $$('[data-admin-panel]').forEach(panel => panel.classList.toggle('hidden', panel.dataset.adminPanel !== selected));
     $$('[data-admin-tab]').forEach(tab => {
       const active = tab.dataset.adminTab === selected;
@@ -135,8 +135,12 @@
         <div class="admin-request-head"><div><h3>${esc(request.requestNumber || request.id)}</h3><p>${esc(request.formTitle || 'Form submission')} · Submitted ${esc(dateLabel(request.createdAt))} · Payment verified</p></div><span class="status-pill ${request.requestStatus === 'completed' ? '' : request.requestStatus === 'rejected' ? 'red' : 'blue'}">${esc(request.requestStatus || 'paid').replaceAll('_', ' ')}</span></div>
         <div class="submission-details"><div class="submission-details-title">USER SUBMITTED DATA</div><div class="admin-meta-grid">${details || '<div class="meta-cell"><strong>No form fields recorded.</strong></div>'}</div></div>
         <div class="payment-meta-grid">
-          <div class="meta-cell"><small>Amount paid</small><strong>${money(request.amount)}</strong></div>
-          <div class="meta-cell"><small>Razorpay payment ID</small><strong>${esc(request.razorpayPaymentId || '—')}</strong></div>
+          <div class="meta-cell"><small>Amount paid</small><strong>${money(request.amount)}</strong>${Number(request.walletApplied || 0) > 0 ? `<small>Wallet used: ${money(request.walletApplied)} · Online: ${money(request.gatewayAmount)}</small>` : ''}</div>
+          <div class="meta-cell"><small>Qikly account</small><strong>${esc(request.userName || '—')}</strong><small>${esc(request.userEmail || request.userId || 'Legacy browser request')}</small></div>
+          <div class="meta-cell"><small>Referral code used</small><strong>${esc(request.referralCode || 'Not used')}</strong><small>${request.referrerUid ? `Referrer: ${esc(request.referrerName || request.referrerUid)}` : 'No referrer attached'}</small></div>
+          <div class="meta-cell"><small>Referral reward</small><strong>${request.referrerUid ? money(request.referralRewardAmount || 0) : '—'}</strong></div>
+          <div class="meta-cell"><small>Payment method</small><strong>${esc(request.paymentMethod || 'Razorpay')}</strong></div>
+          <div class="meta-cell"><small>Razorpay payment ID</small><strong>${esc(request.razorpayPaymentId || 'Wallet payment / —')}</strong></div>
           <div class="meta-cell"><small>Request document ID</small><strong>${esc(request.id)}</strong></div>
           <div class="meta-cell"><small>Paid at</small><strong>${esc(dateLabel(request.paidAt))}</strong></div>
           <div class="meta-cell"><small>Last reply</small><strong>${esc(dateLabel(request.repliedAt))}</strong></div>
@@ -150,18 +154,80 @@
       </article>`;
     }).join('');
   }
+  function renderReferralData(data = {}) {
+    const stats = data.stats || {};
+    $('#refStatAccounts').textContent = Number(stats.totalAccounts || 0).toLocaleString('en-IN');
+    $('#refStatWallets').textContent = money(stats.totalWalletBalance || 0);
+    $('#refStatPaid').textContent = money(stats.totalReferralPaid || 0);
+    $('#refStatCount').textContent = Number(stats.successfulReferralPayments || 0).toLocaleString('en-IN');
+
+    const accounts = Array.isArray(data.accounts) ? data.accounts : [];
+    const accountsRoot = $('#referralAccountsTable');
+    if (!accounts.length) {
+      accountsRoot.innerHTML = '<div class="empty-state"><strong>No registered accounts yet.</strong><p>User accounts will appear here after signup.</p></div>';
+    } else {
+      accountsRoot.innerHTML = `<table class="admin-data-table"><thead><tr><th>User</th><th>Referral code</th><th>Wallet balances</th><th>Referral earned</th><th>Paid referrals</th><th>Joined / last login</th><th>Status</th></tr></thead><tbody>${accounts.map(user => `
+        <tr>
+          <td><strong>${esc(user.name || '—')}</strong><small>${esc(user.email || user.id)}</small><small class="table-id">${esc(user.id)}</small></td>
+          <td><span class="referral-code-chip">${esc(user.referralCode || 'Not generated')}</span>${user.referredBy ? `<small>Referred by: ${esc(user.referredByName || user.referredBy)}</small><small>${esc(user.referredByEmail || '')}</small>` : ''}</td>
+          <td><strong>Available: ${money(user.balance)}</strong><small>Referral bonus: ${money(user.bonusBalance)}</small><small>Deposits: ${money(user.depositBalance)} · Earnings: ${money(user.earningsBalance)}</small><small>Reserved: ${money(user.reservedBalance)}</small></td>
+          <td><strong>${money(user.referralEarned)}</strong></td>
+          <td>${Number(user.successfulReferralPayments || 0).toLocaleString('en-IN')}</td>
+          <td><small>Joined: ${esc(dateLabel(user.createdAt))}</small><small>Last login: ${esc(dateLabel(user.lastLoginAt))}</small></td>
+          <td><span class="status-pill ${user.active ? '' : 'red'}">${user.active ? 'Active' : 'Disabled'}</span></td>
+        </tr>`).join('')}</tbody></table>`;
+    }
+
+    const rewards = Array.isArray(data.rewards) ? data.rewards : [];
+    const rewardsRoot = $('#referralRewardsTable');
+    if (!rewards.length) {
+      rewardsRoot.innerHTML = '<div class="empty-state"><strong>No referral rewards yet.</strong><p>When a referred form payment is verified, the ₹ reward will be recorded here.</p></div>';
+    } else {
+      rewardsRoot.innerHTML = `<table class="admin-data-table"><thead><tr><th>Referrer</th><th>Referred user</th><th>Referral code</th><th>Request</th><th>Reward</th><th>Credited at</th></tr></thead><tbody>${rewards.map(row => `
+        <tr>
+          <td><strong>${esc(row.referrerName || '—')}</strong><small>${esc(row.referrerEmail || row.referrerUid || '')}</small></td>
+          <td><strong>${esc(row.referredName || '—')}</strong><small>${esc(row.referredEmail || row.referredUid || '')}</small></td>
+          <td><span class="referral-code-chip">${esc(row.referralCode || '—')}</span></td>
+          <td><strong>${esc(row.requestNumber || '—')}</strong><small class="table-id">${esc(row.requestId || '')}</small></td>
+          <td><strong class="reward-amount">+${money(row.amount)}</strong></td>
+          <td>${esc(dateLabel(row.createdAt))}</td>
+        </tr>`).join('')}</tbody></table>`;
+    }
+
+    const transactions = Array.isArray(data.transactions) ? data.transactions : [];
+    const transactionsRoot = $('#referralTransactionsTable');
+    if (!transactions.length) {
+      transactionsRoot.innerHTML = '<div class="empty-state"><strong>No account transactions yet.</strong><p>Wallet activity will appear here when users deposit, earn referral rewards or pay using their balance.</p></div>';
+    } else {
+      transactionsRoot.innerHTML = `<table class="admin-data-table"><thead><tr><th>User</th><th>Transaction</th><th>Amount</th><th>Status</th><th>Source</th><th>Reference</th><th>Date</th></tr></thead><tbody>${transactions.map(row => `
+        <tr>
+          <td><strong>${esc(row.userName || '—')}</strong><small>${esc(row.userEmail || row.uid)}</small></td>
+          <td><strong>${esc(row.title || row.type || 'Account transaction')}</strong><small>${esc(row.description || row.type || '')}</small></td>
+          <td><strong class="${Number(row.amount) > 0 ? 'reward-amount' : ''}">${Number(row.amount) > 0 ? '+' : ''}${money(row.amount)}</strong></td>
+          <td><span class="status-pill ${row.status === 'completed' ? '' : row.status === 'rejected' ? 'red' : 'blue'}">${esc(row.status || '—')}</span></td>
+          <td>${esc(row.source || row.type || '—')}</td>
+          <td><strong>${esc(row.requestNumber || row.referenceId || row.id)}</strong><small class="table-id">${esc(row.requestId || row.id)}</small></td>
+          <td>${esc(dateLabel(row.createdAt))}</td>
+        </tr>`).join('')}</tbody></table>`;
+    }
+  }
+
   async function loadData() {
     if (loading) return;
     loading = true;
     $('#adminRefresh').disabled = true;
     try {
-      const data = await api('/api/admin/attendance/data', { cache: 'no-store' });
+      const [data, referralData] = await Promise.all([
+        api('/api/admin/attendance/data', { cache: 'no-store' }),
+        api('/api/admin/attendance/referrals', { cache: 'no-store' })
+      ]);
       const stats = data.stats || {};
       $('#statPaid').textContent = Number(stats.paidRequests || 0).toLocaleString('en-IN');
       $('#statRevenue').textContent = money(stats.totalPaid);
       $('#statPending').textContent = Number(stats.awaitingReply || 0).toLocaleString('en-IN');
       $('#statCompleted').textContent = Number(stats.completed || 0).toLocaleString('en-IN');
       $('#settingPrice').value = Number(data.settings?.price || 0);
+      $('#settingReferralReward').value = Number(data.settings?.referralReward ?? 3);
       $('#settingFormTitle').value = data.settings?.formTitle || 'Request Form';
       $('#settingFormDescription').value = data.settings?.formDescription || '';
       $('#settingMarquee').value = data.settings?.marqueeText || '';
@@ -171,6 +237,7 @@
       const requests = Array.isArray(data.requests) ? data.requests : [];
       $('#navRequestCount').textContent = String(requests.length);
       renderRequests(requests);
+      renderReferralData(referralData);
     } catch (error) {
       toast(error.message);
       if (error.message.toLowerCase().includes('admin login')) {
@@ -265,6 +332,8 @@
     const formTitle = $('#settingFormTitle').value.trim();
     if (!formTitle) return message('#settingsMessage', 'Enter a form title.');
     if (!Number.isInteger(price) || price < 1 || price > 100000) return message('#settingsMessage', 'Enter a fee between ₹1 and ₹1,00,000.');
+    const referralReward = Number($('#settingReferralReward').value);
+    if (!Number.isInteger(referralReward) || referralReward < 0 || referralReward > 1000) return message('#settingsMessage', 'Referral reward must be between ₹0 and ₹1,000.');
     if (!builderFields.length) return message('#settingsMessage', 'Add at least one field to the form.');
     for (const field of builderFields) {
       if (!String(field.label || '').trim()) return message('#settingsMessage', 'Every field needs a label.');
@@ -279,6 +348,7 @@
         method: 'POST',
         body: JSON.stringify({
           price,
+          referralReward: Number($('#settingReferralReward').value || 0),
           formTitle,
           formDescription: $('#settingFormDescription').value.trim(),
           marqueeText: $('#settingMarquee').value.trim(),

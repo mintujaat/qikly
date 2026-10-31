@@ -37,6 +37,9 @@
         <button class="admin-nav-tab active" type="button" data-admin-tab="requests" role="tab" aria-selected="true" aria-controls="panelRequests">
           <span class="nav-tab-icon">▤</span> Requests <span class="nav-tab-count" id="navRequestCount">0</span>
         </button>
+        <button class="admin-nav-tab" type="button" data-admin-tab="referrals" role="tab" aria-selected="false" aria-controls="panelReferrals">
+          <span class="nav-tab-icon">₹</span> Referrals & wallets
+        </button>
         <button class="admin-nav-tab" type="button" data-admin-tab="settings" role="tab" aria-selected="false" aria-controls="panelSettings">
           <span class="nav-tab-icon">⚙</span> Settings
         </button>
@@ -61,6 +64,27 @@
         </section>
       </section>
 
+      <section class="admin-panel hidden" id="panelReferrals" data-admin-panel="referrals" role="tabpanel">
+        <section class="stats-grid referral-stats-grid">
+          <article class="stat-card"><span>REGISTERED ACCOUNTS</span><strong id="refStatAccounts">0</strong><small>Qikly users</small></article>
+          <article class="stat-card"><span>WALLET BALANCES</span><strong id="refStatWallets">₹0</strong><small>Total available balance</small></article>
+          <article class="stat-card"><span>REFERRAL REWARDS PAID</span><strong id="refStatPaid">₹0</strong><small>Verified form transactions</small></article>
+          <article class="stat-card"><span>SUCCESSFUL REFERRALS</span><strong id="refStatCount">0</strong><small>Paid referred submissions</small></article>
+        </section>
+        <section class="admin-settings-card referral-admin-card">
+          <div class="admin-card-heading"><div><div class="eyebrow">ACCOUNT LEDGER</div><h2>User accounts & wallet balances</h2><p>View each user's referral code, total wallet balance, referral earnings and account details.</p></div><span class="settings-mark">₹</span></div>
+          <div class="admin-table-wrap" id="referralAccountsTable"><div class="empty-state"><strong>Loading accounts…</strong></div></div>
+        </section>
+        <section class="admin-settings-card referral-admin-card">
+          <div class="admin-card-heading"><div><div class="eyebrow">SUCCESSFUL PAYMENTS</div><h2>Referral reward history</h2><p>Each row represents a successfully verified payment that credited the referring account.</p></div></div>
+          <div class="admin-table-wrap" id="referralRewardsTable"><div class="empty-state"><strong>Loading referral history…</strong></div></div>
+        </section>
+        <section class="admin-settings-card referral-admin-card">
+          <div class="admin-card-heading"><div><div class="eyebrow">WALLET LEDGER</div><h2>Recent account transactions</h2><p>Recent deposits, referral credits, wallet payments and other recorded account transactions. Showing up to 300 latest entries.</p></div></div>
+          <div class="admin-table-wrap" id="referralTransactionsTable"><div class="empty-state"><strong>Loading wallet transactions…</strong></div></div>
+        </section>
+      </section>
+
       <section class="admin-panel hidden" id="panelSettings" data-admin-panel="settings" role="tabpanel">
         <form id="settingsForm">
           <section class="admin-settings-card builder-card">
@@ -68,6 +92,7 @@
             <div class="form-settings-grid">
               <label class="field"><span>Form title <b>*</b></span><input id="settingFormTitle" type="text" maxlength="100" required placeholder="e.g. Application Form"></label>
               <label class="field"><span>Payment fee (₹) <b>*</b></span><input id="settingPrice" type="number" min="1" max="100000" step="1" required placeholder="Example: 49"></label>
+              <label class="field"><span>Referral reward per successful payment (₹)</span><input id="settingReferralReward" type="number" min="0" max="1000" step="1" required value="3"><small>Default ₹3. Credited to the referrer's wallet after a verified payment.</small></label>
               <label class="field full-field"><span>Form description</span><input id="settingFormDescription" type="text" maxlength="240" placeholder="Short message displayed above the form"></label>
               <label class="field full-field"><span>Announcement bar</span><input id="settingMarquee" type="text" maxlength="300" placeholder="Announcement shown at the top of the user page"></label>
               <label class="field full-field"><span>Terms / confirmation text</span><textarea id="settingTerms" rows="2" maxlength="700" placeholder="The user must agree before payment."></textarea></label>

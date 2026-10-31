@@ -398,11 +398,12 @@ app.post("/api/auth/signup", async (req,res)=>{
     let referrer=null;
     if(referralCode){
       const rs=await db.collection("users").where("referralCode","==",referralCode).limit(1).get();
-      if(!rs.empty) referrer={id:rs.docs[0].id,...rs.docs[0].data()};
+      if(rs.empty || rs.docs[0].data()?.active === false) return res.status(400).json({error:"Referral code is invalid or unavailable. Leave it blank or check the code."});
+      referrer={id:rs.docs[0].id,...rs.docs[0].data()};
     }
     const ref=db.collection("users").doc();
     const newReferralCode=await createReferralCode();
-    await ref.set({name,email,passwordHash:await hashPassword(password),active:true,upiId:"",phone:"",profileImage:"",referralCode:newReferralCode,referredBy:referrer?.id||"",createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
+    await ref.set({name,email,passwordHash:await hashPassword(password),active:true,upiId:"",phone:"",profileImage:"",referralCode:newReferralCode,referredBy:referrer?.id||"",createdAt:FieldValue.serverTimestamp(),lastLoginAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
     await db.collection("wallets").doc(ref.id).set({uid:ref.id,balance:0,depositBalance:0,earningsBalance:0,bonusBalance:0,balanceSourceVersion:2,updatedAt:FieldValue.serverTimestamp()});
     if(referrer) await db.collection("referrals").doc(ref.id).set({referrerUid:referrer.id,referredUid:ref.id,referralCode,createdAt:FieldValue.serverTimestamp(),status:"joined"});
     setCookie(res,SESSION_COOKIE,createToken("user",ref.id,168,SESSION_SECRET),7*24*60*60);
@@ -415,6 +416,7 @@ app.post("/api/auth/login", async (req,res)=>{
     const snap=await db.collection("users").where("email","==",email).limit(1).get();
     if(snap.empty || !(await verifyPassword(password,snap.docs[0].data().passwordHash))) return res.status(401).json({error:"Invalid email or password."});
     const user={id:snap.docs[0].id,...snap.docs[0].data()}; if(user.active===false) return res.status(403).json({error:"This account is disabled."});
+    await db.collection("users").doc(user.id).set({lastLoginAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()},{merge:true});
     setCookie(res,SESSION_COOKIE,createToken("user",user.id,168,SESSION_SECRET),7*24*60*60);
     res.json({ok:true,user:sanitizeUser(user),balance:await getWallet(user.id)});
   } catch(e){res.status(500).json({error:e.message||"Login failed."});}
@@ -443,9 +445,25 @@ app.post("/api/user/profile",guardUser,async(req,res)=>{
 app.get("/api/user/transactions",guardUser,async(req,res)=>{try{await settleEarnings(req.user.id);const snap=await db.collection("transactions").where("uid","==",req.user.id).get();res.json({transactions:snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>dateMs(b.createdAt)-dateMs(a.createdAt)).slice(0,300)});}catch(e){res.status(500).json({error:e.message});}});
 app.get("/api/user/referrals",guardUser,async(req,res)=>{
   try{
-    const [info, settings] = await Promise.all([getReferralInfo(req.user.id), getDoc("settings","main",defaults.settings)]);
+    const [info, settings, txSnap] = await Promise.all([
+      getReferralInfo(req.user.id),
+      getAttendanceSettings(),
+      db.collection("transactions").where("uid","==",req.user.id).get()
+    ]);
+    const rewardRows = txSnap.docs.map(d=>({id:d.id,...d.data()}))
+      .filter(t=>t.type==="referral_bonus" && t.source==="attendance_form")
+      .sort((a,b)=>dateMs(b.createdAt)-dateMs(a.createdAt));
     info.rewardAmount = Math.max(0, money(settings.referralReward));
-    res.json(info);
+    info.successfulTransactions = rewardRows.length;
+    info.totalEarned = rewardRows.reduce((sum,t)=>sum+money(t.amount),0);
+    info.rewardHistory = rewardRows.slice(0,100).map(t=>({
+      id:t.id, amount:money(t.amount), requestNumber:t.requestNumber||"",
+      referredUserName:t.referredUserName||"Member",
+      referredUserEmail:t.referredUserEmail||"", createdAt:t.createdAt
+    }));
+    info.wallet = await getWallet(req.user.id);
+    res.set("Cache-Control","no-store");
+    res.json(jsonSafe(info));
   }catch(e){res.status(500).json({error:e.message||"Unable to load referrals."});}
 });
 
@@ -844,7 +862,8 @@ const attendanceDefaults = {
   formDescription: "Complete the details below and submit your request securely.",
   formFields: attendanceDefaultFields,
   marqueeText: "Qikly • Secure request portal • Online payment • Admin support",
-  termsText: "I confirm that the information provided is accurate. I understand that payment is processed securely and that submission does not guarantee a particular outcome."
+  termsText: "I confirm that the information provided is accurate. I understand that payment is processed securely and that submission does not guarantee a particular outcome.",
+  referralReward: 3
 };
 function sanitizeAttendanceFields(input) {
   if (!Array.isArray(input)) return attendanceDefaultFields;
@@ -884,6 +903,7 @@ async function getAttendanceSettings() {
     formFields: sanitizeAttendanceFields(Array.isArray(saved.formFields) && saved.formFields.length ? saved.formFields : attendanceDefaultFields),
     marqueeText: clean(saved.marqueeText, 300) || attendanceDefaults.marqueeText,
     termsText: clean(saved.termsText, 700) || attendanceDefaults.termsText,
+    referralReward: Math.max(0, Math.min(1000, money(saved.referralReward ?? attendanceDefaults.referralReward))),
   };
 }
 function attendanceDeviceHash(req) {
@@ -980,29 +1000,231 @@ app.get("/api/attendance/config", async (req,res) => {
     res.set("Cache-Control", "no-store");
     res.json({ price: settings.price, marqueeText: settings.marqueeText, termsText: settings.termsText,
       formTitle: settings.formTitle, formDescription: settings.formDescription, formFields: settings.formFields,
+      referralReward: settings.referralReward,
       razorpayKeyId: process.env.RAZORPAY_KEY_ID || "", paymentReady: !!process.env.RAZORPAY_KEY_ID && !!process.env.RAZORPAY_KEY_SECRET });
   } catch (e) { res.status(500).json({ error: e.message || "Unable to load form settings." }); }
 });
-app.post("/api/attendance/order/create", async (req,res) => {
+async function reserveAttendanceWallet(requestRef, uid, amount) {
+  const applied = Math.max(0, money(amount));
+  if (!applied) return;
+  await ensureWalletBuckets(uid);
+  const walletRef = db.collection("wallets").doc(uid);
+  await db.runTransaction(async tx => {
+    const requestSnap = await tx.get(requestRef);
+    const walletSnap = await tx.get(walletRef);
+    if (!requestSnap.exists) throw new Error("Form submission was not found.");
+    const request = requestSnap.data() || {};
+    if (request.walletReserved) return;
+    const wallet = walletSnap.exists ? walletSnap.data() : {};
+    const balance = money(wallet.balance);
+    if (balance < applied) throw new Error("Your wallet balance changed. Refresh and try again.");
+    let remaining = applied;
+    const bonusTake = Math.min(money(wallet.bonusBalance), remaining); remaining -= bonusTake;
+    const depositTake = Math.min(money(wallet.depositBalance), remaining); remaining -= depositTake;
+    const earningsTake = Math.min(money(wallet.earningsBalance), remaining); remaining -= earningsTake;
+    if (remaining > 0) throw new Error("Your available wallet balance is insufficient.");
+    const buckets = { deposit: depositTake, bonus: bonusTake, earnings: earningsTake };
+    tx.set(walletRef, {
+      uid,
+      balance: balance - applied,
+      depositBalance: money(wallet.depositBalance) - depositTake,
+      bonusBalance: money(wallet.bonusBalance) - bonusTake,
+      earningsBalance: money(wallet.earningsBalance) - earningsTake,
+      reservedBalance: money(wallet.reservedBalance) + applied,
+      balanceSourceVersion: 2,
+      updatedAt: FieldValue.serverTimestamp()
+    }, { merge: true });
+    tx.set(requestRef, {
+      walletApplied: applied,
+      walletAppliedBuckets: buckets,
+      walletReserved: true,
+      walletReservationExpiresAt: new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(),
+      updatedAt: FieldValue.serverTimestamp()
+    }, { merge: true });
+  });
+}
+
+async function releaseAttendanceWalletReservation(requestRef, uid, reason = "cancelled") {
+  const walletRef = db.collection("wallets").doc(uid);
+  await db.runTransaction(async tx => {
+    const requestSnap = await tx.get(requestRef);
+    if (!requestSnap.exists) return;
+    const request = requestSnap.data() || {};
+    if (request.paymentStatus === "paid" || !request.walletReserved) {
+      if (request.paymentStatus !== "paid" && reason === "cancelled") {
+        tx.set(requestRef, { paymentStatus: "cancelled", requestStatus: "payment_cancelled", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      }
+      return;
+    }
+    const walletSnap = await tx.get(walletRef);
+    const wallet = walletSnap.exists ? walletSnap.data() : {};
+    const buckets = request.walletAppliedBuckets || {};
+    const applied = money(request.walletApplied);
+    tx.set(walletRef, {
+      uid,
+      balance: money(wallet.balance) + applied,
+      depositBalance: money(wallet.depositBalance) + money(buckets.deposit),
+      bonusBalance: money(wallet.bonusBalance) + money(buckets.bonus),
+      earningsBalance: money(wallet.earningsBalance) + money(buckets.earnings),
+      reservedBalance: Math.max(0, money(wallet.reservedBalance) - applied),
+      balanceSourceVersion: 2,
+      updatedAt: FieldValue.serverTimestamp()
+    }, { merge: true });
+    tx.set(requestRef, {
+      walletReserved: false,
+      walletReleased: true,
+      walletReleasedReason: clean(reason, 40),
+      paymentStatus: reason === "expired" ? "expired" : "cancelled",
+      requestStatus: reason === "expired" ? "payment_expired" : "payment_cancelled",
+      updatedAt: FieldValue.serverTimestamp()
+    }, { merge: true });
+  });
+}
+
+async function releaseExpiredAttendanceReservations(uid) {
+  const snap = await db.collection("attendanceRequests").where("userId", "==", uid).get();
+  const now = Date.now();
+  for (const doc of snap.docs) {
+    const request = doc.data() || {};
+    const expires = Date.parse(request.walletReservationExpiresAt || "");
+    if (request.walletReserved === true && Number.isFinite(expires) && expires > 0 && expires <= now && request.paymentStatus !== "paid") {
+      await releaseAttendanceWalletReservation(doc.ref, uid, "expired");
+    }
+  }
+}
+
+async function completeAttendancePayment(requestRef, paymentDetails = {}) {
+  const requestSnapOutside = await requestRef.get();
+  if (!requestSnapOutside.exists) throw new Error("Form submission not found.");
+  const requestOutside = requestSnapOutside.data() || {};
+  const userId = clean(requestOutside.userId, 140);
+  const referrerUid = clean(requestOutside.referrerUid, 140);
+  const rewardAmount = Math.max(0, money(requestOutside.referralRewardAmount));
+  const walletRef = userId ? db.collection("wallets").doc(userId) : null;
+  const rewardWalletRef = referrerUid ? db.collection("wallets").doc(referrerUid) : null;
+  const rewardTxRef = referrerUid ? db.collection("transactions").doc(`attendance_ref_${requestRef.id}`) : null;
+  const spendTxRef = userId && money(requestOutside.walletApplied) > 0
+    ? db.collection("transactions").doc(`attendance_spend_${requestRef.id}`) : null;
+
+  await db.runTransaction(async tx => {
+    const latestSnap = await tx.get(requestRef);
+    if (!latestSnap.exists) throw new Error("Form submission not found.");
+    const current = latestSnap.data() || {};
+    if (current.paymentStatus === "paid") return;
+
+    let walletSnap = null;
+    let rewardWalletSnap = null;
+    let rewardTxSnap = null;
+    if (walletRef && current.walletReserved) walletSnap = await tx.get(walletRef);
+    if (rewardWalletRef && rewardAmount > 0) {
+      rewardTxSnap = await tx.get(rewardTxRef);
+      if (!rewardTxSnap.exists) rewardWalletSnap = await tx.get(rewardWalletRef);
+    }
+
+    if (current.walletReserved && walletSnap) {
+      const wallet = walletSnap.exists ? walletSnap.data() : {};
+      tx.set(walletRef, {
+        reservedBalance: Math.max(0, money(wallet.reservedBalance) - money(current.walletApplied)),
+        updatedAt: FieldValue.serverTimestamp()
+      }, { merge: true });
+      if (spendTxRef) {
+        tx.set(spendTxRef, {
+          uid: userId, type: "attendance_payment", amount: -money(current.walletApplied),
+          status: "completed", title: "Attendance form payment",
+          description: `Wallet used for ${clean(current.requestNumber, 80)}`,
+          requestId: requestRef.id, createdAt: FieldValue.serverTimestamp(), source: "attendance_form"
+        });
+      }
+    }
+
+    if (rewardWalletRef && rewardAmount > 0 && rewardTxSnap && !rewardTxSnap.exists) {
+      const rewardWallet = rewardWalletSnap?.exists ? rewardWalletSnap.data() : {};
+      tx.set(rewardWalletRef, {
+        uid: referrerUid,
+        balance: money(rewardWallet.balance) + rewardAmount,
+        bonusBalance: money(rewardWallet.bonusBalance) + rewardAmount,
+        depositBalance: money(rewardWallet.depositBalance),
+        earningsBalance: money(rewardWallet.earningsBalance),
+        reservedBalance: money(rewardWallet.reservedBalance),
+        balanceSourceVersion: 2,
+        updatedAt: FieldValue.serverTimestamp()
+      }, { merge: true });
+      tx.set(rewardTxRef, {
+        uid: referrerUid,
+        type: "referral_bonus",
+        amount: rewardAmount,
+        status: "completed",
+        title: "Attendance referral reward",
+        description: `Referral reward for paid form ${clean(current.requestNumber, 80)}`,
+        source: "attendance_form",
+        requestId: requestRef.id,
+        requestNumber: clean(current.requestNumber, 80),
+        referralCode: clean(current.referralCode, 40),
+        referrerUid,
+        referredUid: userId,
+        referredUserName: clean(current.userName, 100),
+        referredUserEmail: clean(current.userEmail, 180),
+        createdAt: FieldValue.serverTimestamp()
+      });
+    }
+
+    tx.set(requestRef, {
+      paymentStatus: "paid",
+      requestStatus: "paid",
+      paymentMethod: paymentDetails.method || (money(current.gatewayAmount) > 0 ? "razorpay_and_wallet" : "wallet"),
+      razorpayPaymentId: paymentDetails.paymentId || "",
+      razorpaySignature: paymentDetails.signature || "",
+      walletReserved: false,
+      paidAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp()
+    }, { merge: true });
+  });
+}
+
+app.post("/api/attendance/order/create", guardUser, async (req,res) => {
+  let requestRef = null;
+  let walletWasReserved = false;
   try {
     const deviceTokenHash = attendanceDeviceHash(req);
     if (!deviceTokenHash) return res.status(400).json({ error: "This browser session could not be verified. Refresh the page and try again." });
     if (req.body?.acceptedTerms !== true) return res.status(400).json({ error: "Please agree to the confirmation text before continuing." });
+    await releaseExpiredAttendanceReservations(req.user.id);
     const settings = await getAttendanceSettings();
     const formFields = settings.formFields;
     if (!formFields.length) return res.status(409).json({ error: "The administrator has not published any form fields yet." });
     const formData = validateAttendanceFormData(req.body?.formData, formFields);
     const amount = Math.max(0, money(settings.price));
     if (amount < 1) return res.status(409).json({ error: "Payment fee is not configured yet. Please contact the administrator." });
+
+    const submittedCode = clean(req.body?.referralCode, 40).toUpperCase();
+    let referrerUid = "";
+    let referralCode = "";
+    if (submittedCode) {
+      const referralSnap = await db.collection("users").where("referralCode", "==", submittedCode).limit(1).get();
+      if (referralSnap.empty || referralSnap.docs[0].data()?.active === false) return res.status(400).json({ error: "Referral code is invalid or unavailable. Check the code or leave it blank." });
+      referrerUid = referralSnap.docs[0].id;
+      referralCode = submittedCode;
+      if (referrerUid === req.user.id) return res.status(400).json({ error: "You cannot use your own referral code." });
+    } else if (clean(req.user.referredBy, 140) && req.user.referredBy !== req.user.id) {
+      referrerUid = clean(req.user.referredBy, 140);
+      const referrerSnap = await db.collection("users").doc(referrerUid).get();
+      if (referrerSnap.exists && referrerSnap.data()?.active !== false) referralCode = clean(referrerSnap.data()?.referralCode, 40).toUpperCase();
+      else referrerUid = "";
+    }
+    const referrerSnap = referrerUid ? await db.collection("users").doc(referrerUid).get() : null;
+    const referrerData = referrerSnap?.exists ? referrerSnap.data() : {};
+    const referralRewardAmount = referrerUid ? settings.referralReward : 0;
+
+    const wallet = await getWalletBreakdown(req.user.id);
+    const walletApplied = req.body?.useWallet === true ? Math.min(amount, wallet.total) : 0;
+    const gatewayAmount = amount - walletApplied;
     const rpayKey = String(process.env.RAZORPAY_KEY_ID || "");
     const rpaySecret = String(process.env.RAZORPAY_KEY_SECRET || "");
-    if (!rpayKey || !rpaySecret) return res.status(503).json({ error: "Online payment is not configured on the server." });
-    const ref = db.collection("attendanceRequests").doc();
-    const receipt = `qik_${Date.now().toString().slice(-10)}_${crypto.randomBytes(2).toString("hex")}`;
-    const rp = await razorpay.orders.create({ amount: amount * 100, currency: "INR", receipt,
-      notes: { attendanceRequestId: ref.id, service: "qikly_dynamic_form" } });
+    if (gatewayAmount > 0 && (!rpayKey || !rpaySecret)) return res.status(503).json({ error: "Razorpay is not configured. Add wallet credit or contact the administrator." });
+
+    requestRef = db.collection("attendanceRequests").doc();
     const request = {
-      id: ref.id,
+      id: requestRef.id,
       requestNumber: `QK-${Date.now().toString().slice(-8)}-${crypto.randomBytes(2).toString("hex").toUpperCase()}`,
       formTitle: settings.formTitle,
       formDescription: settings.formDescription,
@@ -1010,22 +1232,68 @@ app.post("/api/attendance/order/create", async (req,res) => {
       formData,
       deviceMeta: attendanceMetadata(req.body?.deviceMeta || {}),
       deviceTokenHash,
+      userId: req.user.id,
+      userName: clean(req.user.name, 100),
+      userEmail: cleanEmail(req.user.email),
+      referralCode,
+      referrerUid,
+      referrerName: clean(referrerData.name, 100),
+      referrerEmail: cleanEmail(referrerData.email),
+      referralRewardAmount,
       amount,
+      walletApplied,
+      gatewayAmount,
       currency: "INR",
       paymentStatus: "created",
       requestStatus: "payment_pending",
-      razorpayOrderId: rp.id,
+      razorpayOrderId: "",
       adminReply: "",
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     };
-    await ref.set(request);
-    res.json({ ok: true, keyId: rpayKey,
+    await requestRef.set(request);
+
+    if (walletApplied > 0) {
+      await reserveAttendanceWallet(requestRef, req.user.id, walletApplied);
+      walletWasReserved = true;
+    }
+
+    if (gatewayAmount <= 0) {
+      await completeAttendancePayment(requestRef, { method: "wallet" });
+      res.json({ ok: true, walletOnly: true, walletBalance: await getWallet(req.user.id),
+        request: { id: requestRef.id, requestNumber: request.requestNumber, amount } });
+      return;
+    }
+
+    const receipt = `qik_${Date.now().toString().slice(-10)}_${crypto.randomBytes(2).toString("hex")}`;
+    const rp = await razorpay.orders.create({ amount: gatewayAmount * 100, currency: "INR", receipt,
+      notes: { attendanceRequestId: requestRef.id, service: "qikly_dynamic_form", userId: req.user.id } });
+    await requestRef.set({ razorpayOrderId: rp.id, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    res.json({ ok: true, keyId: rpayKey, walletApplied, gatewayAmount,
       razorpayOrder: { id: rp.id, amount: rp.amount, currency: rp.currency },
-      request: { id: ref.id, requestNumber: request.requestNumber, amount } });
-  } catch (e) { res.status(400).json({ error: e.message || "Unable to create payment." }); }
+      request: { id: requestRef.id, requestNumber: request.requestNumber, amount, walletApplied, gatewayAmount } });
+  } catch (e) {
+    if (requestRef && walletWasReserved) {
+      try { await releaseAttendanceWalletReservation(requestRef, req.user.id, "cancelled"); } catch {}
+    }
+    if (requestRef) { try { await requestRef.set({ paymentStatus: "error", requestStatus: "payment_error", errorMessage: clean(e.message, 300), updatedAt: FieldValue.serverTimestamp() }, { merge: true }); } catch {} }
+    res.status(400).json({ error: e.message || "Unable to create payment." });
+  }
 });
-app.post("/api/attendance/order/verify", async (req,res) => {
+
+app.post("/api/attendance/order/cancel", guardUser, async (req,res) => {
+  try {
+    const id = clean(req.body?.requestId, 140);
+    if (!id) return res.status(400).json({ error: "Request reference is required." });
+    const ref = db.collection("attendanceRequests").doc(id);
+    const snap = await ref.get();
+    if (!snap.exists || snap.data()?.userId !== req.user.id) return res.status(404).json({ error: "Request not found." });
+    await releaseAttendanceWalletReservation(ref, req.user.id, "cancelled");
+    res.json({ ok: true, walletBalance: await getWallet(req.user.id) });
+  } catch (e) { res.status(500).json({ error: e.message || "Unable to release wallet reservation." }); }
+});
+
+app.post("/api/attendance/order/verify", guardUser, async (req,res) => {
   try {
     const deviceTokenHash = attendanceDeviceHash(req);
     if (!deviceTokenHash) return res.status(400).json({ error: "Browser session could not be verified." });
@@ -1038,38 +1306,34 @@ app.post("/api/attendance/order/verify", async (req,res) => {
     if (snap.empty) return res.status(404).json({ error: "Form submission not found." });
     const requestRef = snap.docs[0].ref;
     const existing = snap.docs[0].data();
-    if (existing.deviceTokenHash !== deviceTokenHash) return res.status(403).json({ error: "This submission belongs to another browser session." });
-    if (existing.paymentStatus === "paid") return res.json({ ok: true, request: { id: requestRef.id, requestNumber: existing.requestNumber } });
+    if (existing.userId !== req.user.id || existing.deviceTokenHash !== deviceTokenHash) return res.status(403).json({ error: "This submission belongs to another account or browser session." });
+    if (existing.paymentStatus === "paid") return res.json({ ok: true, request: { id: requestRef.id, requestNumber: existing.requestNumber }, walletBalance: await getWallet(req.user.id) });
+    if (["cancelled", "expired", "error"].includes(existing.paymentStatus) || (money(existing.walletApplied) > 0 && existing.walletReserved !== true)) {
+      return res.status(409).json({ error: "This checkout has expired or was cancelled. Any reserved wallet balance has been released. Please create a new payment." });
+    }
     const payment = await razorpay.payments.fetch(razorpay_payment_id);
-    if (payment.status !== "captured" || Number(payment.amount) !== Number(existing.amount) * 100) {
+    if (payment.status !== "captured" || payment.order_id !== razorpay_order_id || Number(payment.amount) !== Number(existing.gatewayAmount) * 100) {
       return res.status(400).json({ error: "Payment amount or status could not be verified." });
     }
-    await db.runTransaction(async t => {
-      const latest = await t.get(requestRef);
-      const current = latest.data() || {};
-      if (current.paymentStatus === "paid") return;
-      if (current.deviceTokenHash !== deviceTokenHash || current.razorpayOrderId !== razorpay_order_id) throw new Error("Submission verification mismatch.");
-      t.set(requestRef, { paymentStatus: "paid", requestStatus: "paid", razorpayPaymentId: razorpay_payment_id,
-        razorpaySignature: razorpay_signature, paidAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-    });
-    res.json({ ok: true, request: { id: requestRef.id, requestNumber: existing.requestNumber } });
+    await completeAttendancePayment(requestRef, { method: existing.walletApplied > 0 ? "razorpay_and_wallet" : "razorpay", paymentId: razorpay_payment_id, signature: razorpay_signature });
+    res.json({ ok: true, request: { id: requestRef.id, requestNumber: existing.requestNumber }, walletBalance: await getWallet(req.user.id) });
   } catch (e) { res.status(400).json({ error: e.message || "Payment verification failed." }); }
 });
-app.get("/api/attendance/requests", async (req,res) => {
+
+app.get("/api/attendance/requests", guardUser, async (req,res) => {
   try {
-    const deviceTokenHash = attendanceDeviceHash(req);
-    if (!deviceTokenHash) return res.status(400).json({ error: "Browser session token is missing." });
-    const snap = await db.collection("attendanceRequests").where("deviceTokenHash", "==", deviceTokenHash).get();
-    const requests = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-      .filter(r => r.paymentStatus === "paid")
+    await releaseExpiredAttendanceReservations(req.user.id);
+    const snap = await db.collection("attendanceRequests").where("userId", "==", req.user.id).get();
+    const requests = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+      .filter(r => r.paymentStatus === "paid" && r.userId === req.user.id)
       .sort((a,b) => dateMs(b.createdAt) - dateMs(a.createdAt))
       .map(r => ({ id: r.id, requestNumber: r.requestNumber, formTitle: r.formTitle || "Attendance request",
-        formFields: r.formFields || [], formData: r.formData || {}, accountId: r.accountId || "",
-        userSecretCode: attendanceSecretCode(r), department: r.department || "", classTime: r.classTime || "",
-        teacherName: r.teacherName || "", amount: r.amount, requestStatus: r.requestStatus, adminReply: r.adminReply || "",
+        formFields: r.formFields || [], formData: r.formData || {}, amount: r.amount, walletApplied: money(r.walletApplied),
+        referralCode: r.referralCode || "", referralRewardAmount: money(r.referralRewardAmount),
+        requestStatus: r.requestStatus, adminReply: r.adminReply || "",
         createdAt: r.createdAt, updatedAt: r.updatedAt, repliedAt: r.repliedAt || null }));
     res.set("Cache-Control", "no-store");
-    res.json({ requests: jsonSafe(requests) });
+    res.json({ requests: jsonSafe(requests), walletBalance: await getWallet(req.user.id) });
   } catch (e) { res.status(500).json({ error: e.message || "Unable to load your submissions." }); }
 });
 app.get("/api/admin/attendance/data", guardAdmin, async (req,res) => {
@@ -1089,6 +1353,80 @@ app.get("/api/admin/attendance/data", guardAdmin, async (req,res) => {
     }}));
   } catch (e) { res.status(500).json({ error: e.message || "Unable to load admin data." }); }
 });
+app.get("/api/admin/attendance/referrals", guardAdmin, async (req,res) => {
+  try {
+    const [userRows, walletRows, transactionRows, requestRows] = await Promise.all([
+      listCollection("users"), listCollection("wallets"), listCollection("transactions"), listCollection("attendanceRequests")
+    ]);
+    const wallets = new Map(walletRows.map(w => [String(w.uid || w.id), w]));
+    const users = new Map(userRows.map(u => [String(u.id), u]));
+    const referralTx = transactionRows.filter(t => t.type === "referral_bonus" && t.source === "attendance_form")
+      .sort((a,b) => dateMs(b.createdAt) - dateMs(a.createdAt));
+    const counts = new Map();
+    const earned = new Map();
+    referralTx.forEach(t => {
+      const uid = String(t.uid || t.referrerUid || "");
+      counts.set(uid, (counts.get(uid) || 0) + 1);
+      earned.set(uid, (earned.get(uid) || 0) + money(t.amount));
+    });
+    const accounts = userRows.map(u => {
+      const wallet = wallets.get(String(u.id)) || {};
+      const inviter = users.get(String(u.referredBy || "")) || {};
+      return {
+        id: u.id, name: clean(u.name, 100), email: cleanEmail(u.email),
+        referralCode: clean(u.referralCode, 40), referredBy: clean(u.referredBy, 140),
+        referredByName: clean(inviter.name, 100), referredByEmail: cleanEmail(inviter.email),
+        balance: money(wallet.balance), depositBalance: money(wallet.depositBalance),
+        earningsBalance: money(wallet.earningsBalance), bonusBalance: money(wallet.bonusBalance),
+        reservedBalance: money(wallet.reservedBalance),
+        successfulReferralPayments: counts.get(String(u.id)) || 0,
+        referralEarned: earned.get(String(u.id)) || 0,
+        createdAt: u.createdAt, lastLoginAt: u.lastLoginAt || null, active: u.active !== false
+      };
+    }).sort((a,b) => b.balance - a.balance);
+    const rewards = referralTx.map(t => ({
+      id: t.id, amount: money(t.amount), createdAt: t.createdAt,
+      referralCode: t.referralCode || "",
+      requestId: t.requestId || "", requestNumber: t.requestNumber || "",
+      referrerUid: t.uid || t.referrerUid || "",
+      referrerName: clean(users.get(String(t.uid || t.referrerUid || ""))?.name, 100),
+      referrerEmail: cleanEmail(users.get(String(t.uid || t.referrerUid || ""))?.email),
+      referredUid: t.referredUid || "",
+      referredName: t.referredUserName || clean(users.get(String(t.referredUid || ""))?.name, 100),
+      referredEmail: t.referredUserEmail || cleanEmail(users.get(String(t.referredUid || ""))?.email)
+    }));
+    const paidReferralRequests = requestRows.filter(r => r.paymentStatus === "paid" && r.referrerUid);
+    const walletTransactions = transactionRows
+      .filter(t => t.uid || t.userId)
+      .sort((a,b) => dateMs(b.createdAt) - dateMs(a.createdAt))
+      .slice(0, 300)
+      .map(t => {
+        const uid = String(t.uid || t.userId || "");
+        const owner = users.get(uid) || {};
+        return {
+          id: t.id, uid, userName: clean(owner.name, 100), userEmail: cleanEmail(owner.email),
+          type: clean(t.type, 50), title: clean(t.title, 140), description: clean(t.description, 240),
+          amount: money(t.amount), status: clean(t.status, 40), source: clean(t.source, 60),
+          requestId: clean(t.requestId, 140), requestNumber: clean(t.requestNumber, 100),
+          referenceId: clean(t.referenceId, 140), createdAt: t.createdAt
+        };
+      });
+    const settings = await getAttendanceSettings();
+    res.set("Cache-Control", "no-store");
+    res.json(jsonSafe({
+      accounts, rewards, transactions: walletTransactions,
+      stats: {
+        totalAccounts: accounts.length,
+        totalWalletBalance: accounts.reduce((sum,u) => sum + u.balance, 0),
+        totalReferralPaid: rewards.reduce((sum,r) => sum + r.amount, 0),
+        successfulReferralPayments: rewards.length,
+        referredPaidRequests: paidReferralRequests.length,
+        rewardPerTransaction: settings.referralReward
+      }
+    }));
+  } catch (e) { res.status(500).json({ error: e.message || "Unable to load referral and wallet data." }); }
+});
+
 app.post("/api/admin/attendance/settings", guardAdmin, async (req,res) => {
   try {
     const price = Number(req.body?.price);
@@ -1096,13 +1434,14 @@ app.post("/api/admin/attendance/settings", guardAdmin, async (req,res) => {
     const formDescription = clean(req.body?.formDescription, 240);
     const marqueeText = clean(req.body?.marqueeText, 300) || attendanceDefaults.marqueeText;
     const termsText = clean(req.body?.termsText, 700) || attendanceDefaults.termsText;
+    const referralReward = Math.max(0, Math.min(1000, money(req.body?.referralReward ?? attendanceDefaults.referralReward)));
     const formFields = sanitizeAttendanceFields(req.body?.formFields);
     if (!Number.isInteger(price) || price < 1 || price > 100000) return res.status(400).json({ error: "Enter a payment fee between ₹1 and ₹1,00,000." });
     if (!formTitle) return res.status(400).json({ error: "Form title is required." });
     if (!Array.isArray(req.body?.formFields) || !formFields.length) return res.status(400).json({ error: "Add at least one valid form field." });
     if (formFields.some(field => ["select", "radio"].includes(field.type) && !field.options.length)) return res.status(400).json({ error: "Dropdown and single-choice fields need at least one option." });
     if (formFields.some(field => field.min !== "" && field.max !== "" && field.min > field.max)) return res.status(400).json({ error: "A field minimum cannot be greater than its maximum." });
-    await db.collection("attendanceSettings").doc("main").set({ price, formTitle, formDescription, formFields, marqueeText, termsText, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    await db.collection("attendanceSettings").doc("main").set({ price, formTitle, formDescription, formFields, marqueeText, termsText, referralReward, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message || "Unable to save form settings." }); }
 });
