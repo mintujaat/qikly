@@ -6,7 +6,7 @@ YaadPage turns a customer's photos and message into a personalized, shareable mi
 
 - Responsive YaadPage storefront and 24 occasion designs, including dedicated wedding and anniversary layouts
 - Customer create-page flow with live preview, custom page slug and image upload
-- Three one-time plans: Starter ₹199 (1 photo), Story ₹399 (10 photos) and Premium ₹699 (up to 100 photos)
+- Three one-time plans: Note ₹199 (1 photo), Story ₹399 (10 photos with an interactive letter and animated chapters), and Signature ₹699 (up to 100 photos with a cinematic cover, occasion-specific layout and photo lightbox)
 - Razorpay order creation and server-side payment-signature verification
 - Firebase Admin / Firestore storage for page data, orders and slug reservations
 - Cloudflare R2 image storage; customer photo uploads are sent through the server (no bucket CORS setup required)
@@ -92,7 +92,7 @@ The `vercel.json` rewrites send `/api/*` to the Express serverless API, `/admin`
 ## Notes
 
 - Plans are currently one-time prices with one-year hosting. Renewal / extension checkout is not automated in this version.
-- Customers can upload JPG, PNG or WebP images smaller than 2 MB each. The Premium ₹699 plan accepts up to 100 photos. Images are served only through the matching published page URL.
+- Customers can upload JPG, PNG or WebP images smaller than 2 MB each. The Signature ₹699 plan accepts up to 100 photos. Its public page includes a cinematic cover, occasion-specific wedding / anniversary presentation, milestone section and tap-to-zoom gallery. The Story ₹399 plan includes an openable letter, animated chapters and a polaroid gallery. Images are served only through the matching published page URL.
 - A customer page is published only after the server verifies the Razorpay payment signature.
 - The order flow uses Razorpay Checkout plus server-side signature verification and a server-side payment fetch that checks capture status and exact amount. A dedicated webhook-reconciliation endpoint is not included in this build; add and test one before high-volume production use. Promo codes can apply percentage discounts, fixed rupee discounts or a full free order. Usage limits and expiry dates are enforced server-side. Free-code orders publish only after the server confirms the reserved code and upload session.
 - The archive contained `.env.example`, not real service credentials. Existing live integrations can only connect after the same values are entered in the deployment environment.

@@ -418,9 +418,9 @@ app.post("/api/admin/upload-url",requireAdmin,async(req,res)=>{
 // Razorpay and Cloudflare R2 infrastructure and the legacy Qikly routes).
 // -----------------------------------------------------------------------------
 const YP_PLANS = {
-  starter: { id:"starter", name:"Starter", price:199, photos:1, label:"A beautiful one-page surprise" },
-  story:   { id:"story", name:"Story", price:399, photos:10, label:"A richer story with up to 10 photos" },
-  premium: { id:"premium", name:"Premium", price:699, photos:100, label:"A complete memory gallery with up to 100 photos" }
+  starter: { id:"starter", name:"Note", price:199, photos:1, label:"A beautiful, personal page for one special photo." },
+  story:   { id:"story", name:"Story", price:399, photos:10, label:"An interactive memory journey with up to 10 photos." },
+  premium: { id:"premium", name:"Signature", price:699, photos:100, label:"A cinematic keepsake with up to 100 photos." }
 };
 const YP_TEMPLATES = [
   { id:"birthday", name:"Birthday Glow", category:"Birthday", description:"A bright, joyful birthday surprise." },

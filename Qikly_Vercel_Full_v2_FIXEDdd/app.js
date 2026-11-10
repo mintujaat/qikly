@@ -30,9 +30,9 @@ const templates = [
   { id:"family", name:"Family Moments", tag:"Family", detail:"A warm page for family celebrations", icon:"⌂", theme:"sage" }
 ];
 const plans = [
-  { id:"starter", name:"Starter", price:199, photos:1, detail:"A beautiful one-page surprise", features:["1 photo", "Personal message", "Unique shareable URL", "1-year hosting"] },
-  { id:"story", name:"Story", price:399, photos:10, detail:"More photos and richer animations", features:["Up to 10 photos", "Animated sections", "Personal message", "1-year hosting"], popular:true },
-  { id:"premium", name:"Premium", price:699, photos:100, detail:"The complete memory experience", features:["Up to 100 photos", "Premium visual effects", "Large photo gallery", "1-year hosting"] }
+  { id:"starter", name:"Note", price:199, photos:1, detail:"A beautiful, personal page for one special photo.", features:["1 hero photo", "Personal letter and custom URL", "Elegant single-page design", "1-year hosting"] },
+  { id:"story", name:"Story", price:399, photos:10, detail:"An interactive memory journey, not just a photo page.", features:["Up to 10 photos", "Tap-to-open letter reveal", "Three animated story chapters", "Polaroid-style memory gallery", "1-year hosting"], popular:true },
+  { id:"premium", name:"Signature", price:699, photos:100, detail:"A cinematic keepsake for weddings, anniversaries and the biggest moments.", features:["Up to 100 photos", "Cinematic photo cover", "Occasion-specific wedding / anniversary layout", "Full-screen photo lightbox", "Premium memory timeline", "1-year hosting"] }
 ];
 
 async function api(path, options = {}) {
@@ -68,7 +68,7 @@ function home() {
     <section class="section wrap" id="designs"><div class="section-heading"><div><div class="eyebrow">CHOOSE YOUR FEELING</div><h2>A design for every <em>occasion.</em></h2></div><p>Pick a starting point. Add your own words and photos. We'll turn it into a page worth opening.</p></div><div class="template-grid">${templates.filter(t=>["birthday","anniversary","wedding-invitation","wedding-floral","wedding-royal","bestfriend"].includes(t.id)).map(templateCard).join("")}</div><div class="center-action"><a class="button button-outline" href="/create">See all designs <span>↗</span></a></div></section>
     <section class="how-section" id="how-it-works"><div class="wrap"><div class="section-heading"><div><div class="eyebrow">THREE SIMPLE STEPS</div><h2>From your idea<br>to their <em>surprise.</em></h2></div><p>No coding. No app to install. Just a few details and a link you can share anywhere.</p></div><div class="steps-grid"><article class="step-card"><span class="step-number">01</span><div class="step-icon">✿</div><h3>Choose a design</h3><p>Start with a birthday, love, anniversary, wedding, friendship or milestone design.</p></article><article class="step-card"><span class="step-number">02</span><div class="step-icon">⌁</div><h3>Make it yours</h3><p>Add names, a personal message and your favourite photos.</p></article><article class="step-card"><span class="step-number">03</span><div class="step-icon">↗</div><h3>Share the link</h3><p>Your page is created automatically. Send its unique link to your person.</p></article></div></div></section>
     <section class="video-section wrap" id="how-video"><div class="video-copy"><div class="eyebrow">SEE IT IN ACTION</div><h2>How YaadPage <em>works.</em></h2><p>A quick walkthrough of choosing a design, adding your memories and sharing your own page.</p></div><div class="how-video-frame" id="howVideoFrame"><div class="video-placeholder"><span>▶</span><b>How it works</b><small>Video guide will appear here.</small></div></div></section>
-    <section class="pricing-section wrap" id="pricing"><div class="section-heading"><div><div class="eyebrow">SIMPLE, ONE-TIME PRICING</div><h2>A small price for a<br><em>lasting smile.</em></h2></div><p>Choose how much of your story you want to share. Every plan includes its own YaadPage link and one year of hosting.</p></div><div class="pricing-grid">${plans.map(p=>`<article class="price-card ${p.popular ? "price-popular" : ""}">${p.popular?'<span class="popular-label">MOST POPULAR</span>':""}<div class="price-name">${p.name}</div><div class="price-amount">${money(p.price)}<small> one time</small></div><p>${p.detail}</p><ul>${p.features.map(x=>`<li><span>✓</span>${x}</li>`).join("")}</ul><a class="button ${p.popular ? "button-dark" : "button-outline"}" href="/create?plan=${p.id}">Choose ${p.name} <span>↗</span></a></article>`).join("")}</div><p class="pricing-note">No subscription. No hidden monthly charge. Renewal details are shown before checkout.</p></section>
+    <section class="pricing-section wrap" id="pricing"><div class="section-heading"><div><div class="eyebrow">SIMPLE, ONE-TIME PRICING</div><h2>A small price for a<br><em>lasting smile.</em></h2></div><p>Every plan gives you a personal link and one year of hosting. Choose the experience you want to create.</p></div><div class="pricing-grid">${plans.map(p=>`<article class="price-card price-${p.id} ${p.popular ? "price-popular" : ""}">${p.popular?'<span class="popular-label">MOST POPULAR</span>':""}<div class="price-name">${p.name}</div><div class="price-amount">${money(p.price)}<small> one time</small></div><p>${p.detail}</p><ul>${p.features.map(x=>`<li><span>✓</span>${x}</li>`).join("")}</ul><a class="button ${p.popular ? "button-dark" : "button-outline"}" href="/create?plan=${p.id}">Choose ${p.name} <span>↗</span></a></article>`).join("")}</div><p class="pricing-note">No subscription. No hidden monthly charge. Renewal details are shown before checkout.</p></section>
     <section class="quote-section"><div class="wrap quote-inner"><span class="quote-mark">“</span><blockquote>Some things are too special for a simple text message.</blockquote><p>Give the moment a page of its own.</p><a class="button button-dark" href="/create">Make their page <span>↗</span></a></div></section>
     <section class="faq-section wrap"><div class="section-heading"><div><div class="eyebrow">GOOD TO KNOW</div><h2>A few quick <em>answers.</em></h2></div><p>Everything you need to know before making your first page.</p></div><div class="faq-list"><details><summary>Do I need to know how to code? <span>＋</span></summary><p>No. Choose a design, fill in the form and YaadPage builds your page automatically.</p></details><details><summary>What will my page link look like? <span>＋</span></summary><p>Your page gets its own address, such as yaadpage.online/annayabirthday. You choose the ending when you create it.</p></details><details><summary>Can I share the page on WhatsApp? <span>＋</span></summary><p>Yes. Once your payment is verified, copy the link and share it through WhatsApp, Instagram or anywhere else.</p></details><details><summary>How long will my page stay online? <span>＋</span></summary><p>All current plans include one year of hosting. Renewal options will be shown before your page expires.</p></details><details><summary>Are my photos public? <span>＋</span></summary><p>Anyone with your page link can view the photos you choose to include. Do not upload private or sensitive images.</p></details></div></section>
   </main>${footer()}`;
@@ -89,7 +89,7 @@ function createPage() {
     <section class="form-section"><div class="form-section-title"><span>01</span><div><h2>Choose your design</h2><p>Start with the occasion that feels right.</p></div></div><div class="template-filter-row"><button type="button" class="template-filter active" data-template-filter="All">All designs</button>${[...new Set(templates.map(t=>t.tag))].map(tag=>`<button type="button" class="template-filter" data-template-filter="${tag}">${tag}</button>`).join("")}</div><div class="design-select-grid">${templates.map(t=>`<button type="button" class="design-choice ${t.id===chosenTemplate.id?"selected":""}" data-template="${t.id}" data-category="${t.tag}"><span class="choice-icon theme-${t.theme}">${t.icon}</span><b>${t.name}</b><small>${t.tag}</small></button>`).join("")}</div><input type="hidden" id="templateId" value="${chosenTemplate.id}"></section>
     <section class="form-section"><div class="form-section-title"><span>02</span><div><h2>The people behind it</h2><p>These details make the page feel personal.</p></div></div><div class="field-grid"><label><span id="recipientLabel">Who is this page for?</span><input id="recipientName" maxlength="70" placeholder="e.g. Ananya" required></label><label><span id="senderLabel">Your name</span><input id="senderName" maxlength="70" placeholder="e.g. Mintu" required></label><label class="field-full">Page headline<input id="pageTitle" maxlength="90" placeholder="e.g. A little surprise for you"></label><label>Special date <span class="optional">Optional</span><input id="eventDate" type="date"></label><label>Page address <span class="required-note">Required</span><div class="slug-input"><span>yaadpage.online/</span><input id="slug" maxlength="42" placeholder="your-special-name" required></div><small id="slugStatus" class="field-hint">This will be your personal page link.</small></label><label class="field-full">Your message<textarea id="message" rows="5" maxlength="1200" placeholder="Write something they will love reading…" required></textarea><small class="field-hint"><span id="messageCount">0</span>/1200 characters</small></label></div></section>
     <section class="form-section"><div class="form-section-title"><span>03</span><div><h2>Add your photos</h2><p>Use JPG, PNG or WebP. Every photo must be smaller than 2 MB.</p></div></div><label class="upload-zone" for="photos"><span class="upload-icon">＋</span><b>Choose photos</b><small id="photoHelp">Up to ${chosenPlan.photos} photo(s) with your selected plan</small><input id="photos" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden></label><div id="photoPreviews" class="photo-previews"></div><p class="privacy-hint">Only upload photos you have permission to share. Anyone with the page link can view them.</p></section>
-    <section class="form-section"><div class="form-section-title"><span>04</span><div><h2>Choose your plan</h2><p>One-time payment. One year of hosting.</p></div></div><div class="plan-choice-grid">${plans.map(p=>`<label class="plan-choice ${p.id===chosenPlan.id?"chosen":""}"><input type="radio" name="plan" value="${p.id}" ${p.id===chosenPlan.id?"checked":""}><span class="plan-choice-top"><b>${p.name}</b><strong>${money(p.price)}</strong></span><small>${p.photos} photo${p.photos>1?"s":""} · 1-year hosting</small>${p.popular?'<i>Popular</i>':""}</label>`).join("")}</div></section>
+    <section class="form-section"><div class="form-section-title"><span>04</span><div><h2>Choose your plan</h2><p>One-time payment. One year of hosting.</p></div></div><div class="plan-choice-grid">${plans.map(p=>`<label class="plan-choice plan-choice-${p.id} ${p.id===chosenPlan.id?"chosen":""}"><input type="radio" name="plan" value="${p.id}" ${p.id===chosenPlan.id?"checked":""}><span class="plan-choice-top"><b>${p.name}</b><strong>${money(p.price)}</strong></span><small>${p.photos===100?"Up to 100":p.photos} photo${p.photos>1?"s":""} · 1-year hosting</small><em>${p.detail}</em><span class="plan-choice-features">${p.features.slice(0,3).join(" · ")}</span>${p.popular?'<i>Popular</i>':""}</label>`).join("")}</div></section>
     <section class="form-section coupon-section"><div class="form-section-title"><span>05</span><div><h2>Have a promo code?</h2><p>Apply a discount code or a free-page code.</p></div></div><div class="coupon-row"><input id="promoCode" maxlength="24" placeholder="Enter promo code" autocomplete="off"><button type="button" class="button button-outline" id="applyPromo">Apply code</button></div><div id="promoStatus" class="field-hint" aria-live="polite"></div><div id="priceSummary" class="price-summary"><span>Order total</span><strong id="finalPrice">${money(chosenPlan.price)}</strong></div></section>
     <section class="form-section"><div class="form-section-title"><span>06</span><div><h2>Where should we send the link?</h2><p>Used for your order confirmation and support.</p></div></div><div class="field-grid"><label>Email address<input id="email" type="email" autocomplete="email" placeholder="you@example.com" required></label><label>WhatsApp number<input id="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="10-digit mobile number" required></label></div></section>
     <div id="createError" class="form-error" role="alert"></div><button type="submit" class="button button-dark button-wide" id="payButton">Create page & pay <span>↗</span></button><p class="checkout-note"><span>🔒</span> Secure checkout. Your page publishes after payment verification or a verified free promo code.</p>
@@ -308,24 +308,122 @@ async function memoryPage(slug) {
     const data = await api(`${API}/pages/${encodeURIComponent(slug)}`);
     const page = data.page;
     setTitle(page.title || `For ${page.recipientName}`);
-    const photos = (page.photos || []).map(photo => `<div class="memory-photo"><img src="${API}/assets/${encodeURIComponent(slug)}/${encodeURIComponent(photo.id)}" alt="A shared memory" loading="lazy"></div>`).join("");
+    const photosList = Array.isArray(page.photos) ? page.photos : [];
+    const imageUrl = photo => `${API}/assets/${encodeURIComponent(slug)}/${encodeURIComponent(photo.id)}`;
     const template = templates.find(t => t.id === page.templateId) || templates[0];
     const occasion = template.tag || "A SPECIAL MOMENT";
     const date = page.eventDate ? new Date(`${page.eventDate}T00:00:00`).toLocaleDateString("en-IN", { day:"numeric", month:"long", year:"numeric" }) : "";
+    const planId = ["starter", "story", "premium"].includes(page.planId) ? page.planId : "starter";
+    const isStory = planId === "story";
+    const isPremium = planId === "premium";
     const isWedding = page.templateId.startsWith("wedding-") || page.templateId === "engagement";
     const isAnniversary = page.templateId.startsWith("anniversary") || page.templateId === "golden-anniversary";
+    const firstPhoto = photosList[0] ? imageUrl(photosList[0]) : "";
+    const safeName = esc(page.recipientName || "Someone special");
+    const safeSender = esc(page.senderName || "With love");
+    const safeMessage = esc(page.message || "").replace(/\n/g,"<br>");
+
     const specialCard = isWedding
-      ? `<section class="wedding-special"><div class="special-kicker">TOGETHER WITH THEIR FAMILIES</div><h2>${esc(page.senderName)} <span>＆</span> ${esc(page.recipientName)}</h2><p>invite you to celebrate their special day</p>${date?`<div class="special-date">${esc(date.toUpperCase())}</div>`:`<div class="special-date">A DAY TO REMEMBER</div>`}</section>`
+      ? `<section class="wedding-special ${isPremium?"wedding-special-premium":""}" data-reveal><div class="special-kicker">TOGETHER WITH THEIR FAMILIES</div><div class="special-flourish">✦　❦　✦</div><h2>${safeSender} <span>＆</span> ${safeName}</h2><p>invite you to celebrate their special day</p>${date?`<div class="special-date">${esc(date.toUpperCase())}</div>`:`<div class="special-date">A DAY TO REMEMBER</div>`}<div class="wedding-seal">FOREVER BEGINS HERE</div></section>`
       : isAnniversary
-        ? `<section class="anniversary-special"><div class="special-kicker">ANOTHER CHAPTER · A LIFETIME OF MEMORIES</div><h2>${esc(page.senderName)} & ${esc(page.recipientName)}</h2><p>${esc(page.title || "Our story keeps getting better")}</p><div class="anniversary-steps"><span>THE BEGINNING</span><span>EVERY CHAPTER</span><span>FOREVER AHEAD</span></div>${date?`<div class="special-date">${esc(date.toUpperCase())}</div>`:""}</section>`
+        ? `<section class="anniversary-special ${isPremium?"anniversary-special-premium":""}" data-reveal><div class="special-kicker">ANOTHER CHAPTER · A LIFETIME OF MEMORIES</div><div class="special-flourish">∞</div><h2>${safeSender} <span>＆</span> ${safeName}</h2><p>${esc(page.title || "Our story keeps getting better")}</p><div class="anniversary-steps"><span>THE BEGINNING</span><span>EVERY CHAPTER</span><span>FOREVER AHEAD</span></div>${date?`<div class="special-date">${esc(date.toUpperCase())}</div>`:""}</section>`
         : "";
-    root.innerHTML = `<main class="memory-shell theme-${templateTheme(page.templateId)}"><div class="memory-grain"></div><header class="memory-brand">${brandMark()}<span>yaadpage</span></header><section class="memory-hero"><div class="memory-spark">${esc(template.icon)}</div><div class="memory-eyebrow">${esc(occasion)} · A PAGE MADE FOR YOU</div><h1>${isWedding?"A Day to Remember":isAnniversary?"Our Story, Always":esc(page.recipientName)}</h1><p class="memory-subtitle">${esc(page.title || "A little surprise for you")}</p>${specialCard}<div class="memory-divider"><span>♡</span></div><article class="memory-letter"><p class="letter-greeting">${isWedding?"A note for our guests":isAnniversary?`Dear ${esc(page.recipientName)},`:`Dear ${esc(page.recipientName)},`}</p><div class="letter-message">${esc(page.message).replace(/\n/g,"<br>")}</div><p class="letter-signoff">With love,<br><strong>${esc(page.senderName)}</strong></p></article>${date&&!isWedding&&!isAnniversary?`<div class="memory-date">${esc(date)}</div>`:""}</section>${photos?`<section class="memory-gallery"><div class="memory-gallery-heading"><span>${isWedding?"A GLIMPSE OF THE CELEBRATION":isAnniversary?"OUR FAVOURITE CHAPTERS":"THE LITTLE THINGS"}</span><h2>${isWedding?"Moments from our journey":isAnniversary?"Every picture, a memory":"Moments worth <em>keeping.</em>"}</h2></div><div class="memory-photo-grid">${photos}</div></section>`:""}<footer class="memory-footer"><span>Made into a memory with</span><a href="/">${brandMark()} YaadPage</a></footer></main>`;
+
+    const storyOpening = isStory
+      ? `<section class="story-opening" data-reveal><div class="story-opening-copy"><span class="experience-kicker">THE STORY EDITION · MADE JUST FOR YOU</span><div class="story-orbit">∞</div><h2>${safeName}<span>’s little world.</span></h2><p>${esc(page.title || "A collection of moments that mean everything")}</p><a class="story-start" href="#story-letter">Open the letter <b>↓</b></a></div>${firstPhoto?`<figure class="story-opening-photo"><img src="${esc(firstPhoto)}" alt="A favourite memory" fetchpriority="high"><figcaption>ONE OF OUR FAVOURITE MOMENTS</figcaption></figure>`:`<div class="story-opening-art"><span>♡</span><b>Made of little moments</b></div>`}</section>`
+      : "";
+
+    const signatureOpening = isPremium
+      ? `<section class="signature-cover ${isWedding?"signature-wedding":isAnniversary?"signature-anniversary":""}" data-reveal>${firstPhoto?`<img class="signature-cover-image" src="${esc(firstPhoto)}" alt="A treasured memory" fetchpriority="high">`:""}<div class="signature-cover-shade"></div><div class="signature-cover-content"><span class="signature-overline">${isWedding?"A CELEBRATION OF FOREVER":isAnniversary?"A LOVE THAT KEEPS GROWING":`${esc(occasion.toUpperCase())} · SIGNATURE EDITION`}</span><div class="signature-monogram">${isWedding?"✦　❦　✦":isAnniversary?"∞":"✧"}</div><h1>${isWedding?`${safeSender} & ${safeName}`:isAnniversary?`${safeSender} & ${safeName}`:safeName}</h1><p>${esc(page.title || (isWedding?"Together is a beautiful place to be":isAnniversary?"Every chapter is better with you":"A story worth keeping forever"))}</p>${date?`<div class="signature-date">${esc(date.toUpperCase())}</div>`:""}<a href="#signature-story" class="signature-scroll">EXPLORE THE MEMORIES <span>↓</span></a></div><span class="signature-photo-count">${photosList.length} ${photosList.length===1?"MEMORY":"MEMORIES"}</span></section>`
+      : "";
+
+    const letter = isStory
+      ? `<details class="memory-letter interactive-letter" id="story-letter"><summary><span><small>A LITTLE SOMETHING FROM ${safeSender.toUpperCase()}</small><b>There’s a letter for you</b></span><i>Tap to open　♡</i></summary><div class="letter-inside"><p class="letter-greeting">Dear ${safeName},</p><div class="letter-message">${safeMessage}</div><p class="letter-signoff">With love,<br><strong>${safeSender}</strong></p></div></details>`
+      : `<article class="memory-letter ${isPremium?"signature-letter":""}" ${isPremium?'data-reveal':""}><p class="letter-greeting">${isWedding?"A note for our guests":`Dear ${safeName},`}</p><div class="letter-message">${safeMessage}</div><p class="letter-signoff">With love,<br><strong>${safeSender}</strong></p></article>`;
+
+    const storyChapters = isStory
+      ? `<section class="story-chapters" data-reveal><div class="experience-heading"><span class="experience-kicker">A FEW CHAPTERS OF US</span><h2>It’s the little things<br>that make a <em>whole story.</em></h2></div><div class="chapter-grid"><article class="chapter-card"><span>01</span><b>The beginning</b><p>One little moment that started it all.</p></article><article class="chapter-card"><span>02</span><b>The little things</b><p>All the ordinary days that became favourites.</p></article><article class="chapter-card"><span>03</span><b>And what comes next</b><p>More memories are waiting to be made.</p></article></div></section>`
+      : "";
+
+    const premiumStory = isPremium
+      ? `<section class="signature-story" id="signature-story" data-reveal><div class="experience-heading"><span class="experience-kicker">THE SIGNATURE EXPERIENCE</span><h2>${isWedding?"A promise, a celebration, a forever.":isAnniversary?"Every year adds another beautiful chapter.":"A hundred little reasons to remember."}</h2><p>Collected in one place, made to be opened again and again.</p></div><div class="signature-milestones"><div><span>01</span><b>${isWedding?"The promise":isAnniversary?"The beginning":"The first frame"}</b><small>Where the story starts</small></div><div><span>02</span><b>${isWedding?"The celebration":isAnniversary?"Every chapter":"The little things"}</b><small>Moments worth keeping</small></div><div><span>03</span><b>${isWedding?"The forever":isAnniversary?"Forever ahead":"More to come"}</b><small>The best is still being written</small></div></div></section>`
+      : "";
+
+    const photoCards = photosList.map((photo,index) => {
+      const src = imageUrl(photo);
+      return isPremium
+        ? `<button class="memory-photo signature-photo" type="button" data-lightbox-src="${esc(src)}" data-lightbox-alt="Memory ${index+1}"><img src="${esc(src)}" alt="Memory ${index+1}" loading="lazy"><span class="signature-photo-index">${String(index+1).padStart(2,"0")}</span><span class="signature-photo-zoom">＋</span></button>`
+        : `<figure class="memory-photo ${isStory?"story-photo":""}" data-reveal><img src="${esc(src)}" alt="A shared memory ${index+1}" loading="lazy">${isStory?`<figcaption>MEMORY ${String(index+1).padStart(2,"0")}</figcaption>`:""}</figure>`;
+    }).join("");
+
+    const gallery = photosList.length
+      ? `<section class="memory-gallery ${isStory?"story-gallery":""} ${isPremium?"signature-gallery":""}" id="${isPremium?"signature-gallery":"memory-gallery"}"><div class="memory-gallery-heading"><span>${isWedding?"A GLIMPSE OF THE CELEBRATION":isAnniversary?"OUR FAVOURITE CHAPTERS":isPremium?"A COLLECTION OF LITTLE FOREVERS":"THE LITTLE THINGS"}</span><h2>${isWedding?"Moments from our journey":isAnniversary?"Every picture, a memory":isPremium?"A gallery made to <em>revisit.</em>":"Moments worth <em>keeping.</em>"}</h2>${isPremium?`<p>${photosList.length} ${photosList.length===1?"photo":"photos"} · Tap any photo to see it up close</p>`:""}</div><div class="memory-photo-grid">${photoCards}</div></section>`
+      : "";
+
+    const progress = (isStory||isPremium) ? `<div class="memory-progress" aria-hidden="true"><span></span></div>` : "";
+    const premiumShare = isPremium ? `<div class="signature-share-wrap"><p>This page is a keepsake. Share it with the people who belong in this story.</p><button class="signature-share" id="shareMemory" type="button">Share this keepsake <span>↗</span></button></div><div class="photo-lightbox" id="photoLightbox" aria-hidden="true"><button type="button" class="lightbox-close" data-lightbox-close aria-label="Close photo">×</button><button type="button" class="lightbox-prev" data-lightbox-prev aria-label="Previous photo">‹</button><img id="lightboxImage" alt="Expanded memory"><button type="button" class="lightbox-next" data-lightbox-next aria-label="Next photo">›</button><div class="lightbox-caption" id="lightboxCaption"></div></div>` : "";
+
+    root.innerHTML = `<main class="memory-shell theme-${templateTheme(page.templateId)} plan-${planId} ${isWedding?"occasion-wedding":""} ${isAnniversary?"occasion-anniversary":""}">${progress}<div class="memory-grain"></div><header class="memory-brand">${brandMark()}<span>yaadpage</span>${isPremium?`<span class="brand-signature">SIGNATURE</span>`:""}</header>${signatureOpening}${storyOpening}<section class="memory-hero ${isStory?"memory-hero-story":""} ${isPremium?"memory-hero-premium":""}"><div class="memory-spark">${esc(template.icon)}</div><div class="memory-eyebrow">${esc(occasion)} · ${isPremium?"A KEEPSAKE MADE TO LAST":isStory?"A STORY MADE JUST FOR YOU":"A PAGE MADE FOR YOU"}</div>${!isPremium?`<h1>${isWedding?"A Day to Remember":isAnniversary?"Our Story, Always":safeName}</h1><p class="memory-subtitle">${esc(page.title || "A little surprise for you")}</p>`:""}${specialCard}<div class="memory-divider"><span>♡</span></div>${letter}${date&&!isWedding&&!isAnniversary?`<div class="memory-date">${esc(date)}</div>`:""}</section>${storyChapters}${premiumStory}${gallery}${premiumShare}<footer class="memory-footer"><span>${isPremium?"A little piece of forever, made with":"Made into a memory with"}</span><a href="/">${brandMark()} YaadPage</a></footer></main>`;
+
+    if (isStory || isPremium) {
+      const shell = $(".memory-shell", root);
+      const progressBar = $(".memory-progress span", root);
+      const updateProgress = () => {
+        if (!progressBar) return;
+        const max = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+        progressBar.style.width = `${Math.min(100, Math.max(0, window.scrollY / max * 100))}%`;
+      };
+      window.addEventListener("scroll", updateProgress, { passive:true });
+      updateProgress();
+      if ("IntersectionObserver" in window) {
+        const observer = new IntersectionObserver(entries => entries.forEach(entry => {
+          if (entry.isIntersecting) { entry.target.classList.add("is-visible"); observer.unobserve(entry.target); }
+        }), { threshold:0.12 });
+        shell.querySelectorAll("[data-reveal]").forEach(el => observer.observe(el));
+      } else shell.querySelectorAll("[data-reveal]").forEach(el => el.classList.add("is-visible"));
+    }
+
+    if (isPremium) {
+      let currentLightboxIndex = 0;
+      const lightbox = $("#photoLightbox", root);
+      const lightboxImage = $("#lightboxImage", root);
+      const lightboxCaption = $("#lightboxCaption", root);
+      const lightboxButtons = () => $$('[data-lightbox-src]', root);
+      const showLightbox = index => {
+        const buttons = lightboxButtons();
+        if (!buttons.length) return;
+        currentLightboxIndex = (index + buttons.length) % buttons.length;
+        const button = buttons[currentLightboxIndex];
+        lightboxImage.src = button.dataset.lightboxSrc;
+        lightboxImage.alt = button.dataset.lightboxAlt || "Memory photo";
+        lightboxCaption.textContent = `${currentLightboxIndex+1} / ${buttons.length}`;
+        lightbox.classList.add("open");lightbox.setAttribute("aria-hidden","false");document.body.classList.add("lightbox-open");
+      };
+      const closeLightbox = () => { lightbox.classList.remove("open");lightbox.setAttribute("aria-hidden","true");document.body.classList.remove("lightbox-open");lightboxImage.src=""; };
+      root.addEventListener("click", event => {
+        const photoButton = event.target.closest("[data-lightbox-src]");
+        if (photoButton) { showLightbox(lightboxButtons().indexOf(photoButton)); return; }
+        if (event.target.closest("[data-lightbox-close]") || event.target === lightbox) { closeLightbox(); return; }
+        if (event.target.closest("[data-lightbox-prev]")) { showLightbox(currentLightboxIndex-1); return; }
+        if (event.target.closest("[data-lightbox-next]")) { showLightbox(currentLightboxIndex+1); return; }
+        if (event.target.closest("#shareMemory")) {
+          const shareData = { title:document.title, text:"A special memory page made on YaadPage", url:location.href };
+          if (navigator.share) navigator.share(shareData).catch(()=>{});
+          else if (navigator.clipboard?.writeText) navigator.clipboard.writeText(location.href).then(()=>{ $("#shareMemory").innerHTML="Link copied <span>✓</span>"; }).catch(()=>{});
+        }
+      });
+      document.addEventListener("keydown", event => {
+        if (!lightbox.classList.contains("open")) return;
+        if (event.key === "Escape") closeLightbox();
+        if (event.key === "ArrowLeft") showLightbox(currentLightboxIndex-1);
+        if (event.key === "ArrowRight") showLightbox(currentLightboxIndex+1);
+      });
+    }
   } catch (error) {
     const expired = error.message.toLowerCase().includes("expired");
     root.innerHTML = `<main class="not-found"><a class="brand" href="/">${brandMark()}<span>yaadpage<span class="brand-dot">.</span></span></a><div class="not-found-icon">${expired ? "⌛" : "♡"}</div><h1>${expired ? "This page has expired." : "This memory page wasn't found."}</h1><p>${expired ? "The hosting period for this page has ended." : "The link may be incorrect, or the page may not have been published yet."}</p><a class="button button-dark" href="/">Explore YaadPage <span>↗</span></a></main>`;
   }
 }
-
 function boot() {
   const path = location.pathname.replace(/\/+$/, "") || "/";
   if (path === "/") return home();
