@@ -1,89 +1,257 @@
-(() => {
-  const $ = (s, r = document) => r.querySelector(s);
-  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
-  const esc = v => String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
-  const money = n => `₹${Number(n || 0).toLocaleString('en-IN')}`;
-  const fmtDate = v => { const d = v?.seconds ? new Date(v.seconds * 1000) : new Date(v); return isNaN(d) ? '—' : d.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}); };
-  const state = {
-    store: {settings:{}, products:[], categories:[], banners:[], chatbot:{}}, user:null, cart:JSON.parse(localStorage.getItem('qikly_cart')||'[]'), wishlist:JSON.parse(localStorage.getItem('qikly_wishlist')||'[]'), authMode:'login', search:'', selectedImage:0, loading:true
+const $ = (selector, root = document) => root.querySelector(selector);
+const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[char]));
+const money = value => `₹${Number(value || 0).toLocaleString("en-IN")}`;
+const API = "/api/yaadpage";
+const templates = [
+  { id:"birthday", name:"Birthday Glow", tag:"Birthday", detail:"Bright, joyful and full of little surprises", icon:"✦", theme:"pink" },
+  { id:"love", name:"Love Letter", tag:"Love", detail:"A warm digital letter for your person", icon:"♡", theme:"rose" },
+  { id:"anniversary", name:"Our Story", tag:"Anniversary", detail:"Celebrate the moments that matter", icon:"∞", theme:"cream" },
+  { id:"bestfriend", name:"Best Friend Forever", tag:"Friendship", detail:"A personal page for your favourite human", icon:"✷", theme:"lilac" },
+  { id:"proposal", name:"One Question", tag:"Proposal", detail:"Make an important question unforgettable", icon:"❦", theme:"night" }
+];
+const plans = [
+  { id:"starter", name:"Starter", price:199, photos:1, detail:"A beautiful one-page surprise", features:["1 photo", "Personal message", "Unique shareable URL", "1-year hosting"] },
+  { id:"story", name:"Story", price:399, photos:3, detail:"Our most popular experience", features:["Up to 3 photos", "Animated sections", "Personal message", "1-year hosting"], popular:true },
+  { id:"premium", name:"Premium", price:699, photos:6, detail:"The complete memory experience", features:["Up to 6 photos", "Premium visual effects", "Photo gallery", "1-year hosting"] }
+];
+
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    cache: "no-store",
+    ...options,
+    headers: { ...(options.body instanceof FormData ? {} : { "Content-Type":"application/json" }), ...(options.headers || {}) }
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+  return data;
+}
+function setTitle(title) { document.title = `${title} — YaadPage`; }
+function go(path) { location.href = path; }
+function brandMark() { return `<span class="brand-mark">Y</span>`; }
+function header(active = "") {
+  return `<header class="site-header"><a class="brand" href="/">${brandMark()}<span>yaadpage<span class="brand-dot">.</span></span></a><nav class="desktop-nav"><a href="/#designs" class="${active === "designs" ? "active" : ""}">Designs</a><a href="/#how-it-works">How it works</a><a href="/#pricing">Pricing</a></nav><a class="button button-dark nav-cta" href="/create">Create your page <span>↗</span></a><button class="mobile-menu" id="mobileMenu" aria-label="Open menu">☰</button></header>`;
+}
+function footer() {
+  return `<footer class="site-footer"><a class="brand" href="/">${brandMark()}<span>yaadpage<span class="brand-dot">.</span></span></a><p>Make memories shareable.</p><div><a href="/">Home</a><a href="/#pricing">Pricing</a><a href="mailto:hello@yaadpage.online">Support</a><a href="/admin">Admin</a></div><small>© ${new Date().getFullYear()} YaadPage. Made for meaningful moments.</small></footer>`;
+}
+function templateCard(item, index) {
+  return `<article class="template-card"><a class="template-art art-${item.theme}" href="/create?template=${item.id}"><div class="art-window"><span class="art-spark">${item.icon}</span><small>${item.tag.toUpperCase()} EDITION</small><strong>${item.id === "birthday" ? "Make a wish" : item.id === "love" ? "A little note" : item.id === "anniversary" ? "Our story" : item.id === "bestfriend" ? "My favourite human" : "One special question"}</strong><i>${item.id === "birthday" ? "For someone wonderful" : "Made just for you"}</i><span class="art-button">Open surprise <b>↗</b></span></div><span class="art-index">0${index + 1}</span></a><div class="template-info"><div><h3>${item.name}</h3><p>${item.detail}</p></div><a class="round-arrow" href="/create?template=${item.id}" aria-label="Create ${item.name}">↗</a></div></article>`;
+}
+function home() {
+  setTitle("Make Memories Shareable");
+  const root = $("#app");
+  root.innerHTML = `${header()}<main>
+    <section class="hero wrap"><div class="hero-copy"><div class="eyebrow"><span class="eyebrow-dot"></span> A LITTLE WEBSITE. A BIG FEELING.</div><h1>Make a moment<br>they can <em>open.</em></h1><p class="hero-lede">Turn your photos, words and memories into a beautiful little website. Create it in minutes. Share it with someone special.</p><div class="hero-actions"><a class="button button-dark" href="/create">Create a surprise <span>↗</span></a><a class="text-link" href="#designs">Explore designs <span>↓</span></a></div><div class="hero-proof"><div class="avatar-stack"><i>A</i><i>R</i><i>M</i><i>+</i></div><span>Made for the people who matter.</span></div></div><div class="hero-visual"><div class="visual-orbit orbit-one"></div><div class="visual-orbit orbit-two"></div><div class="floating-note note-one"><span>♡</span><b>just for you</b></div><div class="floating-note note-two"><span>✦</span><b>a memory to keep</b></div><div class="hero-phone"><div class="phone-top"><span></span><span></span></div><div class="phone-screen"><div class="phone-flower">✿</div><small>A LITTLE SURPRISE FOR</small><h2>ANANYA</h2><p>Today is all about you.</p><div class="phone-photo"><span>♡</span></div><div class="phone-message">You make ordinary days feel special.</div><div class="phone-hearts">♡　♡　♡</div></div></div><div class="hero-sticker">made<br>with love <span>✦</span></div></div></section>
+    <section class="trust-strip"><div class="wrap trust-inner"><span>NO DESIGN SKILLS NEEDED</span><i>✳</i><span>YOUR OWN SHAREABLE LINK</span><i>✳</i><span>READY IN MINUTES</span><i>✳</i><span>MADE TO FEEL PERSONAL</span></div></section>
+    <section class="section wrap" id="designs"><div class="section-heading"><div><div class="eyebrow">CHOOSE YOUR FEELING</div><h2>A design for every <em>occasion.</em></h2></div><p>Pick a starting point. Add your own words and photos. We'll turn it into a page worth opening.</p></div><div class="template-grid">${templates.map(templateCard).join("")}</div><div class="center-action"><a class="button button-outline" href="/create">See all designs <span>↗</span></a></div></section>
+    <section class="how-section" id="how-it-works"><div class="wrap"><div class="section-heading"><div><div class="eyebrow">THREE SIMPLE STEPS</div><h2>From your idea<br>to their <em>surprise.</em></h2></div><p>No coding. No app to install. Just a few details and a link you can share anywhere.</p></div><div class="steps-grid"><article class="step-card"><span class="step-number">01</span><div class="step-icon">✿</div><h3>Choose a design</h3><p>Start with a birthday, love, anniversary, friendship or proposal design.</p></article><article class="step-card"><span class="step-number">02</span><div class="step-icon">⌁</div><h3>Make it yours</h3><p>Add names, a personal message and a few favourite photos.</p></article><article class="step-card"><span class="step-number">03</span><div class="step-icon">↗</div><h3>Share the link</h3><p>Your page is created automatically. Send its unique link to your person.</p></article></div></div></section>
+    <section class="pricing-section wrap" id="pricing"><div class="section-heading"><div><div class="eyebrow">SIMPLE, ONE-TIME PRICING</div><h2>A small price for a<br><em>lasting smile.</em></h2></div><p>Choose how much of your story you want to share. Every plan includes its own YaadPage link and one year of hosting.</p></div><div class="pricing-grid">${plans.map(p=>`<article class="price-card ${p.popular ? "price-popular" : ""}">${p.popular?'<span class="popular-label">MOST POPULAR</span>':""}<div class="price-name">${p.name}</div><div class="price-amount">${money(p.price)}<small> one time</small></div><p>${p.detail}</p><ul>${p.features.map(x=>`<li><span>✓</span>${x}</li>`).join("")}</ul><a class="button ${p.popular ? "button-dark" : "button-outline"}" href="/create?plan=${p.id}">Choose ${p.name} <span>↗</span></a></article>`).join("")}</div><p class="pricing-note">No subscription. No hidden monthly charge. Renewal details are shown before checkout.</p></section>
+    <section class="quote-section"><div class="wrap quote-inner"><span class="quote-mark">“</span><blockquote>Some things are too special for a simple text message.</blockquote><p>Give the moment a page of its own.</p><a class="button button-dark" href="/create">Make their page <span>↗</span></a></div></section>
+    <section class="faq-section wrap"><div class="section-heading"><div><div class="eyebrow">GOOD TO KNOW</div><h2>A few quick <em>answers.</em></h2></div><p>Everything you need to know before making your first page.</p></div><div class="faq-list"><details><summary>Do I need to know how to code? <span>＋</span></summary><p>No. Choose a design, fill in the form and YaadPage builds your page automatically.</p></details><details><summary>What will my page link look like? <span>＋</span></summary><p>Your page gets its own address, such as yaadpage.online/annayabirthday. You choose the ending when you create it.</p></details><details><summary>Can I share the page on WhatsApp? <span>＋</span></summary><p>Yes. Once your payment is verified, copy the link and share it through WhatsApp, Instagram or anywhere else.</p></details><details><summary>How long will my page stay online? <span>＋</span></summary><p>All current plans include one year of hosting. Renewal options will be shown before your page expires.</p></details><details><summary>Are my photos public? <span>＋</span></summary><p>Anyone with your page link can view the photos you choose to include. Do not upload private or sensitive images.</p></details></div></section>
+  </main>${footer()}`;
+  const menu = $("#mobileMenu");
+  if (menu) menu.onclick = () => { const nav = $(".desktop-nav"); nav.classList.toggle("mobile-open"); };
+}
+
+function createPage() {
+  setTitle("Create your page");
+  const params = new URLSearchParams(location.search);
+  const chosenTemplate = templates.find(x => x.id === params.get("template")) || templates[0];
+  const chosenPlan = plans.find(x => x.id === params.get("plan")) || plans[1];
+  const root = $("#app");
+  root.innerHTML = `${header()}<main class="create-wrap wrap"><div class="create-heading"><a href="/" class="back-link">← Back to home</a><div class="eyebrow">YOUR MOMENT STARTS HERE</div><h1>Make it <em>personal.</em></h1><p>Fill in a few details. Your page will be created automatically after payment.</p></div><div class="create-layout"><form class="create-form" id="createForm" novalidate>
+    <section class="form-section"><div class="form-section-title"><span>01</span><div><h2>Choose your design</h2><p>Start with the occasion that feels right.</p></div></div><div class="design-select-grid">${templates.map(t=>`<button type="button" class="design-choice ${t.id===chosenTemplate.id?"selected":""}" data-template="${t.id}"><span class="choice-icon theme-${t.theme}">${t.icon}</span><b>${t.name}</b><small>${t.tag}</small></button>`).join("")}</div><input type="hidden" id="templateId" value="${chosenTemplate.id}"></section>
+    <section class="form-section"><div class="form-section-title"><span>02</span><div><h2>The people behind it</h2><p>These details make the page feel personal.</p></div></div><div class="field-grid"><label>Who is this page for?<input id="recipientName" maxlength="70" placeholder="e.g. Ananya" required></label><label>Your name<input id="senderName" maxlength="70" placeholder="e.g. Mintu" required></label><label class="field-full">Page headline<input id="pageTitle" maxlength="90" placeholder="e.g. A little surprise for you"></label><label>Special date <span class="optional">Optional</span><input id="eventDate" type="date"></label><label>Page address <span class="required-note">Required</span><div class="slug-input"><span>yaadpage.online/</span><input id="slug" maxlength="42" placeholder="your-special-name" required></div><small id="slugStatus" class="field-hint">This will be your personal page link.</small></label><label class="field-full">Your message<textarea id="message" rows="5" maxlength="1200" placeholder="Write something they will love reading…" required></textarea><small class="field-hint"><span id="messageCount">0</span>/1200 characters</small></label></div></section>
+    <section class="form-section"><div class="form-section-title"><span>03</span><div><h2>Add your photos</h2><p>Use JPG, PNG or WebP. Keep each photo under 2.3 MB.</p></div></div><label class="upload-zone" for="photos"><span class="upload-icon">＋</span><b>Choose photos</b><small id="photoHelp">Up to ${chosenPlan.photos} photo(s) with your selected plan</small><input id="photos" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden></label><div id="photoPreviews" class="photo-previews"></div><p class="privacy-hint">Only upload photos you have permission to share. Anyone with the page link can view them.</p></section>
+    <section class="form-section"><div class="form-section-title"><span>04</span><div><h2>Choose your plan</h2><p>One-time payment. One year of hosting.</p></div></div><div class="plan-choice-grid">${plans.map(p=>`<label class="plan-choice ${p.id===chosenPlan.id?"chosen":""}"><input type="radio" name="plan" value="${p.id}" ${p.id===chosenPlan.id?"checked":""}><span class="plan-choice-top"><b>${p.name}</b><strong>${money(p.price)}</strong></span><small>${p.photos} photo${p.photos>1?"s":""} · 1-year hosting</small>${p.popular?'<i>Popular</i>':""}</label>`).join("")}</div></section>
+    <section class="form-section"><div class="form-section-title"><span>05</span><div><h2>Where should we send the link?</h2><p>Used for your order confirmation and support.</p></div></div><div class="field-grid"><label>Email address<input id="email" type="email" autocomplete="email" placeholder="you@example.com" required></label><label>WhatsApp number<input id="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="10-digit mobile number" required></label></div></section>
+    <div id="createError" class="form-error" role="alert"></div><button type="submit" class="button button-dark button-wide" id="payButton">Create page & pay <span>↗</span></button><p class="checkout-note"><span>🔒</span> Secure checkout powered by Razorpay. Your page publishes after payment verification.</p>
+  </form><aside class="live-preview"><div class="preview-top"><span class="live-dot"></span> LIVE PREVIEW <small>Illustrative</small></div><div class="preview-page art-${chosenTemplate.theme}" id="livePreview"><div class="preview-flower">${chosenTemplate.icon}</div><small>A LITTLE SURPRISE FOR</small><h2 id="previewName">YOUR PERSON</h2><p id="previewHeadline">A little surprise for you</p><div class="preview-photo" id="previewPhoto">♡</div><blockquote id="previewMessage">Your message will appear here. Make it personal, make it yours.</blockquote><div class="preview-sign">WITH LOVE · <span id="previewSender">YOU</span></div></div><div class="preview-url"><span>YOUR LINK</span><b id="previewSlug">yaadpage.online/your-special-name</b></div><p class="preview-disclaimer">Preview only. Your published page includes the final details and selected design.</p></aside></div></main>${footer()}`;
+  bindCreateForm(chosenPlan.id);
+}
+
+function bindCreateForm(initialPlan) {
+  const form = $("#createForm"), photoInput = $("#photos"), errorBox = $("#createError");
+  let selectedPlan = initialPlan;
+  let chosenPhotos = [];
+  let slugTimer = null;
+  let lastSlugCheck = "";
+  const selectedTemplate = () => templates.find(t => t.id === $("#templateId").value) || templates[0];
+  const slugify = value => String(value || "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 42).replace(/-+$/g, "");
+  const updatePreview = () => {
+    const recipient = $("#recipientName").value.trim() || "YOUR PERSON";
+    const sender = $("#senderName").value.trim() || "YOU";
+    const slug = $("#slug").value.trim() || "your-special-name";
+    $("#previewName").textContent = recipient.toUpperCase();
+    $("#previewSender").textContent = sender.toUpperCase();
+    $("#previewHeadline").textContent = $("#pageTitle").value.trim() || "A little surprise for you";
+    $("#previewMessage").textContent = $("#message").value.trim() || "Your message will appear here. Make it personal, make it yours.";
+    $("#previewSlug").textContent = `yaadpage.online/${slug}`;
+    const template = selectedTemplate();
+    const preview = $("#livePreview");
+    preview.className = `preview-page art-${template.theme}`;
+    $(".preview-flower", preview).textContent = template.icon;
+    if (chosenPhotos[0]) {
+      const url = URL.createObjectURL(chosenPhotos[0]);
+      const photo = $("#previewPhoto");
+      photo.style.backgroundImage = `url("${url}")`;
+      photo.classList.add("has-photo");
+      photo.textContent = "";
+      if (photo.dataset.url) URL.revokeObjectURL(photo.dataset.url);
+      photo.dataset.url = url;
+    }
   };
-  const api = async (url, options={}) => { const res = await fetch(url, {credentials:'same-origin', headers:{'Content-Type':'application/json', ...(options.headers||{})}, ...options}); let data={}; try{data=await res.json()}catch{} if(!res.ok) throw new Error(data.error||'Something went wrong.'); return data; };
-  const toast = (msg, error=false) => { const el=document.createElement('div'); el.className='toast'+(error?' error':''); el.textContent=msg; $('#toastStack').appendChild(el); setTimeout(()=>el.remove(),3600); };
-  const persist = () => { localStorage.setItem('qikly_cart',JSON.stringify(state.cart)); localStorage.setItem('qikly_wishlist',JSON.stringify(state.wishlist)); updateBadges(); };
-  const updateBadges = () => { $('#cartCount').textContent=state.cart.reduce((s,x)=>s+x.qty,0); $('#wishCount').textContent=state.wishlist.length; };
-  const settings = () => state.store.settings || {};
-  const productById = id => state.store.products.find(p => p.id === id);
-  const activeProducts = () => state.store.products.filter(p => p.active !== false);
-  const addCart = (id, qty=1) => { const p=productById(id); if(!p)return; const old=state.cart.find(x=>x.id===id); const max=Math.max(0,Number(p.stock||0)); if(!old) state.cart.push({id,qty:Math.min(qty,max||qty)}); else old.qty=Math.min(old.qty+qty,max||old.qty+qty); persist(); toast('Added to cart'); render(); };
-  const removeCart = id => { state.cart=state.cart.filter(x=>x.id!==id); persist(); render(); };
-  const setWish = id => { state.wishlist.includes(id) ? state.wishlist=state.wishlist.filter(x=>x!==id) : state.wishlist.push(id); persist(); render(); };
-  const cartItems = () => state.cart.map(x=>({...x,p:productById(x.id)})).filter(x=>x.p);
-  const cartSubtotal = () => cartItems().reduce((s,x)=>s+Number(x.p.price||0)*x.qty,0);
-  const route = () => { const raw=location.hash.slice(1)||'/'; const [path,q='']=raw.split('?'); return {path,params:new URLSearchParams(q)}; };
-  const navigate = r => { location.hash=r; };
-  const isLogged = () => !!state.user;
-  const requireAuth = () => { if(!isLogged()){ openAuth(); return false; } return true; };
+  const checkSlug = async () => {
+    const slug = slugify($("#slug").value);
+    const status = $("#slugStatus");
+    if (slug.length < 3) { status.textContent = "Use at least 3 letters or numbers."; status.className = "field-hint invalid"; lastSlugCheck = ""; return false; }
+    status.textContent = "Checking address…"; status.className = "field-hint";
+    try {
+      const result = await api(`${API}/slug/check?slug=${encodeURIComponent(slug)}`);
+      if (slug !== slugify($("#slug").value)) return false;
+      lastSlugCheck = result.available ? slug : "";
+      status.textContent = result.available ? "Available — this can be your page link." : result.reason;
+      status.className = `field-hint ${result.available ? "valid" : "invalid"}`;
+      return result.available;
+    } catch (error) { status.textContent = error.message; status.className = "field-hint invalid"; return false; }
+  };
+  const renderPhotos = () => {
+    const plan = plans.find(p => p.id === selectedPlan) || plans[1];
+    $("#photoHelp").textContent = `Up to ${plan.photos} photo(s) with your selected plan`;
+    $("#photoPreviews").innerHTML = chosenPhotos.map((file, index) => `<div class="photo-preview"><img src="${URL.createObjectURL(file)}" alt="Selected photo"><button type="button" data-remove-photo="${index}" aria-label="Remove photo">×</button><small>${esc(file.name)}</small></div>`).join("");
+    $$('[data-remove-photo]').forEach(btn => btn.onclick = () => { chosenPhotos.splice(Number(btn.dataset.removePhoto), 1); renderPhotos(); updatePreview(); });
+  };
+  $$("[data-template]").forEach(btn => btn.onclick = () => {
+    $$("[data-template]").forEach(x => x.classList.toggle("selected", x === btn));
+    $("#templateId").value = btn.dataset.template;
+    const t = selectedTemplate();
+    $("#livePreview").className = `preview-page art-${t.theme}`;
+    $(".preview-flower").textContent = t.icon;
+  });
+  $$('input[name="plan"]').forEach(input => input.onchange = () => {
+    selectedPlan = input.value;
+    $$(".plan-choice").forEach(el => el.classList.toggle("chosen", $("input", el).checked));
+    const plan = plans.find(p => p.id === selectedPlan);
+    if (chosenPhotos.length > plan.photos) chosenPhotos = chosenPhotos.slice(0, plan.photos);
+    renderPhotos();
+    $("#payButton").innerHTML = `Create page & pay · ${money(plan.price)} <span>↗</span>`;
+  });
+  ["recipientName","senderName","pageTitle","message","slug"].forEach(id => {
+    const el = $("#" + id);
+    el.addEventListener("input", () => {
+      if (id === "recipientName" && !$("#slug").dataset.edited) {
+        $("#slug").value = slugify(el.value + ( $("#templateId").value === "birthday" ? " birthday" : ""));
+      }
+      if (id === "slug") $("#slug").dataset.edited = "true";
+      if (id === "message") $("#messageCount").textContent = el.value.length;
+      updatePreview();
+      if (id === "slug") { clearTimeout(slugTimer); slugTimer = setTimeout(checkSlug, 450); }
+    });
+  });
+  $("#templateId").addEventListener("change", updatePreview);
+  photoInput.onchange = () => {
+    const plan = plans.find(p => p.id === selectedPlan);
+    const incoming = [...photoInput.files];
+    const valid = incoming.filter(file => ["image/jpeg","image/png","image/webp"].includes(file.type) && file.size <= 2_400_000);
+    if (valid.length !== incoming.length) errorBox.textContent = "Only JPG, PNG or WebP photos under 2.3 MB are accepted.";
+    const remaining = Math.max(0, plan.photos - chosenPhotos.length);
+    chosenPhotos = [...chosenPhotos, ...valid.slice(0, remaining)];
+    if (incoming.length > remaining) errorBox.textContent = `Your ${plan.name} plan allows up to ${plan.photos} photo(s).`;
+    renderPhotos(); updatePreview(); photoInput.value = "";
+  };
+  $("#slug").addEventListener("blur", checkSlug);
+  const loadRazorpay = () => new Promise((resolve, reject) => {
+    if (window.Razorpay) return resolve();
+    const script = document.createElement("script"); script.src = "https://checkout.razorpay.com/v1/checkout.js"; script.onload = resolve; script.onerror = () => reject(new Error("Could not load secure checkout. Check your connection and try again.")); document.head.appendChild(script);
+  });
+  const fileAsDataUrl = file => new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(new Error("Could not read one of your photos.")); reader.readAsDataURL(file); });
 
-  async function loadStore(){ state.loading=true; try{ const d=await api('/api/public/store'); state.store=d; applyBranding(); }catch(e){ toast(e.message,true); state.store={settings:{siteName:'Qikly Shop',heroTitle:'Diwali Mega Sale',heroText:'Festive shopping made simple.',heroImage:'https://images.unsplash.com/photo-1603006905003-be475563bc59?auto=format&fit=crop&w=1600&q=80',announcement:'🪔 Diwali Mega Sale is live'},products:[],categories:[],banners:[],chatbot:{}}; } finally{ state.loading=false; updateBadges(); render(); } }
-  async function loadUser(){ try{const d=await api('/api/auth/me'); state.user=d.authenticated?d.user:null;}catch{state.user=null;} }
-  function applyBranding(){ const s=settings(); document.title=`${s.siteName||'Qikly Shop'} — Diwali Mega Sale`; $('#saleRibbon').textContent=s.announcement||'🪔 Diwali Mega Sale is live • Festive deals are here'; $('#brandName').textContent=s.siteName||'Qikly Shop'; $('#brandTagline').textContent=s.tagline||'Diwali shopping, made brighter.'; $('#brandMark').textContent=s.logoText||'Q'; $('#footerName').textContent=s.siteName||'Qikly Shop'; $('#footerTag').textContent=s.tagline||'Festive shopping'; $('#footerAbout').textContent=s.about||'Premium festive shopping with secure checkout and fast delivery.'; $('#footerMark').textContent=s.logoText||'Q'; $('#supportEmail').href=`mailto:${s.supportEmail||''}`; $('#supportPhone').textContent=s.supportPhone||'—'; $('#copyright').textContent=`© ${new Date().getFullYear()} ${s.siteName||'Qikly Shop'}`; if(state.store.chatbot?.name) $('#aiName').textContent=state.store.chatbot.name; }
+  form.onsubmit = async event => {
+    event.preventDefault(); errorBox.textContent = "";
+    const button = $("#payButton");
+    const recipientName = $("#recipientName").value.trim(), senderName = $("#senderName").value.trim(), message = $("#message").value.trim();
+    const email = $("#email").value.trim(), phone = $("#phone").value.trim();
+    if (!recipientName || !senderName || message.length < 8 || !email || phone.replace(/\D/g, "").length < 10) { errorBox.textContent = "Please complete the required fields. Your message must have at least 8 characters."; return; }
+    const slug = slugify($("#slug").value);
+    if (!slug || slug.length < 3) { errorBox.textContent = "Please add a page address with at least 3 characters."; return; }
+    button.disabled = true; button.innerHTML = "Checking details… <span>…</span>";
+    try {
+      const availability = await api(`${API}/slug/check?slug=${encodeURIComponent(slug)}`);
+      if (!availability.available) throw new Error(availability.reason || "Choose another page address.");
+      const plan = plans.find(p => p.id === selectedPlan);
+      const draft = {
+        slug, templateId: $("#templateId").value, planId: selectedPlan, recipientName, senderName,
+        title: $("#pageTitle").value.trim(), message, eventDate: $("#eventDate").value,
+        email, phone, photoNames: chosenPhotos.map(file => file.name)
+      };
+      button.innerHTML = "Preparing your page… <span>…</span>";
+      const order = await api(`${API}/orders/create`, { method:"POST", body:JSON.stringify(draft) });
+      for (let i = 0; i < chosenPhotos.length; i++) {
+        button.innerHTML = `Uploading photo ${i + 1}/${chosenPhotos.length}… <span>…</span>`;
+        const dataBase64 = await fileAsDataUrl(chosenPhotos[i]);
+        await api(`${API}/orders/${encodeURIComponent(order.orderId)}/upload`, { method:"POST", body:JSON.stringify({ uploadToken:order.uploadToken, fileName:chosenPhotos[i].name, contentType:chosenPhotos[i].type, dataBase64 }) });
+      }
+      await loadRazorpay();
+      button.innerHTML = `Opening secure payment · ${money(plan.price)} <span>…</span>`;
+      const checkout = new Razorpay({
+        key: order.key, amount: order.amount, currency: order.currency, name: "YaadPage",
+        description: `${plan.name} memory page`, order_id: order.orderId,
+        prefill: { name: senderName, email, contact: phone },
+        notes: { page: order.slug }, theme: { color: "#bd6f78" },
+        handler: async response => {
+          try {
+            button.innerHTML = "Verifying payment… <span>…</span>";
+            const verified = await api(`${API}/orders/verify`, { method:"POST", body:JSON.stringify(response) });
+            go(`/success?slug=${encodeURIComponent(verified.slug)}`);
+          } catch (error) { errorBox.textContent = `Payment received, but page publishing needs support: ${error.message}. Keep your payment ID: ${response.razorpay_payment_id}`; button.disabled = false; button.innerHTML = "Retry / contact support <span>↗</span>"; }
+        },
+        modal: { ondismiss: () => { button.disabled = false; button.innerHTML = `Try payment again · ${money(plan.price)} <span>↗</span>`; errorBox.textContent = "Payment window closed. Your page was not published."; } }
+      });
+      checkout.on("payment.failed", response => { errorBox.textContent = response.error?.description || "Payment did not go through. Please try again."; button.disabled = false; button.innerHTML = `Pay ${money(plan.price)} <span>↗</span>`; });
+      checkout.open();
+    } catch (error) {
+      errorBox.textContent = error.message || "Something went wrong. Please try again.";
+      button.disabled = false;
+      const p = plans.find(x => x.id === selectedPlan);
+      button.innerHTML = `Create page & pay · ${money(p.price)} <span>↗</span>`;
+    }
+  };
+  updatePreview(); renderPhotos();
+  $("#payButton").innerHTML = `Create page & pay · ${money(chosenPlan.price)} <span>↗</span>`;
+}
 
-  function render(){ const {path,params}=route(); let html=''; if(state.loading) html='<div class="loading">Loading Qikly Shop…</div>'; else if(path==='/') html=home(); else if(path==='/shop') html=shop(params); else if(path==='/product') html=product(params.get('id')); else if(path==='/cart') html=cart(); else if(path==='/checkout') html=checkout(); else if(path==='/account') html=account(); else if(path==='/orders') html=orders(); else if(path==='/order') html=orderDetail(params.get('id')); else if(path==='/wishlist') html=wishlist(); else if(path==='/policy') html=policy(params.get('type')); else html=notFound(); $('#app').innerHTML=html; bindPage(); }
-  function home(){ const s=settings(), cats=(state.store.categories||[]).filter(c=>c.active!==false).sort((a,b)=>(a.sortOrder||0)-(b.sortOrder||0)).slice(0,6); const featured=activeProducts().filter(p=>p.featured!==false).slice(0,8); const hero=s.heroImageEnabled!==false ? (s.heroImage||state.store.banners?.[0]?.imageUrl||'https://images.unsplash.com/photo-1603006905003-be475563bc59?auto=format&fit=crop&w=1600&q=80') : ''; const heroArt=hero?`<div class="hero-art" style="background-image:url('${esc(hero)}')"><div class="hero-orbit"></div></div>`:'<div class="hero-art" style="background-image:none"></div>'; return `<section class="hero"><div class="container"><div class="hero-card"><div class="hero-copy"><span class="eyebrow">DIWALI 2026 • FESTIVE SHOPPING</span><h1>${esc(s.heroTitle||'Diwali Mega Sale — Light up every cart.')}</h1><p>${esc(s.heroText||'Festive deals, fast delivery and secure checkout — all in one modern shopping experience.')}</p><div class="hero-actions"><button class="btn btn-primary" data-route="#/shop?sort=deal">Shop Diwali Deals →</button><button class="btn btn-light" data-route="#/shop">Explore Store</button></div></div>${heroArt}</div></div></section>${dealStrip()}<section class="section"><div class="container"><div class="section-head"><div><span class="eyebrow">SHOP BY CATEGORY</span><h2>Find your festive favourites</h2><p>Curated collections for every room, mood and gift box.</p></div><button class="link-btn" data-route="#/shop">View all →</button></div><div class="category-row">${cats.map(c=>`<button class="category-card" data-route="#/shop?cat=${encodeURIComponent(c.id)}"><img src="${esc(c.imageUrl||imgFallback)}" alt=""><b>${esc(c.name)}</b></button>`).join('')}</div></div></section><section class="section"><div class="container"><div class="section-head"><div><span class="eyebrow">TRENDING NOW</span><h2>Diwali picks everyone wants</h2></div><button class="link-btn" data-route="#/shop?sort=deal">All deals →</button></div><div class="product-grid">${featured.map(productCard).join('')}</div></div></section>${bannersSection()}`; }
-  const imgFallback='https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=900&q=80';
-  function dealStrip(){ return `<section class="section"><div class="container"><div class="deal-strip"><div><strong>🪔 Diwali Mega Sale</strong><div class="muted">Extra savings on selected products • Free shipping above ${money(settings().freeShipping||999)}</div></div><div class="timer" id="saleTimer"><span>00<small>DAYS</small></span><span>00<small>HRS</small></span><span>00<small>MIN</small></span><span>00<small>SEC</small></span></div><button class="btn btn-dark" data-route="#/shop?sort=deal">Grab deals</button></div></div></section>`; }
-  function bannersSection(){const bs=(state.store.banners||[]).filter(x=>x.active!==false).slice(0,3); if(!bs.length)return ''; return `<section class="section"><div class="container"><div class="section-head"><div><span class="eyebrow">FESTIVE STORIES</span><h2>Shop the Qikly way</h2></div></div><div class="product-grid" style="grid-template-columns:repeat(${Math.min(3,bs.length)},1fr)">${bs.map(b=>`<button class="category-card" data-route="${esc(b.link||'#/shop')}"><img src="${esc(b.imageUrl||imgFallback)}" style="height:230px" alt=""><span class="eyebrow">${esc(b.badge||'FESTIVE')}</span><b>${esc(b.title)}</b><small class="muted">${esc(b.subtitle||'')}</small></button>`).join('')}</div></div></section>`;}
-  function productCard(p){ const wished=state.wishlist.includes(p.id); const off=Math.max(0,Math.round((1-Number(p.price||0)/Math.max(1,Number(p.compareAtPrice||p.price||1)))*100)); return `<article class="product-card"><button class="heart" data-wish="${esc(p.id)}">${wished?'♥':'♡'}</button><button class="media" data-route="#/product?id=${encodeURIComponent(p.id)}"><img src="${esc(p.images?.[0]||p.imageUrl||imgFallback)}" alt="${esc(p.title)}"><span class="badge">${esc(p.badge|| (off>0?`${off}% OFF`:'Festive Pick'))}</span></button><div class="product-info"><button class="product-title" data-route="#/product?id=${encodeURIComponent(p.id)}">${esc(p.title)}</button><span class="rating">★ <strong>${Number(p.rating||0).toFixed(1)}</strong> (${Number(p.ratingCount||0)})</span><div class="price-row"><span class="price">${money(p.price)}</span>${p.compareAtPrice?`<span class="compare">${money(p.compareAtPrice)}</span>`:''}${off>0?`<span class="save">${off}% off</span>`:''}</div><button class="btn btn-primary" data-add="${esc(p.id)}">Add to cart</button></div></article>`; }
-  function shop(params){ let list=activeProducts(); const cat=params.get('cat'); const q=(params.get('q')||state.search||'').trim().toLowerCase(); if(cat)list=list.filter(p=>p.category===cat); if(q)list=list.filter(p=>`${p.title} ${p.description} ${p.category}`.toLowerCase().includes(q)); const sort=params.get('sort')||'featured'; if(sort==='price-low')list.sort((a,b)=>a.price-b.price); else if(sort==='price-high')list.sort((a,b)=>b.price-a.price); else if(sort==='deal')list.sort((a,b)=>(b.compareAtPrice-b.price)-(a.compareAtPrice-a.price)); else list.sort((a,b)=>(b.featured?1:0)-(a.featured?1:0)); return `<div class="container page"><div class="breadcrumbs"><a data-route="#/">Home</a><span>›</span><span>Shop</span></div><div class="shop-layout"><aside class="filter-card"><h3>Filter & refine</h3><div class="filter-group"><b>Category</b>${(state.store.categories||[]).filter(c=>c.active!==false).map(c=>`<label><input type="radio" name="cat" value="${esc(c.id)}" ${cat===c.id?'checked':''}>${esc(c.name)}</label>`).join('')}<label><input type="radio" name="cat" value="" ${!cat?'checked':''}>All products</label></div><div class="filter-group"><b>Price</b><div style="display:flex;gap:8px"><input id="minPrice" type="number" placeholder="Min"><input id="maxPrice" type="number" placeholder="Max"></div></div><div class="filter-group"><b>Quick links</b><button class="btn btn-light full" data-route="#/shop?sort=deal">Best discounts</button><button class="btn btn-light full" data-route="#/wishlist">Wishlist</button></div></aside><section class="shop-main"><div class="toolbar"><div><span class="muted">${list.length} products</span>${q?`<div class="page-title" style="font-size:25px">Search: “${esc(q)}”</div>`:''}</div><select id="sortProducts"><option value="featured" ${sort==='featured'?'selected':''}>Featured</option><option value="deal" ${sort==='deal'?'selected':''}>Best deals</option><option value="price-low" ${sort==='price-low'?'selected':''}>Price: low to high</option><option value="price-high" ${sort==='price-high'?'selected':''}>Price: high to low</option></select></div>${list.length?`<div class="product-grid">${list.map(productCard).join('')}</div>`:`<div class="empty-state"><div style="font-size:35px">🪔</div><h3>No products found</h3><p>Try a different category or search phrase.</p><button class="btn btn-primary" data-route="#/shop">Reset filters</button></div>`}</section></div></div>`; }
-  function product(id){ const p=productById(id); if(!p)return notFound(); const thumbs=p.images?.length?p.images:[p.imageUrl||imgFallback]; return `<div class="container page"><div class="breadcrumbs"><a data-route="#/">Home</a><span>›</span><a data-route="#/shop">Shop</a><span>›</span><span>${esc(p.title)}</span></div><div class="product-detail"><section class="product-gallery"><img class="main-product-image" src="${esc(thumbs[state.selectedImage]||thumbs[0])}" alt="${esc(p.title)}"><div class="thumbs">${thumbs.map((im,i)=>`<button class="${i===state.selectedImage?'active':''}" data-thumb="${i}"><img src="${esc(im)}" alt=""></button>`).join('')}</div></section><section class="detail-copy"><span class="eyebrow">${esc(p.badge||'DIWALI EDIT')}</span><h1>${esc(p.title)}</h1><div class="rating">★ ${Number(p.rating||0).toFixed(1)} · ${Number(p.ratingCount||0)} ratings</div><div class="price-row" style="margin:12px 0"><span class="price" style="font-size:28px">${money(p.price)}</span>${p.compareAtPrice?`<span class="compare" style="font-size:14px">${money(p.compareAtPrice)}</span>`:''}</div><p class="lead">${esc(p.description||'Premium festive product from Qikly Shop.')}</p><ul class="bullet-list">${(p.highlights||[]).map(x=>`<li>${esc(x)}</li>`).join('')}</ul><div class="buy-box"><div class="qty-row"><div class="qty-control"><button data-product-qty="-">−</button><span id="detailQty">1</span><button data-product-qty="+">+</button></div><span class="muted">${Number(p.stock||0)>0?`${p.stock} left in stock`:'Out of stock'}</span></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:12px"><button class="btn btn-primary" ${Number(p.stock||0)<=0?'disabled':''} data-detail-add="${esc(p.id)}">Add to cart</button><button class="btn btn-light" data-wish="${esc(p.id)}">${state.wishlist.includes(p.id)?'♥ Wishlisted':'♡ Wishlist'}</button></div></div><div class="account-card" style="margin-top:16px"><h3 style="margin-top:0">Why shop with Qikly?</h3><div class="footer-pills"><span>🔒 Secure checkout</span><span>🚚 Tracking updates</span><span>↩ Easy returns</span><span>✦ AI shopping help</span></div></div></section></div><section class="section"><div class="section-head"><div><span class="eyebrow">CUSTOMER VOICES</span><h2>Reviews</h2></div></div><div id="reviewsBox" class="account-card">Loading reviews…</div></section></div>`; }
-  function cart(){ const items=cartItems(); if(!items.length)return `<div class="container page"><div class="empty-state"><div style="font-size:42px">🛒</div><h3>Your cart is waiting</h3><p>Add something beautiful for the festive season.</p><button class="btn btn-primary" data-route="#/shop">Start shopping</button></div></div>`; const sub=cartSubtotal(); const shipping=sub>=(settings().freeShipping||999)?0:(settings().shippingFlat||79); return `<div class="container page"><div class="breadcrumbs"><a data-route="#/">Home</a><span>›</span><span>Cart</span></div><h1 class="page-title">Your shopping cart</h1><div class="cart-layout"><section class="cart-items">${items.map(({p,qty})=>`<article class="cart-item"><img src="${esc(p.images?.[0]||p.imageUrl||imgFallback)}" alt=""><div><h4>${esc(p.title)}</h4><p>${money(p.price)} each · ${p.stock} in stock</p><div class="cart-item-actions"><button class="icon-btn" data-cart-inc="${esc(p.id)}" data-dir="-1">−</button><span style="padding:9px 4px;font-size:12px">${qty}</span><button class="icon-btn" data-cart-inc="${esc(p.id)}" data-dir="1">+</button><button class="icon-btn" data-cart-remove="${esc(p.id)}">×</button></div></div><strong>${money(p.price*qty)}</strong></article>`).join('')}</section><aside class="summary-card"><h3>Order summary</h3><div class="summary-row"><span>Subtotal</span><b>${money(sub)}</b></div><div class="summary-row"><span>Shipping</span><b>${shipping?money(shipping):'FREE'}</b></div><div class="summary-total"><span>Total</span><b>${money(sub+shipping)}</b></div><p class="notice">${shipping?'Add '+money((settings().freeShipping||999)-sub)+' more for free shipping.':'You unlocked free shipping.'}</p><button class="btn btn-primary full" data-route="#/checkout">Proceed to checkout</button></aside></div></div>`; }
-  function checkout(){ if(!requireAuth()) return '<div class="container page"></div>'; const items=cartItems(); if(!items.length){setTimeout(()=>navigate('#/cart'),0);return '<div class="loading">Opening cart…</div>'} const sub=cartSubtotal(), shipping=sub>=(settings().freeShipping||999)?0:(settings().shippingFlat||79); return `<div class="container page"><div class="breadcrumbs"><a data-route="#/cart">Cart</a><span>›</span><span>Checkout</span></div><h1 class="page-title">Secure checkout</h1><div class="checkout-layout"><section class="account-card"><form id="checkoutForm" class="checkout-side"><div><h3>Delivery address</h3><div class="form-grid"><div class="field"><label>Name</label><input name="name" value="${esc(state.user.name||'')}" required></div><div class="field"><label>Phone</label><input name="phone" value="${esc(state.user.phone||'')}" required></div><div class="field full"><label>Address</label><input name="line1" placeholder="House no., street, area" required></div><div class="field"><label>City</label><input name="city" value="Rohtak" required></div><div class="field"><label>State</label><input name="state" value="Haryana" required></div><div class="field"><label>Pincode</label><input name="pincode" inputmode="numeric" maxlength="6" required></div><div class="field full"><label>Landmark (optional)</label><input name="landmark"></div></div></div><div><h3>Coupon</h3><div class="coupon-row"><input id="couponCode" placeholder="Enter coupon code"><button class="btn btn-light" type="button" id="applyCoupon">Apply</button></div><div id="couponMsg"></div></div><div><h3>Payment method</h3>${settings().codEnabled!==false && sub < Number(settings().codMinOrder||0) && Number(settings().codMinOrder||0)>0 ? `<div class="notice">COD available on orders of ${money(Number(settings().codMinOrder))} or more.</div>` : ''}<div class="radio-list"><label class="radio-card"><input type="radio" name="payment" value="online" checked><span><b>Razorpay</b><br><small class="muted">UPI, cards, netbanking and more</small></span></label>${settings().codEnabled!==false && sub >= Number(settings().codMinOrder||0)?`<label class="radio-card"><input type="radio" name="payment" value="cod"><span><b>Cash on delivery</b><br><small class="muted">Pay when your order arrives</small></span></label>`:''}</div></div><div id="checkoutError"></div><button class="btn btn-primary full" type="submit">Place order · ${money(sub+shipping)}</button><div class="secure-note">🔒 Payment credentials are handled by the payment provider. Qikly never asks for your UPI PIN or OTP.</div></form></section><aside class="summary-card"><h3>Items</h3>${items.map(({p,qty})=>`<div class="summary-row"><span>${esc(p.title)} × ${qty}</span><b>${money(p.price*qty)}</b></div>`).join('')}<div class="divider"></div><div class="summary-row"><span>Subtotal</span><b>${money(sub)}</b></div><div class="summary-row"><span>Shipping</span><b>${shipping?money(shipping):'FREE'}</b></div><div id="discountRow"></div><div class="summary-total"><span>Total</span><b id="checkoutTotal">${money(sub+shipping)}</b></div></aside></div></div>`; }
-  function account(){ if(!isLogged())return `<div class="container page"><div class="empty-state"><div style="font-size:40px">♙</div><h3>Sign in to your account</h3><p>Manage orders, addresses and profile in one place.</p><button class="btn btn-primary" data-auth="login">Login / Sign up</button></div></div>`; return `<div class="container page"><div class="account-grid"><aside class="account-menu"><button class="active">Profile</button><button data-route="#/orders">Orders</button><button data-route="#/wishlist">Wishlist</button><button id="logoutBtn">Logout</button></aside><section><div class="section-head"><div><span class="eyebrow">YOUR ACCOUNT</span><h2>Welcome, ${esc(state.user.name||'Shopper')}</h2></div></div><section class="account-card"><form id="profileForm" class="form-grid"><div class="field"><label>Full name</label><input name="name" value="${esc(state.user.name||'')}" required></div><div class="field"><label>Email</label><input value="${esc(state.user.email||'')}" disabled></div><div class="field"><label>Phone</label><input name="phone" value="${esc(state.user.phone||'')}"></div><div class="field full"><button class="btn btn-primary" type="submit">Save profile</button></div></form></section></section></div></div>`; }
-  function orders(){ if(!isLogged())return account(); return `<div class="container page"><div class="section-head"><div><span class="eyebrow">ORDER HISTORY</span><h1 class="page-title">My orders</h1></div><button class="btn btn-light" data-route="#/shop">Continue shopping</button></div><div id="ordersBox" class="order-list"><div class="loading">Loading orders…</div></div></div>`; }
-  function statusClass(s){return s==='delivered'?'green':s==='cancelled'?'red':(s==='confirmed'||s==='packed'||s==='shipped'||s==='out_for_delivery')?'gold':''}
-  function orderDetail(id){ if(!isLogged())return account(); return `<div class="container page"><div id="orderBox" class="loading">Loading order…</div></div>`; }
-  function wishlist(){ const ps=state.wishlist.map(productById).filter(Boolean); return `<div class="container page"><div class="section-head"><div><span class="eyebrow">SAVED FOR LATER</span><h1 class="page-title">Wishlist</h1></div><button class="btn btn-light" data-route="#/shop">Browse products</button></div>${ps.length?`<div class="product-grid">${ps.map(productCard).join('')}</div>`:`<div class="empty-state"><div style="font-size:42px">♡</div><h3>Your wishlist is empty</h3><p>Tap the heart on any product to save it here.</p><button class="btn btn-primary" data-route="#/shop">Discover products</button></div>`}</div>`; }
-  function policy(type){ const s=settings(); const map={about:['About Qikly',s.about||'Qikly Shop is a festive shopping store.'],refund:['Returns & refunds',s.refund||'Please contact support with your order number for return/refund assistance.'],privacy:['Privacy policy',s.privacy||'Your information is used to operate the store, fulfill orders and provide support.'],terms:['Terms & conditions','By using this store you agree to follow applicable shopping, payment, delivery and return terms.']}; const [title,body]=map[type]||map.about; return `<div class="container page"><div class="account-card"><span class="eyebrow">QIKLY</span><h1 class="page-title">${esc(title)}</h1><p style="line-height:1.9;color:var(--muted);white-space:pre-wrap">${esc(body)}</p></div></div>`; }
-  const notFound=()=>`<div class="container page"><div class="empty-state"><h3>Page not found</h3><button class="btn btn-primary" data-route="#/">Go home</button></div></div>`;
-
-  function bindPage(){
-    $$('[data-route]').forEach(el=>el.addEventListener('click',e=>{const r=el.dataset.route;if(r?.startsWith('#'))navigate(r);else if(r)e.preventDefault()}));
-    $$('[data-add]').forEach(b=>b.addEventListener('click',()=>addCart(b.dataset.add,1)));
-    $$('[data-wish]').forEach(b=>b.addEventListener('click',()=>{setWish(b.dataset.wish)}));
-    $$('[data-cart-remove]').forEach(b=>b.addEventListener('click',()=>removeCart(b.dataset.cartRemove)));
-    $$('[data-cart-inc]').forEach(b=>b.addEventListener('click',()=>{const id=b.dataset.cartInc,dir=Number(b.dataset.dir);const it=state.cart.find(x=>x.id===id); if(!it)return; const p=productById(id); it.qty=Math.max(0,Math.min(Number(p.stock||99),it.qty+dir)); if(it.qty===0)removeCart(id); else {persist();render();}}));
-    $$('[data-thumb]').forEach(b=>b.addEventListener('click',()=>{state.selectedImage=Number(b.dataset.thumb);render();}));
-    const detailAdd=$('[data-detail-add]'); if(detailAdd)detailAdd.addEventListener('click',()=>{const q=Number($('#detailQty').textContent||1); addCart(detailAdd.dataset.detailAdd,q)});
-    $$('[data-product-qty]').forEach(b=>b.addEventListener('click',()=>{const el=$('#detailQty');let q=Number(el.textContent||1)+(b.dataset.productQty==='+'?1:-1);el.textContent=Math.max(1,Math.min(20,q))}));
-    const sort=$('#sortProducts'); if(sort)sort.addEventListener('change',()=>{const r=route();r.params.set('sort',sort.value);navigate(`#${r.path}?${r.params.toString()}`)});
-    $$('input[name="cat"]').forEach(r=>r.addEventListener('change',()=>navigate(`#\/shop?cat=${encodeURIComponent(r.value)}`)));
-    const profile=$('#profileForm'); if(profile)profile.addEventListener('submit',saveProfile);
-    const logout=$('#logoutBtn'); if(logout)logout.addEventListener('click',logoutUser);
-    const checkoutForm=$('#checkoutForm'); if(checkoutForm)setupCheckout(checkoutForm);
-    const ordersBox=$('#ordersBox'); if(ordersBox)loadOrders();
-    const orderBox=$('#orderBox'); if(orderBox)loadOrder(route().params.get('id'));
-    if($('#reviewsBox'))loadReviews(route().params.get('id'));
-    updateTimer();
+function successPage() {
+  setTitle("Your page is ready");
+  const slug = new URLSearchParams(location.search).get("slug") || "";
+  const url = `${location.origin}/${encodeURIComponent(slug)}`;
+  $("#app").innerHTML = `${header()}<main class="success-wrap wrap"><div class="success-icon">✦</div><div class="eyebrow">PAYMENT VERIFIED</div><h1>Your page is <em>ready.</em></h1><p>Your memory page has been published. Copy the link and share it with your special person.</p><div class="share-link"><span>${esc(url)}</span><button class="button button-dark" id="copyLink">Copy link</button></div><div class="success-actions"><a class="button button-outline" href="/${encodeURIComponent(slug)}" target="_blank" rel="noopener">View your page ↗</a><a class="text-link" href="/">Back to YaadPage</a></div><small>Keep this link safe. Anyone who has it can view the page.</small></main>${footer()}`;
+  $("#copyLink").onclick = async () => { try { await navigator.clipboard.writeText(url); $("#copyLink").textContent = "Copied ✓"; } catch { $("#copyLink").textContent = "Copy unavailable"; } };
+}
+function templateTheme(id) { return templates.find(t => t.id === id)?.theme || "pink"; }
+async function memoryPage(slug) {
+  setTitle("A special memory");
+  const root = $("#app"); root.innerHTML = `<main class="memory-loading"><span class="brand-mark">Y</span><p>Opening something special…</p></main>`;
+  try {
+    const data = await api(`${API}/pages/${encodeURIComponent(slug)}`);
+    const page = data.page;
+    setTitle(page.title || `For ${page.recipientName}`);
+    const photos = (page.photos || []).map(photo => `<div class="memory-photo"><img src="${API}/assets/${encodeURIComponent(slug)}/${encodeURIComponent(photo.id)}" alt="A shared memory" loading="lazy"></div>`).join("");
+    const occasion = templates.find(t => t.id === page.templateId)?.tag || "A SPECIAL MOMENT";
+    const date = page.eventDate ? new Date(`${page.eventDate}T00:00:00`).toLocaleDateString("en-IN", { day:"numeric", month:"long", year:"numeric" }) : "";
+    root.innerHTML = `<main class="memory-shell theme-${templateTheme(page.templateId)}"><div class="memory-grain"></div><header class="memory-brand">${brandMark()}<span>yaadpage</span></header><section class="memory-hero"><div class="memory-spark">✦</div><div class="memory-eyebrow">${esc(occasion)} · A PAGE MADE FOR YOU</div><h1>${esc(page.recipientName)}</h1><p class="memory-subtitle">${esc(page.title || "A little surprise for you")}</p><div class="memory-divider"><span>♡</span></div><article class="memory-letter"><p class="letter-greeting">Dear ${esc(page.recipientName)},</p><div class="letter-message">${esc(page.message).replace(/\n/g,"<br>")}</div><p class="letter-signoff">With love,<br><strong>${esc(page.senderName)}</strong></p></article>${date?`<div class="memory-date">${esc(date)}</div>`:""}</section>${photos?`<section class="memory-gallery"><div class="memory-gallery-heading"><span>THE LITTLE THINGS</span><h2>Moments worth <em>keeping.</em></h2></div><div class="memory-photo-grid">${photos}</div></section>`:""}<footer class="memory-footer"><span>Made into a memory with</span><a href="/">${brandMark()} YaadPage</a></footer></main>`;
+  } catch (error) {
+    const expired = error.message.toLowerCase().includes("expired");
+    root.innerHTML = `<main class="not-found"><a class="brand" href="/">${brandMark()}<span>yaadpage<span class="brand-dot">.</span></span></a><div class="not-found-icon">${expired ? "⌛" : "♡"}</div><h1>${expired ? "This page has expired." : "This memory page wasn't found."}</h1><p>${expired ? "The hosting period for this page has ended." : "The link may be incorrect, or the page may not have been published yet."}</p><a class="button button-dark" href="/">Explore YaadPage <span>↗</span></a></main>`;
   }
+}
 
-  async function loadReviews(id){ try{const d=await api(`/api/shop/reviews/${encodeURIComponent(id)}`); if(!d.reviews.length){$('#reviewsBox').innerHTML='<p class="muted">No reviews yet.</p>';return;} $('#reviewsBox').innerHTML=d.reviews.map(r=>`<div class="review-card"><div class="review-head"><b>${esc(r.name||'Customer')}</b><span class="rating">★ ${Number(r.rating||0).toFixed(1)}</span></div><p style="margin-bottom:0;color:var(--muted);font-size:13px">${esc(r.text)}</p></div>`).join('');}catch(e){$('#reviewsBox').textContent='Reviews are temporarily unavailable.';} }
-  async function saveProfile(e){e.preventDefault();try{const f=new FormData(e.target);const d=await api('/api/user/profile',{method:'POST',body:JSON.stringify({name:f.get('name'),phone:f.get('phone')})});state.user=d.user;toast('Profile saved');render();}catch(e){toast(e.message,true)} }
-  async function logoutUser(){try{await api('/api/auth/logout',{method:'POST',body:'{}'});state.user=null;toast('Logged out');navigate('#/');}catch(e){toast(e.message,true)} }
-  async function loadOrders(){try{const d=await api('/api/shop/orders');const box=$('#ordersBox');if(!d.orders.length){box.innerHTML='<div class="empty-state"><h3>No orders yet</h3><p>Your festive picks will show up here.</p><button class="btn btn-primary" data-route="#/shop">Start shopping</button></div>';bindPage();return;}box.innerHTML=d.orders.map(o=>`<article class="order-card"><div class="order-head"><div><b>${esc(o.orderNumber||o.id)}</b><div class="muted">Placed ${fmtDate(o.createdAt)} · ${o.paymentMethod==='cod'?'COD':'Razorpay'}</div></div><span class="status-pill ${statusClass(o.fulfillmentStatus)}">${esc((o.fulfillmentStatus||'processing').replaceAll('_',' '))}</span></div><div class="order-items-preview">${(o.items||[]).slice(0,6).map(i=>`<img src="${esc(i.image||imgFallback)}" alt="">`).join('')}</div><div class="order-head"><span class="muted">${(o.items||[]).length} items</span><b>${money(o.total)}</b></div><div class="form-actions"><button class="btn btn-light" data-route="#/order?id=${encodeURIComponent(o.id)}">View order</button></div></article>`).join('');bindPage();}catch(e){$('#ordersBox').innerHTML=`<div class="notice error">${esc(e.message)}</div>`;}}
-  async function loadOrder(id){if(!id)return;try{const d=await api(`/api/shop/orders/${encodeURIComponent(id)}`);const o=d.order,steps=[['confirmed','Confirmed'],['packed','Packed'],['shipped','Shipped'],['out_for_delivery','Out for delivery'],['delivered','Delivered']],active=steps.findIndex(x=>x[0]===o.fulfillmentStatus); $('#orderBox').outerHTML=`<div><div class="breadcrumbs"><a data-route="#/orders">Orders</a><span>›</span><span>${esc(o.orderNumber||o.id)}</span></div><div class="section-head"><div><span class="eyebrow">ORDER DETAILS</span><h1 class="page-title">${esc(o.orderNumber||o.id)}</h1><p class="muted">Placed ${fmtDate(o.createdAt)}</p></div><span class="status-pill ${statusClass(o.fulfillmentStatus)}">${esc((o.fulfillmentStatus||'processing').replaceAll('_',' '))}</span></div>${o.fulfillmentStatus!=='cancelled'?`<div class="track">${steps.map(([k,l],i)=>`<div class="track-step ${i<=active?'active':''}"><span>${i<=active?'✓':i+1}</span><small>${l}</small></div>`).join('')}</div>`:''}<div class="order-layout"><section class="account-card"><h3>Items</h3>${(o.items||[]).map(i=>`<div class="cart-item" style="grid-template-columns:76px 1fr auto;margin:8px 0"><img src="${esc(i.image||imgFallback)}" style="width:76px;height:76px"><div><b>${esc(i.title)}</b><p>Qty ${i.qty}</p></div><strong>${money(i.price*i.qty)}</strong></div>`).join('')}<div class="divider"></div><div class="summary-row"><span>Subtotal</span><b>${money(o.subtotal)}</b></div><div class="summary-row"><span>Discount</span><b>− ${money(o.discount)}</b></div><div class="summary-row"><span>Shipping</span><b>${o.shipping?money(o.shipping):'FREE'}</b></div><div class="summary-total"><span>Total</span><b>${money(o.total)}</b></div></section><aside class="account-card"><h3>Delivery & payment</h3><p style="line-height:1.7"><b>${esc(o.address?.name)}</b><br>${esc(o.address?.line1)}<br>${esc(o.address?.city)}, ${esc(o.address?.state)} — ${esc(o.address?.pincode)}<br>${esc(o.address?.phone)}</p><div class="divider"></div><p class="muted">Payment: ${o.paymentMethod==='cod'?'Cash on delivery':'Razorpay'}<br>Status: ${esc(o.paymentStatus)}</p>${o.trackingId?`<p><b>Tracking ID</b><br>${esc(o.trackingId)}</p>`:''}${['processing','confirmed'].includes(o.fulfillmentStatus)?`<button class="btn btn-light full" id="cancelOrder">Cancel order</button>`:''}</aside></div></div>`;const c=$('#cancelOrder');if(c)c.onclick=()=>cancelOrder(o.id);bindPage();}catch(e){$('#orderBox').outerHTML=`<div class="empty-state"><h3>Order not found</h3><p>${esc(e.message)}</p><button class="btn btn-primary" data-route="#/orders">Back to orders</button></div>`;bindPage();}}
-  async function cancelOrder(id){if(!confirm('Cancel this order?'))return;try{await api('/api/shop/orders/cancel',{method:'POST',body:JSON.stringify({id})});toast('Order cancelled');render();}catch(e){toast(e.message,true)}}
-  function setupCheckout(form){ let discount=0,couponCode=''; const refreshTotal=()=>{const sub=cartSubtotal(),shipping=sub>=(settings().freeShipping||999)?0:(settings().shippingFlat||79),total=sub-shipping*0-discount+shipping; $('#checkoutTotal').textContent=money(total); $('#discountRow').innerHTML=discount?`<div class="summary-row"><span>Discount</span><b>− ${money(discount)}</b></div>`:''}; $('#applyCoupon').onclick=async()=>{const code=$('#couponCode').value.trim(); if(!code)return; try{const d=await api('/api/shop/coupon',{method:'POST',body:JSON.stringify({code,subtotal:cartSubtotal()})});discount=Number(d.amount||0);couponCode=d.code||code;$('#couponMsg').innerHTML=`<div class="notice success">Coupon ${esc(couponCode)} applied — saved ${money(discount)}.</div>`;refreshTotal();}catch(e){discount=0;couponCode='';$('#couponMsg').innerHTML=`<div class="notice error">${esc(e.message)}</div>`;refreshTotal();}}; form.onsubmit=async e=>{e.preventDefault();const f=new FormData(form);const address={name:f.get('name'),phone:f.get('phone'),line1:f.get('line1'),city:f.get('city'),state:f.get('state'),pincode:f.get('pincode'),landmark:f.get('landmark')};const payment=f.get('payment');const btn=form.querySelector('button[type=submit]');const old=btn.textContent;btn.disabled=true;btn.textContent='Processing…';$('#checkoutError').innerHTML=''; try{const d=await api('/api/shop/create-order',{method:'POST',body:JSON.stringify({items:state.cart,address,paymentMethod:payment,discount,coupon:couponCode})});if(payment==='cod'){state.cart=[];persist();toast('Order placed successfully');navigate(`#/order?id=${encodeURIComponent(d.orderId)}`);return;} if(!window.Razorpay){throw new Error('Razorpay checkout could not load.');} const rz=new Razorpay({key:d.keyId,amount:d.amount,currency:d.currency||'INR',name:settings().siteName||'Qikly Shop',description:'Diwali shopping',order_id:d.razorpayOrderId,prefill:{name:address.name,email:state.user.email,contact:address.phone},theme:{color:'#8b1538'},handler:async response=>{try{await api('/api/shop/verify-payment',{method:'POST',body:JSON.stringify(response)});state.cart=[];persist();toast('Payment verified. Order confirmed.');navigate(`#/order?id=${encodeURIComponent(d.orderId)}`);}catch(err){$('#checkoutError').innerHTML=`<div class="notice error">${esc(err.message)}</div>`;}}}); rz.open();}catch(err){$('#checkoutError').innerHTML=`<div class="notice error">${esc(err.message)}</div>`;}finally{btn.disabled=false;btn.textContent=old;}}; refreshTotal(); }
-
-  function openAuth(){ const m=$('#authModal'); m.hidden=false; $('#modalBackdrop').hidden=false; renderAuthModal(); }
-  function closeModals(){ $$('.modal').forEach(m=>m.hidden=true); $('#modalBackdrop').hidden=true; }
-  function renderAuthModal(){const m=$('#authModal'); m.innerHTML=`<div class="modal-head"><div><span class="eyebrow">QIKLY ACCOUNT</span><h3>${state.authMode==='login'?'Welcome back':'Create your account'}</h3></div><button class="close-modal" data-close-auth>×</button></div><div class="auth-tabs"><button class="${state.authMode==='login'?'active':''}" data-auth-mode="login">Login</button><button class="${state.authMode==='signup'?'active':''}" data-auth-mode="signup">Sign up</button></div><form id="authForm" class="form-grid">${state.authMode==='signup'?`<div class="field full"><label>Name</label><input name="name" required minlength="2"></div>`:''}<div class="field full"><label>Email</label><input type="email" name="email" required></div><div class="field full"><label>Password</label><input type="password" name="password" required minlength="6"></div><div class="field full"><button class="btn btn-primary full" type="submit">${state.authMode==='login'?'Login securely':'Create account'}</button></div><div id="authError" class="field full"></div></form>`; $('[data-close-auth]',m).onclick=closeModals; $$('[data-auth-mode]',m).forEach(b=>b.onclick=()=>{state.authMode=b.dataset.authMode;renderAuthModal()}); $('#authForm',m).onsubmit=authSubmit; }
-  async function authSubmit(e){e.preventDefault(); const f=new FormData(e.target); try{const d=await api(`/api/auth/${state.authMode==='login'?'login':'signup'}`,{method:'POST',body:JSON.stringify({name:f.get('name'),email:f.get('email'),password:f.get('password')})});state.user=d.user;closeModals();toast(state.authMode==='login'?'Welcome back':'Account created');render();}catch(err){$('#authError').innerHTML=`<div class="notice error">${esc(err.message)}</div>`;} }
-  function openAI(){const m=$('#aiModal');m.hidden=false;$('#modalBackdrop').hidden=false;const box=$('#aiMessages'); if(!box.children.length){box.innerHTML=`<div class="ai-msg bot">${esc(state.store.chatbot?.intro||'Hi! Main Qikly AI hoon. Product, order, delivery aur offers ke baare mein pooch sakte ho.')}</div>`;} $('#aiInput').focus();}
-  async function aiSubmit(e){e.preventDefault();const input=$('#aiInput'),msg=input.value.trim();if(!msg)return;const box=$('#aiMessages');box.insertAdjacentHTML('beforeend',`<div class="ai-msg user">${esc(msg)}</div><div class="ai-msg bot" id="aiTyping">Thinking…</div>`);box.scrollTop=box.scrollHeight;input.value='';try{const d=await api('/api/chatbot',{method:'POST',body:JSON.stringify({message:msg})});$('#aiTyping')?.remove();box.insertAdjacentHTML('beforeend',`<div class="ai-msg bot">${esc(d.answer||'Please try again.')}</div>`);}catch(e){$('#aiTyping')?.remove();box.insertAdjacentHTML('beforeend',`<div class="ai-msg bot">${esc(e.message)}</div>`);}box.scrollTop=box.scrollHeight;}
-  function updateTimer(){const end=settings().saleEndsAt?new Date(settings().saleEndsAt):new Date(Date.now()+3*86400000);const box=$('#saleTimer');if(!box)return;const tick=()=>{let d=Math.max(0,end.getTime()-Date.now());const dd=Math.floor(d/86400000);d%=86400000;const hh=Math.floor(d/3600000);d%=3600000;const mm=Math.floor(d/60000);const ss=Math.floor((d%60000)/1000);box.innerHTML=[dd,hh,mm,ss].map((x,i)=>`<span>${String(x).padStart(2,'0')}<small>${['DAYS','HRS','MIN','SEC'][i]}</small></span>`).join('');};tick();clearInterval(window.__qTimer);window.__qTimer=setInterval(tick,1000);}
-
-  document.addEventListener('click',e=>{const auth=e.target.closest('[data-auth]');if(auth){state.authMode=auth.dataset.auth;openAuth();} if(e.target.closest('[data-open="ai"]'))openAI(); if(e.target.closest('[data-close="ai"]'))closeModals();});
-  $('#modalBackdrop').addEventListener('click',closeModals); $('#aiForm').addEventListener('submit',aiSubmit); $('#mobileMenu').addEventListener('click',()=>$('#mainNav').classList.toggle('open'));
-  $('#globalSearch').addEventListener('keydown',e=>{if(e.key==='Enter'){const q=e.target.value.trim();state.search=q;navigate(`#/shop?q=${encodeURIComponent(q)}`)}}); document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#globalSearch').focus();}}); window.addEventListener('hashchange',()=>{state.selectedImage=0;render();window.scrollTo({top:0,behavior:'smooth'});});
-  loadUser().then(loadStore);
-})();
+function boot() {
+  const path = location.pathname.replace(/\/+$/, "") || "/";
+  if (path === "/") return home();
+  if (path === "/create") return createPage();
+  if (path === "/success") return successPage();
+  if (["/admin","/api","/favicon.ico","/robots.txt"].includes(path)) return home();
+  return memoryPage(path.slice(1));
+}
+boot();
