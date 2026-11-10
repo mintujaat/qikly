@@ -419,18 +419,38 @@ app.post("/api/admin/upload-url",requireAdmin,async(req,res)=>{
 // -----------------------------------------------------------------------------
 const YP_PLANS = {
   starter: { id:"starter", name:"Starter", price:199, photos:1, label:"A beautiful one-page surprise" },
-  story:   { id:"story", name:"Story", price:399, photos:3, label:"More photos and richer animations" },
-  premium: { id:"premium", name:"Premium", price:699, photos:6, label:"The complete memory experience" }
+  story:   { id:"story", name:"Story", price:399, photos:10, label:"A richer story with up to 10 photos" },
+  premium: { id:"premium", name:"Premium", price:699, photos:100, label:"A complete memory gallery with up to 100 photos" }
 };
 const YP_TEMPLATES = [
   { id:"birthday", name:"Birthday Glow", category:"Birthday", description:"A bright, joyful birthday surprise." },
+  { id:"birthday-confetti", name:"Confetti Party", category:"Birthday", description:"A colourful celebration with playful details." },
+  { id:"birthday-elegance", name:"Birthday Elegance", category:"Birthday", description:"A soft, elegant birthday note." },
+  { id:"birthday-night", name:"Midnight Wish", category:"Birthday", description:"A rich night-sky birthday design." },
   { id:"love", name:"Love Letter", category:"Love", description:"A warm page for a special person." },
+  { id:"love-story", name:"Our Little World", category:"Love", description:"A romantic page for your shared story." },
+  { id:"long-distance", name:"Miles Apart", category:"Love", description:"A page for people close at heart, even far away." },
+  { id:"proposal", name:"One Question", category:"Proposal", description:"A thoughtful page for a big question." },
+  { id:"valentine", name:"Be My Valentine", category:"Love", description:"A sweet Valentine surprise." },
   { id:"anniversary", name:"Our Story", category:"Anniversary", description:"Celebrate the moments you share." },
+  { id:"anniversary-timeline", name:"Our Timeline", category:"Anniversary", description:"Turn your milestones into a memory journey." },
+  { id:"golden-anniversary", name:"Golden Years", category:"Anniversary", description:"A timeless golden anniversary tribute." },
+  { id:"wedding-invitation", name:"The Wedding Invite", category:"Wedding", description:"An elegant shareable wedding invitation." },
+  { id:"wedding-save-date", name:"Save the Date", category:"Wedding", description:"A beautiful announcement for the big day." },
+  { id:"wedding-floral", name:"Floral Vows", category:"Wedding", description:"A romantic floral wedding design." },
+  { id:"wedding-royal", name:"Royal Celebration", category:"Wedding", description:"A grand wedding announcement in a regal style." },
+  { id:"wedding-minimal", name:"Modern Minimal", category:"Wedding", description:"A clean and modern wedding invitation." },
+  { id:"wedding-gallery", name:"Wedding Memories", category:"Wedding", description:"A photo-first page for wedding memories." },
+  { id:"engagement", name:"The Engagement", category:"Wedding", description:"Celebrate the beginning of forever." },
   { id:"bestfriend", name:"Best Friend Forever", category:"Friendship", description:"A personal tribute to your best friend." },
-  { id:"proposal", name:"One Question", category:"Proposal", description:"A thoughtful page for a big question." }
+  { id:"friendship-timeline", name:"Friendship Files", category:"Friendship", description:"A timeline of your favourite memories together." },
+  { id:"graduation", name:"The Next Chapter", category:"Milestone", description:"Celebrate a graduation or new beginning." },
+  { id:"thankyou", name:"A Thank You Page", category:"Appreciation", description:"A thoughtful page to say thank you." },
+  { id:"family", name:"Family Moments", category:"Family", description:"A warm page for family celebrations." }
 ];
+const YP_TEMPLATE_MAP = new Map(YP_TEMPLATES.map(x=>[x.id,x]));
 const YP_OCCASIONS = new Set(YP_TEMPLATES.map(x=>x.id));
-const YP_SLUG_LOCK_MS = 30 * 60 * 1000;
+const YP_SLUG_LOCK_MS = 2 * 60 * 60 * 1000;
 
 function ypSlug(value){
   return String(value||"").normalize("NFKD").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,42).replace(/-+$/g,"");
@@ -458,9 +478,60 @@ function ypPublicPage(page){
   };
 }
 
-app.get("/api/yaadpage/config",(req,res)=>res.json({
-  brand:"YaadPage",domain:"yaadpage.online",plans:Object.values(YP_PLANS),templates:YP_TEMPLATES
-}));
+function ypPromoId(value){return String(value||"").toUpperCase().replace(/[^A-Z0-9_-]/g,"").slice(0,24)}
+function ypYoutubeId(value){
+  const raw=String(value||"").trim();
+  if(/^[a-zA-Z0-9_-]{11}$/.test(raw))return raw;
+  let id="";
+  try{
+    const u=new URL(raw);
+    if(u.hostname==="youtu.be"||u.hostname.endsWith(".youtu.be"))id=(u.pathname.split("/").filter(Boolean)[0]||"");
+    else if(u.hostname==="youtube.com"||u.hostname.endsWith(".youtube.com")||u.hostname==="youtube-nocookie.com"||u.hostname.endsWith(".youtube-nocookie.com")){
+      if(u.pathname==="/watch")id=u.searchParams.get("v")||"";
+      else {const parts=u.pathname.split("/").filter(Boolean),idx=parts.findIndex(x=>["embed","shorts","live"].includes(x));if(idx>=0)id=parts[idx+1]||"";}
+    }
+  }catch{}
+  return /^[a-zA-Z0-9_-]{11}$/.test(id)?id:"";
+}
+function ypPromoQuote(plan,promo){
+  const base=Number(plan.price||0);let discount=0;
+  if(promo.type==="free")discount=base;
+  else if(promo.type==="percent")discount=Math.round(base*Math.min(100,Math.max(0,Number(promo.value||0)))/100);
+  else if(promo.type==="fixed")discount=Math.min(base,Math.max(0,Number(promo.value||0)));
+  discount=Math.min(base,Math.max(0,discount));
+  return {baseAmount:base,discount,amount:Math.max(0,base-discount)};
+}
+async function ypFindPromo(code,planId){
+  const id=ypPromoId(code);
+  if(!id)return {promo:null,quote:null};
+  const snap=await db.collection("yaadPagePromoCodes").doc(id).get();
+  if(!snap.exists)throw new Error("Promo code not found.");
+  const promo={id:snap.id,...snap.data()};
+  if(promo.active===false)throw new Error("This promo code is disabled.");
+  if(promo.expiresAt&&Number(promo.expiresAt)<=Date.now())throw new Error("This promo code has expired.");
+  if(Number(promo.maxUses||0)>0&&Number(promo.uses||0)+Number(promo.reserved||0)>=Number(promo.maxUses))throw new Error("This promo code has reached its usage limit.");
+  if(Array.isArray(promo.planIds)&&promo.planIds.length&&!promo.planIds.includes(planId))throw new Error("This code is not valid for the selected plan.");
+  if(!["percent","fixed","free"].includes(promo.type))throw new Error("This promo code is not configured correctly.");
+  return {promo,quote:ypPromoQuote({price:YP_PLANS[planId].price},promo)};
+}
+app.get("/api/yaadpage/config",async(req,res)=>{
+  try{
+    const snap=await db.collection("yaadPageSettings").doc("main").get();
+    const settings=snap.exists?snap.data():{};
+    res.set("Cache-Control","no-store");
+    res.json({brand:"YaadPage",domain:"yaadpage.online",plans:Object.values(YP_PLANS),templates:YP_TEMPLATES,howItWorksVideoId:ypYoutubeId(settings.howItWorksYoutubeUrl||"")});
+  }catch(e){res.status(500).json({error:"Could not load website settings."})}
+});
+
+app.get("/api/yaadpage/promo/validate",async(req,res)=>{
+  try{
+    const planId=String(req.query.plan||"story"),plan=YP_PLANS[planId];
+    if(!plan)return res.status(400).json({error:"Choose a valid plan first."});
+    const {promo,quote}=await ypFindPromo(req.query.code,planId);
+    if(!promo)return res.status(400).json({error:"Enter a promo code."});
+    res.json({ok:true,code:promo.id,type:promo.type,discount:quote.discount,baseAmount:quote.baseAmount,amount:quote.amount,isFree:quote.amount===0});
+  }catch(e){res.status(400).json({error:e.message||"Promo code could not be checked."})}
+});
 
 app.get("/api/yaadpage/slug/check",async(req,res)=>{
   try{
@@ -478,9 +549,7 @@ app.get("/api/yaadpage/slug/check",async(req,res)=>{
 
 app.post("/api/yaadpage/orders/create",async(req,res)=>{
   try{
-    if(!process.env.RAZORPAY_KEY_ID||!process.env.RAZORPAY_KEY_SECRET)return res.status(503).json({error:"Payment is not configured yet."});
     const body=req.body||{};
-    if(Array.isArray(body.photoNames)&&body.photoNames.length>0&&!R2_READY)return res.status(503).json({error:"Photo storage is not configured yet. Remove the photos or configure Cloudflare R2."});
     const slug=ypSlug(body.slug);
     const templateId=String(body.templateId||"");
     const plan=YP_PLANS[String(body.planId||"story")];
@@ -499,28 +568,48 @@ app.post("/api/yaadpage/orders/create",async(req,res)=>{
     if(phone.replace(/\D/g,"").length<10)return res.status(400).json({error:"Enter a valid phone number."});
     const currentPhotos=Array.isArray(body.photoNames)?body.photoNames.slice(0,plan.photos).map(x=>ypSafeText(x,80)):[];
     if(Array.isArray(body.photoNames)&&body.photoNames.length>plan.photos)return res.status(400).json({error:`The ${plan.name} plan allows up to ${plan.photos} photo(s).`});
-    const amount=plan.price*100;
-    const rzOrder=await razorpay.orders.create({amount,currency:"INR",receipt:`yp_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`,notes:{slug,templateId,planId:plan.id}});
+    if(currentPhotos.length>0&&!R2_READY)return res.status(503).json({error:"Photo storage is not configured yet. Remove the photos or configure Cloudflare R2."});
+    const promoCode=ypPromoId(body.promoCode||"");
+    let promo=null,quote=ypPromoQuote(plan,{type:"none",value:0});
+    if(promoCode){const found=await ypFindPromo(promoCode,plan.id);promo=found.promo;quote=found.quote;}
+    const isFree=quote.amount===0;
+    if(!isFree&&(!process.env.RAZORPAY_KEY_ID||!process.env.RAZORPAY_KEY_SECRET))return res.status(503).json({error:"Payment is not configured yet."});
+    const rzOrder=isFree?null:await razorpay.orders.create({amount:quote.amount*100,currency:"INR",receipt:`yp_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`,notes:{slug,templateId,planId:plan.id,promoCode:promoCode||""}});
+    const orderId=rzOrder?.id||`ypfree_${Date.now()}_${crypto.randomBytes(8).toString("hex")}`;
     const pageRef=db.collection("yaadPages").doc(slug);
     const lockRef=db.collection("yaadPageSlugLocks").doc(slug);
-    const orderRef=db.collection("yaadPageOrders").doc(rzOrder.id);
+    const orderRef=db.collection("yaadPageOrders").doc(orderId);
     const expiresAt=Date.now()+YP_SLUG_LOCK_MS;
     await db.runTransaction(async tx=>{
-      const [pageSnap,lockSnap]=await Promise.all([tx.get(pageRef),tx.get(lockRef)]);
+      const reads=[tx.get(pageRef),tx.get(lockRef)];
+      const promoRef=promoCode?db.collection("yaadPagePromoCodes").doc(promoCode):null;
+      if(promoRef)reads.push(tx.get(promoRef));
+      const results=await Promise.all(reads);
+      const pageSnap=results[0],lockSnap=results[1],promoSnap=promoRef?results[2]:null;
       const lockLive=lockSnap.exists&&Number(lockSnap.data().expiresAt||0)>Date.now();
       if(pageSnap.exists||lockLive)throw new Error("This page address is no longer available. Please choose another one.");
-      tx.set(lockRef,{orderId:rzOrder.id,expiresAt,createdAt:FieldValue.serverTimestamp()});
+      if(promoRef){
+        if(!promoSnap.exists)throw new Error("Promo code no longer exists. Please apply it again.");
+        const currentPromo=promoSnap.data();
+        if(currentPromo.active===false||(currentPromo.expiresAt&&Number(currentPromo.expiresAt)<=Date.now()))throw new Error("Promo code is no longer active.");
+        if(Number(currentPromo.maxUses||0)>0&&Number(currentPromo.uses||0)+Number(currentPromo.reserved||0)>=Number(currentPromo.maxUses))throw new Error("Promo code has reached its usage limit.");
+        if(Array.isArray(currentPromo.planIds)&&currentPromo.planIds.length&&!currentPromo.planIds.includes(plan.id))throw new Error("This code is not valid for the selected plan.");
+        const freshQuote=ypPromoQuote(plan,currentPromo);
+        if(freshQuote.amount!==quote.amount)throw new Error("Promo code changed while creating your order. Please apply it again.");
+        tx.update(promoRef,{reserved:FieldValue.increment(1)});
+      }
+      tx.set(lockRef,{orderId,expiresAt,createdAt:FieldValue.serverTimestamp()});
       tx.set(orderRef,{
-        orderId:rzOrder.id,slug,templateId,occasion:templateId,planId:plan.id,amount:plan.price,
+        orderId,slug,templateId,occasion:templateId,planId:plan.id,amount:quote.amount,listPrice:quote.baseAmount,discount:quote.discount,
+        promoCode:promoCode||"",paymentMode:isFree?"promo-free":"razorpay",
         recipientName,senderName,title:title||`${recipientName}, this is for you`,message,eventDate,
-        email,phone,photoNames:currentPhotos,photos:[],status:"pending",createdAt:FieldValue.serverTimestamp(),
-        lockExpiresAt:expiresAt
+        email,phone,photoNames:currentPhotos,photos:[],status:"pending",createdAt:FieldValue.serverTimestamp(),lockExpiresAt:expiresAt
       });
     });
-    res.json({ok:true,orderId:rzOrder.id,amount:rzOrder.amount,currency:rzOrder.currency,key:process.env.RAZORPAY_KEY_ID,slug,uploadToken:ypUploadToken(rzOrder.id),plan:{id:plan.id,name:plan.name,price:plan.price}});
+    res.json({ok:true,orderId,amount:isFree?0:rzOrder.amount,currency:"INR",key:isFree?"":process.env.RAZORPAY_KEY_ID,slug,uploadToken:ypUploadToken(orderId),isFree,discount:quote.discount,baseAmount:quote.baseAmount,plan:{id:plan.id,name:plan.name,price:quote.amount,listPrice:quote.baseAmount,photos:plan.photos}});
   }catch(e){
     const msg=String(e.message||"");
-    res.status(msg.includes("no longer available")?409:500).json({error:msg||"Could not create the order."});
+    res.status(msg.includes("no longer available")?409:400).json({error:msg||"Could not create the order."});
   }
 });
 
@@ -536,9 +625,9 @@ app.post("/api/yaadpage/orders/:orderId/upload",async(req,res)=>{
     if((order.photos||[]).length>=plan.photos)return res.status(400).json({error:`Your plan allows up to ${plan.photos} photo(s).`});
     const contentType=String(req.body?.contentType||"").toLowerCase();
     const raw=String(req.body?.dataBase64||"").replace(/^data:image\/(?:jpeg|png|webp);base64,/i,"");
-    if(!raw||raw.length>3_200_000)return res.status(413).json({error:"Each photo must be 2.3 MB or smaller."});
+    if(!raw||raw.length>2_800_000)return res.status(413).json({error:"Each photo must be smaller than 2 MB."});
     const buffer=Buffer.from(raw,"base64");
-    if(buffer.length>2_400_000)return res.status(413).json({error:"Each photo must be 2.3 MB or smaller."});
+    if(buffer.length>=2_000_000)return res.status(413).json({error:"Each photo must be smaller than 2 MB."});
     const ext=ypImageType(buffer,contentType);
     if(!ext)return res.status(400).json({error:"Use a valid JPG, PNG or WebP image."});
     const assetId=crypto.randomBytes(12).toString("hex");
@@ -548,6 +637,38 @@ app.post("/api/yaadpage/orders/:orderId/upload",async(req,res)=>{
     await ref.update({photos:FieldValue.arrayUnion(photo)});
     res.json({ok:true,photo:{id:assetId,contentType}});
   }catch(e){res.status(500).json({error:e.message||"Photo upload failed."})}
+});
+
+app.post("/api/yaadpage/orders/free/complete",async(req,res)=>{
+  try{
+    const orderId=String(req.body?.orderId||"");
+    if(!orderId.startsWith("ypfree_")||!ypVerifyUploadToken(req.body?.uploadToken,orderId))return res.status(403).json({error:"This free order session is invalid or expired."});
+    const ref=db.collection("yaadPageOrders").doc(orderId),snap=await ref.get();
+    if(!snap.exists)return res.status(404).json({error:"Order not found."});
+    const order=snap.data();
+    if(order.status==="free")return res.json({ok:true,slug:order.slug});
+    if(order.status!=="pending"||order.paymentMode!=="promo-free"||Number(order.amount)!==0)return res.status(409).json({error:"This order is not eligible for free publishing."});
+    const plan=YP_PLANS[order.planId];
+    if(!plan||(order.photos||[]).length>plan.photos)return res.status(400).json({error:"Order details are invalid."});
+    const pageRef=db.collection("yaadPages").doc(order.slug),lockRef=db.collection("yaadPageSlugLocks").doc(order.slug);
+    const promoRef=order.promoCode?db.collection("yaadPagePromoCodes").doc(ypPromoId(order.promoCode)):null;
+    const now=Date.now();
+    await db.runTransaction(async tx=>{
+      const reads=[tx.get(ref),tx.get(pageRef),tx.get(lockRef)];
+      if(promoRef)reads.push(tx.get(promoRef));
+      const r=await Promise.all(reads),freshOrder=r[0],freshPage=r[1],freshLock=r[2],freshPromo=promoRef?r[3]:null;
+      if(freshOrder.data()?.status==="free")return;
+      if(freshOrder.data()?.status!=="pending"||freshPage.exists)throw new Error("This free order is no longer active.");
+      if(!freshLock.exists||freshLock.data().orderId!==orderId)throw new Error("Page address reservation expired. Please contact support.");
+      if(promoRef&&(!freshPromo?.exists||Number(freshPromo.data().reserved||0)<1))throw new Error("Promo reservation could not be verified. Please contact support.");
+      const current=freshOrder.data(),expiresAt=now+365*24*60*60*1000;
+      tx.set(pageRef,{slug:current.slug,templateId:current.templateId,occasion:current.occasion,recipientName:current.recipientName,senderName:current.senderName,title:current.title,message:current.message,eventDate:current.eventDate||"",planId:current.planId,photos:(current.photos||[]).map(p=>({id:p.id,key:p.key,contentType:p.contentType})),published:true,createdAt:FieldValue.serverTimestamp(),expiresAt});
+      tx.update(ref,{status:"free",completedAt:FieldValue.serverTimestamp(),expiresAt});
+      tx.delete(lockRef);
+      if(promoRef)tx.update(promoRef,{reserved:FieldValue.increment(-1),uses:FieldValue.increment(1)});
+    });
+    res.json({ok:true,slug:order.slug});
+  }catch(e){res.status(400).json({error:e.message||"Could not publish this free page."})}
 });
 
 app.post("/api/yaadpage/orders/verify",async(req,res)=>{
@@ -574,10 +695,14 @@ app.post("/api/yaadpage/orders/verify",async(req,res)=>{
     const lockRef=db.collection("yaadPageSlugLocks").doc(order.slug);
     const now=Date.now();
     await db.runTransaction(async tx=>{
-      const [freshOrder,freshPage,freshLock]=await Promise.all([tx.get(ref),tx.get(pageRef),tx.get(lockRef)]);
+      const reads=[tx.get(ref),tx.get(pageRef),tx.get(lockRef)];
+      const promoRef=order.promoCode?db.collection("yaadPagePromoCodes").doc(ypPromoId(order.promoCode)):null;
+      if(promoRef)reads.push(tx.get(promoRef));
+      const r=await Promise.all(reads),freshOrder=r[0],freshPage=r[1],freshLock=r[2],freshPromo=promoRef?r[3]:null;
       if(freshOrder.data()?.status==="paid")return;
       if(freshPage.exists)return;
       if(!freshLock.exists||freshLock.data().orderId!==razorpay_order_id)throw new Error("Page address reservation expired. Contact support with your payment ID.");
+      if(promoRef&&(!freshPromo?.exists||Number(freshPromo.data().reserved||0)<1))throw new Error("Promo reservation could not be verified. Contact support with your payment ID.");
       const expiresAt=now+365*24*60*60*1000;
       const current=freshOrder.data();
       tx.set(pageRef,{
@@ -589,6 +714,7 @@ app.post("/api/yaadpage/orders/verify",async(req,res)=>{
       });
       tx.update(ref,{status:"paid",paymentId:razorpay_payment_id,paidAt:FieldValue.serverTimestamp(),expiresAt});
       tx.delete(lockRef);
+      if(promoRef)tx.update(promoRef,{reserved:FieldValue.increment(-1),uses:FieldValue.increment(1)});
     });
     res.json({ok:true,slug:order.slug});
   }catch(e){res.status(500).json({error:e.message||"Payment verification failed."})}
@@ -628,10 +754,85 @@ app.get("/api/yaadpage/assets/:slug/:assetId",async(req,res)=>{
 
 app.get("/api/yaadpage/admin/data",requireAdmin,async(req,res)=>{
   try{
-    const [pages,orders]=await Promise.all([listCol("yaadPages"),listCol("yaadPageOrders")]);
-    const paid=orders.filter(o=>o.status==="paid");
-    res.json({pages:pages.sort((a,b)=>Number(b.createdAt?._seconds||0)-Number(a.createdAt?._seconds||0)),orders:orders.sort((a,b)=>Number(b.createdAt?._seconds||0)-Number(a.createdAt?._seconds||0)),stats:{pages:pages.length,active:pages.filter(p=>p.published&&(!p.expiresAt||p.expiresAt>Date.now())).length,orders:orders.length,paid:paid.length,revenue:paid.reduce((n,o)=>n+Number(o.amount||0),0)}});
+    const [pages,orders,promoCodes,settings]=await Promise.all([
+      listCol("yaadPages"),listCol("yaadPageOrders"),listCol("yaadPagePromoCodes"),
+      db.collection("yaadPageSettings").doc("main").get()
+    ]);
+    const paid=orders.filter(o=>["paid","free"].includes(o.status));
+    res.json({
+      pages:pages.sort((a,b)=>Number(b.createdAt?._seconds||0)-Number(a.createdAt?._seconds||0)),
+      orders:orders.sort((a,b)=>Number(b.createdAt?._seconds||0)-Number(a.createdAt?._seconds||0)),
+      promoCodes:promoCodes.sort((a,b)=>String(a.code||a.id).localeCompare(String(b.code||b.id))),
+      settings:settings.exists?settings.data():{},
+      stats:{pages:pages.length,active:pages.filter(p=>p.published&&(!p.expiresAt||p.expiresAt>Date.now())).length,orders:orders.length,paid:paid.length,pending:orders.filter(o=>o.status==="pending").length,revenue:paid.reduce((n,o)=>n+Number(o.amount||0),0)}
+    });
   }catch(e){res.status(500).json({error:e.message})}
+});
+
+app.post("/api/yaadpage/admin/promos",requireAdmin,async(req,res)=>{
+  try{
+    const code=ypPromoId(req.body?.code),type=String(req.body?.type||"percent");
+    const value=Number(req.body?.value||0),rawMaxUses=Number(req.body?.maxUses||0),maxUses=Number.isFinite(rawMaxUses)?Math.max(0,Math.floor(rawMaxUses)):NaN;
+    const expiresAt=req.body?.expiresAt?Date.parse(`${String(req.body.expiresAt).slice(0,10)}T23:59:59.999Z`):0;
+    if(code.length<3)return res.status(400).json({error:"Promo code must contain at least 3 letters or numbers."});
+    if(!Number.isFinite(maxUses))return res.status(400).json({error:"Maximum uses must be a valid number."});
+    if(!["percent","fixed","free"].includes(type))return res.status(400).json({error:"Choose a valid discount type."});
+    if(type==="percent"&&(value<=0||value>100))return res.status(400).json({error:"Percentage must be between 1 and 100."});
+    if(type==="fixed"&&(value<=0||value>100000))return res.status(400).json({error:"Fixed discount must be greater than ₹0."});
+    if(req.body?.expiresAt&&(!Number.isFinite(expiresAt)||expiresAt<=Date.now()))return res.status(400).json({error:"Expiry date must be in the future."});
+    const ref=db.collection("yaadPagePromoCodes").doc(code),old=await ref.get();
+    if(old.exists)return res.status(409).json({error:"That promo code already exists."});
+    const record={code,type,value:type==="free"?100:value,active:true,maxUses,uses:0,reserved:0,expiresAt:expiresAt||0,planIds:Array.isArray(req.body?.planIds)?req.body.planIds.filter(x=>YP_PLANS[x]):[],createdAt:FieldValue.serverTimestamp()};
+    await ref.set(record);res.json({ok:true,promo:{id:code,...record,createdAt:null}});
+  }catch(e){res.status(500).json({error:e.message||"Could not create promo code."})}
+});
+
+app.patch("/api/yaadpage/admin/promos/:code",requireAdmin,async(req,res)=>{
+  try{
+    const code=ypPromoId(req.params.code),ref=db.collection("yaadPagePromoCodes").doc(code),snap=await ref.get();
+    if(!snap.exists)return res.status(404).json({error:"Promo code not found."});
+    await ref.update({active:!!req.body?.active,updatedAt:FieldValue.serverTimestamp()});res.json({ok:true});
+  }catch(e){res.status(500).json({error:e.message})}
+});
+
+app.delete("/api/yaadpage/admin/promos/:code",requireAdmin,async(req,res)=>{
+  try{
+    const code=ypPromoId(req.params.code),ref=db.collection("yaadPagePromoCodes").doc(code),snap=await ref.get();
+    if(!snap.exists)return res.status(404).json({error:"Promo code not found."});
+    if(Number(snap.data().reserved||0)>0){await ref.update({active:false,updatedAt:FieldValue.serverTimestamp()});return res.json({ok:true,disabled:true,message:"Code has pending orders, so it was disabled instead of deleted."})}
+    await ref.delete();res.json({ok:true});
+  }catch(e){res.status(500).json({error:e.message})}
+});
+
+app.put("/api/yaadpage/admin/settings",requireAdmin,async(req,res)=>{
+  try{
+    const videoUrl=ypYoutubeId(req.body?.howItWorksYoutubeUrl||"");
+    if(req.body?.howItWorksYoutubeUrl&&!videoUrl)return res.status(400).json({error:"Enter a valid YouTube video URL or 11-character video ID."});
+    await db.collection("yaadPageSettings").doc("main").set({howItWorksYoutubeUrl:videoUrl,updatedAt:FieldValue.serverTimestamp()},{merge:true});
+    res.json({ok:true,howItWorksVideoId:videoUrl});
+  }catch(e){res.status(500).json({error:e.message})}
+});
+
+app.delete("/api/yaadpage/admin/orders/:orderId",requireAdmin,async(req,res)=>{
+  try{
+    const orderId=String(req.params.orderId||""),ref=db.collection("yaadPageOrders").doc(orderId),snap=await ref.get();
+    if(!snap.exists)return res.status(404).json({error:"Order not found."});
+    const order=snap.data();
+    if(order.status!=="pending")return res.status(409).json({error:"Only unpaid or incomplete orders can be deleted here."});
+    const lockRef=db.collection("yaadPageSlugLocks").doc(order.slug);
+    const promoRef=order.promoCode?db.collection("yaadPagePromoCodes").doc(ypPromoId(order.promoCode)):null;
+    await db.runTransaction(async tx=>{
+      const reads=[tx.get(ref),tx.get(lockRef)];if(promoRef)reads.push(tx.get(promoRef));
+      const r=await Promise.all(reads),current=r[0],lock=r[1],promo=promoRef?r[2]:null;
+      if(!current.exists)return;
+      if(current.data().status!=="pending")throw new Error("Only unpaid or incomplete orders can be deleted here.");
+      if(lock.exists&&lock.data().orderId===orderId)tx.delete(lockRef);
+      if(promoRef&&promo?.exists&&Number(promo.data().reserved||0)>0)tx.update(promoRef,{reserved:FieldValue.increment(-1)});
+      tx.delete(ref);
+    });
+    if(R2_READY){for(const photo of order.photos||[]){try{await r2.send(new DeleteObjectCommand({Bucket:process.env.R2_BUCKET,Key:photo.key}))}catch{}}}
+    res.json({ok:true});
+  }catch(e){res.status(409).json({error:e.message||"Could not delete this order."})}
 });
 
 app.patch("/api/yaadpage/admin/pages/:slug",requireAdmin,async(req,res)=>{
