@@ -105,13 +105,11 @@ function validateHttpUrl(value) {
   try { const u = new URL(String(value)); return ["http:", "https:"].includes(u.protocol) && u.hostname.includes(".") ? u.toString() : ""; }
   catch { return ""; }
 }
-function isRestrictedEngagement(service) {
-  const s = `${service?.name || ""} ${service?.category || ""} ${service?.description || ""} ${service?.type || ""} ${service?.supplierType || ""}`.toLowerCase();
-  // Do not resell artificial engagement, fake traffic, or metric manipulation.
-  return /\b(followers?|likes?|views?|subscribers?|comments?|members?|plays?|streams?|shares?|saves?|bookmarks?|reactions?|impressions?|reach|watch\s*(time|hours?)|live\s*viewers?|profile\s*visits?|fake\s*engagement|bot\s*traffic|website\s*traffic|rank\s*boost|monetization\s*boost)\b/i.test(s);
-}
+// Services are never auto-published. An authenticated admin must review and approve
+// each imported item before it can appear in the public catalogue or be ordered.
 function serviceIsSellable(s) {
-  return s && s.active === true && s.approvalStatus === "approved" && s.complianceVerified === true && !isRestrictedEngagement(s);
+  return Boolean(s && s.active === true && s.approvalStatus === "approved" &&
+    s.complianceVerified === true && Number(s.sellingPricePer1000 || 0) > 0);
 }
 function providerConfigured() { return Boolean(LUVSMM_API_KEY); }
 function providerUrlValid() {
@@ -230,7 +228,7 @@ app.get("/api/auth/me", async (req, res) => {
 });
 app.post("/api/auth/logout", (_req, res) => { clearCookie(res, SESSION_COOKIE); res.json({ ok: true }); });
 
-// Public catalogue contains only reviewed, compliant services.
+// Public catalogue contains only services manually approved by an admin.
 app.get("/api/services", async (_req, res) => {
   try {
     const all = await listCollection("smmServices", 1000);
@@ -333,7 +331,7 @@ app.post("/api/orders/create", requireUser, async (req, res) => {
       const balance = money(Number(userSnap.data().balance || 0));
       if (balance < cost) throw new Error(`Insufficient wallet balance. Required ₹${cost.toFixed(2)}.`);
       const provider = service.source === "luvsmm" ? "luvsmm" : "manual";
-      if (provider === "luvsmm" && (!service.supplierServiceId || isRestrictedEngagement(service))) throw new Error("This supplier service is not eligible for automated fulfilment.");
+      if (provider === "luvsmm" && !service.supplierServiceId) throw new Error("Supplier service ID is missing. Re-sync the catalogue.");
       tx.update(userSnap.ref, { balance: money(balance - cost), updatedAt: FV.serverTimestamp() });
       orderData = {
         userId: req.user.uid, userEmail: req.user.email, userName: req.user.name,
@@ -351,7 +349,7 @@ app.post("/api/orders/create", requireUser, async (req, res) => {
     });
     if (orderData.source === "manual") return res.json({ ok: true, orderId: orderRef.id, status: "Awaiting review", amount: orderData.amount });
 
-    // Only services that passed the server-side compliance allow-list can be sent upstream.
+    // Only manually approved and active services reach this dispatch path.
     let upstream;
     try {
       upstream = await luvsmm("add", { service: orderData.supplierServiceId, link: orderData.link, quantity: orderData.quantity });
@@ -454,13 +452,27 @@ app.post("/api/admin/services/sync", requireAdmin, async (_req, res) => {
     const upstream = await luvsmm("services");
     const incoming = Array.isArray(upstream) ? upstream : (Array.isArray(upstream?.services) ? upstream.services : []);
     if (!incoming.length) return res.status(502).json({ error: "No service array received. Check the LuvSMM API response and key." });
+    // One-time migration for legacy blocked rows, including rows no longer returned by the supplier.
+    const legacyBlocked = await db.collection("smmServices").where("approvalStatus", "==", "blocked").get();
+    let legacyMigrated = 0;
+    for (let i = 0; i < legacyBlocked.docs.length; i += 400) {
+      const migrationBatch = db.batch();
+      legacyBlocked.docs.slice(i, i + 400).forEach(doc => migrationBatch.update(doc.ref, {
+        approvalStatus: "needs_review", restricted: false, complianceVerified: false, active: false,
+        reviewNote: "Moved to manual review by catalogue update.", updatedAt: FV.serverTimestamp()
+      }));
+      await migrationBatch.commit();
+      legacyMigrated += Math.min(400, legacyBlocked.docs.length - i);
+    }
     const settings = await getAdminSettings();
     const margin = Math.max(0, Math.min(500, Number(settings.markupPercent ?? DEFAULT_MARKUP)));
-    let added = 0, updated = 0, blocked = 0;
+    let added = 0, updated = 0, pendingReview = 0;
     for (let i = 0; i < incoming.length; i += 250) {
       const chunk = incoming.slice(i, i + 250);
-      const ids = chunk.map(s => String(s.service ?? s.id ?? "")).filter(Boolean);
-      const existingSnaps = await Promise.all(chunk.map(rawItem => { const itemId = String(rawItem.service ?? rawItem.id ?? "").trim(); return itemId ? db.collection("smmServices").doc(`luvsmm_${itemId}`).get() : Promise.resolve(null); }));
+      const existingSnaps = await Promise.all(chunk.map(rawItem => {
+        const itemId = String(rawItem.service ?? rawItem.id ?? "").trim();
+        return itemId ? db.collection("smmServices").doc(`luvsmm_${itemId}`).get() : Promise.resolve(null);
+      }));
       const batch = db.batch();
       chunk.forEach((raw, idx) => {
         const sid = String(raw.service ?? raw.id ?? "").trim();
@@ -470,29 +482,46 @@ app.post("/api/admin/services/sync", requireAdmin, async (_req, res) => {
         const old = oldSnap?.exists ? oldSnap.data() : {};
         const name = String(raw.name || `LuvSMM service ${sid}`).slice(0, 180);
         const category = String(raw.category || "Imported").slice(0, 100);
+        const description = String(raw.description || "").slice(0, 500);
         const rate = asNum(raw.rate, 0);
         const currency = String(raw.currency || process.env.LUVSMM_CURRENCY || "INR").toUpperCase();
+        const supplierType = String(raw.type || "Default").slice(0, 60);
+        const min = Math.max(1, Math.floor(asNum(raw.min, 1)));
+        const max = Math.max(1, Math.floor(asNum(raw.max, 10000)));
+        const refill = [true, 1, "1", "true"].includes(raw.refill);
+        const cancel = [true, 1, "1", "true"].includes(raw.cancel);
         const multiplier = currency === "USD" ? asNum(process.env.USD_TO_INR_RATE, 0) : 1;
         const calculatedPrice = multiplier > 0 ? money(rate * multiplier * (1 + margin / 100)) : 0;
-        const restricted = isRestrictedEngagement({ name, category, description: raw.description || "", type: raw.type || "" });
+        const supplierMetadataChanged = Boolean(oldSnap?.exists) && (
+          String(old.name || "") !== name || String(old.category || "") !== category ||
+          String(old.description || "") !== description || Number(old.supplierRate || 0) !== rate ||
+          String(old.supplierCurrency || "INR") !== currency || String(old.supplierType || "Default") !== supplierType ||
+          Number(old.min || 1) !== min || Number(old.max || 10000) !== max ||
+          Boolean(old.refill) !== refill || Boolean(old.cancel) !== cancel
+        );
+        // Every new or materially changed supplier item returns to manual review.
+        // Existing retail prices are preserved, but the admin must re-check changed provider data.
+        const oldStatus = old.approvalStatus === "blocked" ? "needs_review" : (old.approvalStatus || "needs_review");
+        const statusAfterSync = supplierMetadataChanged ? "needs_review" : oldStatus;
+        const approvalStatus = ["approved", "rejected", "needs_review"].includes(statusAfterSync) ? statusAfterSync : "needs_review";
         const record = {
-          name, category, description: String(raw.description || "").slice(0, 500), source: "luvsmm", pricingModel: "per1000",
+          name, category, description, source: "luvsmm", pricingModel: "per1000",
           supplierServiceId: sid, supplierRate: rate, supplierCurrency: currency,
-          supplierType: String(raw.type || "Default").slice(0, 60), min: Math.max(1, Math.floor(asNum(raw.min, 1))),
-          max: Math.max(1, Math.floor(asNum(raw.max, 10000))), refill: [true, 1, "1", "true"].includes(raw.refill), cancel: [true, 1, "1", "true"].includes(raw.cancel),
-          restricted, approvalStatus: restricted ? "blocked" : (old.approvalStatus || "needs_review"),
-          complianceVerified: restricted ? false : (old.complianceVerified === true),
-          active: old.active === true, sellingPricePer1000: Number.isFinite(Number(old.sellingPricePer1000)) && Number(old.sellingPricePer1000) > 0 ? Number(old.sellingPricePer1000) : calculatedPrice,
+          supplierType, min, max, refill, cancel,
+          restricted: false, approvalStatus,
+          complianceVerified: approvalStatus === "approved" && old.complianceVerified === true,
+          active: approvalStatus === "approved" && old.active === true,
+          sellingPricePer1000: Number.isFinite(Number(old.sellingPricePer1000)) && Number(old.sellingPricePer1000) > 0 ? Number(old.sellingPricePer1000) : calculatedPrice,
           importedAt: FV.serverTimestamp(), updatedAt: FV.serverTimestamp(), createdAt: old.createdAt || FV.serverTimestamp()
         };
         if (oldSnap?.exists) updated++; else added++;
-        if (restricted) blocked++;
+        if (approvalStatus === "needs_review") pendingReview++;
         batch.set(ref, record, { merge: true });
       });
       await batch.commit();
     }
     await db.collection("smmSettings").doc("main").set({ lastServiceSyncAt: FV.serverTimestamp(), lastServiceSyncCount: incoming.length }, { merge: true });
-    res.json({ ok: true, total: incoming.length, added, updated, blocked });
+    res.json({ ok: true, total: incoming.length, added, updated, pendingReview, legacyMigrated });
   } catch (e) { res.status(502).json({ error: errorText(e) }); }
 });
 app.patch("/api/admin/services/:id", requireAdmin, async (req, res) => {
@@ -508,19 +537,38 @@ app.patch("/api/admin/services/:id", requireAdmin, async (req, res) => {
       if (price <= 0 || price > 10000000) return res.status(400).json({ error: "Enter a valid selling price per 1,000." });
       patch.sellingPricePer1000 = price;
     }
-    if (body.active !== undefined) patch.active = body.active === true;
-    if (body.approvalStatus === "approved") {
-      if (isRestrictedEngagement(current)) return res.status(403).json({ error: "This artificial-engagement service cannot be approved for sale." });
-      if (body.complianceVerified !== true) return res.status(400).json({ error: "Confirm that this is genuine, policy-compliant promotion before approval." });
-      patch.approvalStatus = "approved"; patch.complianceVerified = true;
-    } else if (body.approvalStatus === "needs_review" || body.approvalStatus === "blocked") {
-      patch.approvalStatus = body.approvalStatus; patch.complianceVerified = false; patch.active = false;
+    if (["approved", "rejected"].includes(body.approvalStatus) && body.adminReviewed !== true) {
+      return res.status(400).json({ error: "Complete the admin review confirmation before saving this decision." });
     }
-    if ((body.name !== undefined || body.description !== undefined) && current.source === "manual") {
-      const proposed = { ...current, name: String(body.name ?? current.name).trim().slice(0, 180), description: String(body.description ?? current.description).trim().slice(0, 500) };
-      if (isRestrictedEngagement(proposed)) return res.status(400).json({ error: "Artificial engagement or fake-traffic services are not allowed." });
-      if (body.name !== undefined) patch.name = proposed.name;
-      if (body.description !== undefined) patch.description = proposed.description;
+    if (body.approvalStatus === "approved") {
+      const finalPrice = Number(body.sellingPricePer1000 ?? current.sellingPricePer1000 ?? 0);
+      if (!Number.isFinite(finalPrice) || finalPrice <= 0) return res.status(400).json({ error: "Set a valid customer selling price before publishing." });
+      patch.approvalStatus = "approved";
+      patch.complianceVerified = true;
+      patch.active = true;
+      patch.reviewedAt = FV.serverTimestamp();
+      patch.reviewNote = String(body.reviewNote || "Manually reviewed and approved by admin.").trim().slice(0, 500);
+    } else if (body.approvalStatus === "rejected") {
+      patch.approvalStatus = "rejected";
+      patch.complianceVerified = false;
+      patch.active = false;
+      patch.reviewedAt = FV.serverTimestamp();
+      patch.reviewNote = String(body.reviewNote || "Rejected by admin review.").trim().slice(0, 500);
+    } else if (body.approvalStatus === "needs_review") {
+      patch.approvalStatus = "needs_review";
+      patch.complianceVerified = false;
+      patch.active = false;
+      patch.reviewNote = String(body.reviewNote || "Returned to review queue.").trim().slice(0, 500);
+    }
+    if (body.active !== undefined) {
+      const nextActive = body.active === true;
+      if (nextActive && (current.approvalStatus !== "approved" && patch.approvalStatus !== "approved")) {
+        return res.status(409).json({ error: "Review and approve this service before publishing it." });
+      }
+      if (nextActive && Number(patch.sellingPricePer1000 ?? current.sellingPricePer1000 ?? 0) <= 0) {
+        return res.status(400).json({ error: "Set a valid selling price before publishing." });
+      }
+      patch.active = nextActive;
     }
     await ref.update(patch);
     res.json({ ok: true });
@@ -534,10 +582,9 @@ app.post("/api/admin/services/manual", requireAdmin, async (req, res) => {
     const price = money(asNum(req.body?.sellingPricePer1000));
     const pricingModel = req.body?.pricingModel === "fixed" ? "fixed" : "per1000";
     if (name.length < 3 || price <= 0) return res.status(400).json({ error: "Service name and a valid price are required." });
-    if (isRestrictedEngagement({ name, category, description })) return res.status(400).json({ error: "Artificial engagement or fake-traffic services are not allowed." });
     const ref = db.collection("smmServices").doc();
-    await ref.set({ name, category, description, source: "manual", pricingModel, min: pricingModel === "fixed" ? 1 : Math.max(1, Math.floor(asNum(req.body?.min, 1))), max: pricingModel === "fixed" ? 1 : Math.max(1, Math.floor(asNum(req.body?.max, 100))), sellingPricePer1000: price, active: true, approvalStatus: "approved", complianceVerified: true, createdAt: FV.serverTimestamp(), updatedAt: FV.serverTimestamp() });
-    res.json({ ok: true, id: ref.id });
+    await ref.set({ name, category, description, source: "manual", pricingModel, min: pricingModel === "fixed" ? 1 : Math.max(1, Math.floor(asNum(req.body?.min, 1))), max: pricingModel === "fixed" ? 1 : Math.max(1, Math.floor(asNum(req.body?.max, 100))), sellingPricePer1000: price, active: false, approvalStatus: "needs_review", complianceVerified: false, createdAt: FV.serverTimestamp(), updatedAt: FV.serverTimestamp() });
+    res.json({ ok: true, id: ref.id, approvalStatus: "needs_review" });
   } catch (e) { res.status(500).json({ error: errorText(e) }); }
 });
 app.delete("/api/admin/services/:id", requireAdmin, async (req, res) => {

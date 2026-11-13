@@ -49,7 +49,7 @@
     const category = $("#categoryFilter").value;
     const items = state.services.filter(s => (category === "all" || s.category === category) && (!q || `${s.name} ${s.category} ${s.description}`.toLowerCase().includes(q)));
     if (!items.length) {
-      $("#serviceGrid").innerHTML = `<div class="empty-state wide"><div class="empty-symbol">✦</div><b>${state.services.length ? "No matching services" : "Services are being prepared"}</b><p>${state.services.length ? "Try a different search or category." : "New supplier services are imported into admin review first. Only verified, policy-compliant services appear here."}</p></div>`;
+      $("#serviceGrid").innerHTML = `<div class="empty-state wide"><div class="empty-symbol">✦</div><b>${state.services.length ? "No matching services" : "Services are being prepared"}</b><p>${state.services.length ? "Try a different search or category." : "The catalogue is empty. Import services from your admin panel to get started."}</p></div>`;
       return;
     }
     const icons = ["◈", "✦", "↗", "⌘", "◎", "◇"];

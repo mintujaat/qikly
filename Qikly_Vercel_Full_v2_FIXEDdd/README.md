@@ -17,18 +17,20 @@ This project replaces the old YaadPage storefront with a responsive marketing-se
 - Password-protected admin login.
 - Overview: customers, catalogue counts, order counts, wallet deposits and latest orders.
 - **Import / sync all**: fetches the LuvSMM `services` API response and upserts the complete service list into the `smmServices` collection.
-- Imported services are not automatically displayed to customers. They enter `Needs review` first; restricted artificial-engagement services are marked `Blocked`.
-- Service approval, publish/pause, custom selling prices, supplier balance check and manual service creation.
+- Every newly imported supplier service and every manually created service enters `Needs review`; no keyword-based automatic block or auto-publish is applied.
+- Admin opens each service's review card (name, description, supplier ID/rate, price, quantity range and refill/cancel options), then manually approves and publishes or rejects it.
+- Previously `Blocked` legacy imports are migrated to `Needs review` the next time the admin runs **Import / sync all**.
+- Service approval, publish/pause, rejection, custom selling prices, supplier balance check and manual service creation.
 - Order list, batch supplier-status synchronization, status adjustment and safeguarded wallet refunds.
 - Customer directory, wallet transaction ledger and default markup settings.
 
-## Important LuvSMM / platform-policy guardrail
+## Service moderation model
 
-The upstream provider's catalogue contains follower, like, view, subscriber, comment, member, stream and similar metric-boosting products. Artificially inflating social-platform metrics can violate those platforms' rules and mislead customers. For that reason, this build **does not enable or dispatch those artificial-engagement products**. The sync imports supplier data for admin review, the server blocks common metric-manipulation service names/categories, and the order endpoint independently checks the restriction before it can send a supplier request.
+This build uses manual admin moderation rather than automatic keyword restrictions. The complete catalogue returned by LuvSMM is imported into Firestore and stays private to the admin until reviewed. Each service starts in `Needs review`; the admin can inspect the supplier-provided name, description, ID, rate, quantity range, refill/cancel flags and retail price, then choose **Approve & publish** or **Reject & hide**. The server requires an authenticated admin session and a review-confirmation flag for either decision. Only active, approved services with a valid selling price appear in the customer catalogue and pass the server-side order check.
 
-Use the LuvSMM automatic fulfilment route only for a service you have independently verified is a genuine, lawful, platform-compliant marketing service (for example, a real campaign/advertising deliverable, not bought engagement). Other legitimate services can be added as manual services; customer orders then enter `Awaiting review` for you to fulfil and update in the admin panel. Do not rename or disguise artificial-engagement products to bypass the checks.
+A later sync refreshes supplier metadata while preserving the admin's selling price. If supplier metadata (name, description, rate, currency, type, quantity bounds or refill/cancel flags) changes, the item is returned to `Needs review` and hidden until the admin checks it again. Unchanged records preserve the moderation decision. Legacy records previously marked `blocked` are moved to `Needs review` during the next sync. Admin-created manual services also enter the same review queue. The admin remains responsible for checking supplier terms, platform rules, local law, service quality and customer disclosures before approval; approval is not a claim that a supplier service is endorsed by a social platform or guaranteed to be safe for an account.
 
-The provider API key and endpoint are called only from `api/index.js`. The integration uses HTTPS certificate validation (native Node fetch) and does not copy the unsafe SSL-verification bypass from the provider's sample PHP snippet.
+The LuvSMM API key and endpoint are called only from `api/index.js`. The integration uses HTTPS certificate validation (native Node fetch) and does not copy the unsafe SSL-verification bypass from the provider's sample PHP snippet.
 
 ## Before deployment: Vercel environment variables
 
@@ -70,8 +72,9 @@ Select `payment.captured` and `order.paid`. Set a strong webhook secret and add 
 4. Add the environment variables listed above. Use Razorpay Test Mode keys for the first deployment and your LuvSMM API key only in the server environment.
 5. Deploy. Open `https://YOUR_DOMAIN/health` and confirm the JSON reports `firebase: true`, `razorpay: true` (when keys exist), and `luvsmm: true` (when the provider key exists).
 6. Open `/admin`, sign in with `ADMIN_PASSWORD`, open Service catalogue and use **Import / sync all**.
-7. Review every item. Approved items must be genuine and compliant; blocked engagement-inflation items remain unavailable. Set or verify the selling price before enabling a service.
-8. Make a Test Mode wallet recharge, verify the balance and transaction record, then place a permitted test order. Do not switch to live payments until the full flow has been checked.
+7. Run **Import / sync all**. The next sync also converts legacy `Blocked` records into `Needs review`.
+8. Open **Review** on each service, inspect its details and customer price, tick the admin review confirmation, then choose **Approve & publish** or **Reject & hide**. Only approved services with a valid selling price are visible to customers.
+9. Make a Test Mode wallet recharge, verify the balance and transaction record, then place a test order using a service you reviewed and approved. Do not switch to live payments until the full flow has been checked.
 
 Vercel rewrites in `vercel.json` keep `/api/*` routed to the serverless Express API, `/admin` routed to the admin HTML, and the home route routed to `index.html`.
 
@@ -94,8 +97,8 @@ Open `http://localhost:3000` and `http://localhost:3000/admin`.
 1. Admin presses **Import / sync all**.
 2. Server sends `action=services` to `https://luvsmm.com/api/v2` using `LUVSMM_API_KEY`.
 3. Every returned service with an ID is upserted into the Firestore `smmServices` collection (`luvsmm_<supplier-id>` document ID).
-4. Supplier name/category/rate/min/max/type are refreshed. Existing selling price and admin review state are preserved on later syncs.
-5. New services start as `Needs review` and are hidden from the customer catalogue. Common artificial-engagement products are marked `Blocked` by both name/category/description screening and server-side order validation.
+4. Supplier name/category/rate/min/max/type are refreshed. Existing selling price is preserved; if supplier metadata changes, the service returns to `Needs review`.
+5. New and materially changed services appear in the admin catalogue as `Needs review`. No name/category keyword screening is used. The admin must manually approve each service before it can be listed or ordered. Legacy `blocked` records are moved to `needs_review` at the next sync.
 
 ### B. Customer wallet recharge
 1. Customer signs up/logs in and enters a recharge amount.
