@@ -3,14 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#f6f8fc">
+  <meta name="theme-color" content="#f5f7fb">
   <meta name="description" content="Social media strategy and digital marketing services with a simple wallet and order dashboard.">
   <title>Mintu Social — Digital Marketing Services</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="https://checkout.razorpay.com/v1/checkout.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
@@ -18,7 +17,7 @@
   <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
   <header class="topbar">
     <a class="brand" href="/" aria-label="Mintu Social home"><span class="brand-mark">M</span><span class="brand-copy"><b id="brandName">Mintu Social</b><small>DIGITAL GROWTH STUDIO</small></span></a>
-    <nav class="main-nav"><a href="#home">Home</a><a href="#services">Services</a><a href="#add-funds" id="navAddFunds">Add Funds</a><a href="#complaints" id="navComplaints">Raise a Complaint</a><a href="#dashboard">Order History</a></nav>
+    <nav class="main-nav"><a href="#home">Home</a><a href="#dashboard" data-nav-wallet>Add Funds</a><a href="#services">Services / New Order</a><a href="#orderHistory" data-nav-orders>Order History</a><a href="#support">Raise a Complaint</a><a href="#dashboard" data-nav-profile>Profile</a><button class="nav-logout" id="navLogout" hidden>Logout</button></nav>
     <div class="top-actions"><span class="wallet-chip" id="headerBalance" hidden>₹0.00</span><button class="btn btn-ghost" id="loginBtn">Log in</button><button class="btn btn-primary" id="signupBtn">Get started <span>↗</span></button><button class="avatar-button" id="accountBtn" hidden aria-label="Account">M</button></div>
     <button class="mobile-menu" id="mobileMenu" aria-label="Open menu">☰</button>
   </header>
@@ -49,20 +48,19 @@
     <section class="trust-strip wrap"><div><b>01</b><span>Transparent pricing</span></div><div><b>02</b><span>Secure Razorpay checkout</span></div><div><b>03</b><span>Trackable order history</span></div><div><b>04</b><span>Support when you need it</span></div></section>
 
     <section class="section wrap" id="services">
-      <div class="section-heading"><div><div class="eyebrow">THE SERVICE DESK</div><h2>Explore the <em>catalogue.</em></h2><p>Search by platform or category, compare prices and place an order from your account.</p></div><div class="catalog-tools"><label class="search-box"><span>⌕</span><input id="serviceSearch" type="search" placeholder="Search services..."></label></div></div>
-      <div class="category-pills" id="categoryPills" aria-label="Select platform"><button class="category-pill active" data-category="all">All</button></div>
+      <div class="section-heading"><div><div class="eyebrow">THE SERVICE DESK</div><h2>Explore the <em>catalogue.</em></h2><p>Search by platform or category, compare prices and place an order from your account.</p></div><div class="catalog-tools"><label class="search-box"><span>⌕</span><input id="serviceSearch" type="search" placeholder="Search services..."></label><select id="categoryFilter" aria-label="Filter category"><option value="all">All categories</option></select></div></div>
+      <div class="popular-categories" id="popularCategories" aria-label="Popular service categories"></div>
       <div class="service-grid" id="serviceGrid"><div class="empty-state wide"><span class="loader"></span><b>Loading services</b><p>Checking the current catalogue…</p></div></div>
       <div class="catalog-footnote" id="catalogFootnote">Prices are shown in INR. Check service details and quantity limits before ordering.</div>
     </section>
 
-    <section class="how-section" id="how"><div class="wrap"><div class="section-heading centered"><div><div class="eyebrow">A SIMPLE PROCESS</div><h2>From selection to <em>completion.</em></h2><p>Your balance, order status and payment history stay together in your dashboard.</p></div></div><div class="steps-grid"><article class="step-card"><span>01</span><div class="step-icon">＋</div><h3>Create an account</h3><p>Register with your name, email and password. Your account includes a personal wallet.</p></article><article class="step-card"><span>02</span><div class="step-icon">↗</div><h3>Choose a service</h3><p>Review the service details, enter the requested project URL and select a quantity where applicable.</p></article><article class="step-card"><span>03</span><div class="step-icon">◷</div><h3>Track your order</h3><p>Follow order updates in your dashboard. Wallet movements are recorded in your transaction history.</p></article></div></div></section>
+    <section class="how-section" id="how"><div class="wrap"><div class="section-heading centered"><div><div class="eyebrow">A SIMPLE PROCESS</div><h2>From selection to <em>completion.</em></h2><p>Your balance, order status and payment history stay together in your dashboard.</p></div></div><div class="steps-grid"><article class="step-card"><span>01</span><div class="step-icon">＋</div><h3>Create an account</h3><p>Register with email and password or continue securely with Google. Your account includes a personal wallet.</p></article><article class="step-card"><span>02</span><div class="step-icon">↗</div><h3>Choose a service</h3><p>Review the service details, enter the requested project URL and select a quantity where applicable.</p></article><article class="step-card"><span>03</span><div class="step-icon">◷</div><h3>Track your order</h3><p>Follow order updates in your dashboard. Wallet movements are recorded in your transaction history.</p></article></div></div></section>
 
-    <section class="dashboard-section wrap" id="dashboard"><div class="section-heading"><div><div class="eyebrow">YOUR ACCOUNT</div><h2>Your work, <em>in one view.</em></h2><p>Sign in to see wallet balance, latest orders and payment history.</p></div><button class="btn btn-outline" id="dashboardAuth">Log in to continue</button></div><div class="dashboard-placeholder" id="dashboardContent"><div class="placeholder-icon">⌘</div><div><b>Your dashboard will appear here</b><p>Log in or create an account to manage your wallet and orders.</p></div></div></section>
+    <section class="dashboard-section wrap" id="dashboard"><div class="section-heading"><div><div class="eyebrow">YOUR ACCOUNT</div><h2>Your work, <em>in one view.</em></h2><p>Wallet balance, orders, recent activity and profile details.</p></div><button class="btn btn-outline" id="dashboardAuth">Log in to continue</button></div><div class="dashboard-placeholder" id="dashboardContent"><div class="placeholder-icon">⌘</div><div><b>Your dashboard will appear here</b><p>Log in or create an account to manage your wallet and orders.</p></div></div></section>
+    <section class="support-section wrap" id="support"><div class="section-heading"><div><div class="eyebrow">CUSTOMER SUPPORT</div><h2>Need a hand?</h2><p>Raise a complaint or follow up on an existing support ticket.</p></div><button class="btn btn-primary" id="raiseTicket">Raise a complaint</button></div><div id="supportContent" class="support-content"><p>Sign in to contact support and view your conversations.</p></div></section>
 
     <section class="cta-section wrap"><div><div class="eyebrow">READY WHEN YOU ARE</div><h2>Make your next move<br><em>with clarity.</em></h2><p>Create an account to browse services, add wallet funds and track orders.</p></div><button class="btn btn-primary btn-large" id="ctaSignup">Create your account <span>↗</span></button></section>
   </main>
-
-  <section class="section wrap" id="complaints"><div class="section-heading"><div><div class="eyebrow">CUSTOMER SUPPORT</div><h2>Need any <em>help?</em></h2><p>Create a support ticket and continue the conversation from your dashboard.</p></div><button class="btn btn-primary" id="raiseComplaintBtn">Raise a Complaint</button></div><div class="dashboard-placeholder"><div class="placeholder-icon">?</div><div><b>Support tickets</b><p>Our admin team can reply directly to your complaint. Sign in to create and track tickets.</p></div></div></section>
 
   <footer class="footer wrap"><a class="brand" href="/"><span class="brand-mark">M</span><span class="brand-copy"><b id="footerBrand">Mintu Social</b><small>DIGITAL GROWTH STUDIO</small></span></a><span>© <span id="year"></span> Mintu Social. All rights reserved.</span><a href="mailto:support@example.com" id="supportLink">Contact support</a><a href="/admin">Admin</a></footer>
   <div id="modalRoot"></div><div class="toast" id="toast" role="status" aria-live="polite"></div>

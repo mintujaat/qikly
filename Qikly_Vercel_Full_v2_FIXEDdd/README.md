@@ -2,21 +2,18 @@
 
 This build replaces the Firestore/Firebase Admin database layer with Supabase PostgreSQL. It keeps the existing customer website, admin workspace, Razorpay wallet flow, LuvSMM v2 server integration, manual service review, and Vercel deployment layout.
 
-**Fresh start:** this schema starts with empty SMM tables. No Firebase customers, wallet balances, orders, or passwords are migrated. Existing Razorpay and LuvSMM integrations remain environment-based and can be reused.
+**Fresh start:** this schema starts with empty SMM tables. No Firebase customers, wallet balances, orders, or passwords are migrated. Existing SMM table data is retained when the schema is rerun to add the new columns and tables. Existing Razorpay and LuvSMM integrations remain environment-based and can be reused.
 
 ## Included features
 
-- Light-theme, mobile-responsive customer website with Home, Services, Add Funds, Complaints, Order History, profile menu and responsive mobile navigation.
-- Email/password signup and login plus Google Sign-In (Google Identity Services). Google profile name, verified email and avatar are saved to the customer record. Passwords use Node.js `scrypt` hashes; the app issues signed HttpOnly cookies. Google sign-in is verified server-side against the configured Google Web Client ID.
+- Responsive light-theme customer website and separate admin-only `/admin` workspace.
+- Email/password and optional Google OAuth signup/login. Google identities are matched by verified email, and the profile name/photo are stored with the account.
 - Razorpay wallet recharge, server-side HMAC verification, captured-payment verification, webhook reconciliation, and exactly-once crediting.
-- Razorpay wallet deposits with admin-configurable minimum/maximum amounts, wallet ledger, order history, supplier status synchronization, manual orders and controlled refunds.
-- Admin customer wallet controls: manual add/deduct with a reason recorded in the transaction ledger; deductions cannot make a wallet negative.
-- Dynamic service groups/categories (Instagram, YouTube, Telegram, etc.). Admin creates, renames, hides or deletes groups; every service is assigned to a group. Customers see only services belonging to visible groups.
-- Manual/custom service builder and LuvSMM service import. Admin can create a service under any group, optionally map it to a LuvSMM supplier service ID, review, approve, reject, publish, pause or delete it. Manual-only orders enter the admin fulfillment queue.
-- USD supplier rate conversion to INR with an admin-set exchange rate and configurable percentage or fixed margin. Manual service price overrides are preserved through supplier sync. Supplier metadata is stored separately from admin's customer-facing name/category/description, so future syncs do not undo admin assignments.
-- Customer support tickets with threaded replies. Customers create and reply to complaints; admins respond and change ticket status from `/admin`.
-- Admin dashboard with services, group management, complaints, customer wallet adjustments, orders, transactions, pricing/deposit settings and LuvSMM supplier balance lookup.
-- PostgreSQL functions for atomic payment credit, order wallet reservation, refunds, admin wallet adjustment, price recalculation and dashboard aggregates.
+- Wallet ledger, admin wallet adjustments with reasons, configurable deposit minimum, order history, supplier status synchronization, manual order handling, and duplicate-safe refunds.
+- Admin-managed categories, editable custom/manual or supplier-mapped services, pricing conversion/margins, and customer/admin complaint conversations.
+- LuvSMM service catalogue import/sync. Every new/changed service enters `Needs review`. Admin approves or rejects each service; only active, approved, verified services appear publicly and can be ordered.
+- Admin dashboard with users, wallet liability, deposits, completed/pending orders, estimated supplier cost/profit, complaints, and pending approvals.
+- PostgreSQL functions for atomic payment credit, order wallet reservation, refunds, and dashboard aggregates.
 - Row Level Security enabled on all SMM tables. The server uses the Supabase secret key; it is never included in browser assets.
 
 ## 1. Create the database tables
@@ -25,7 +22,7 @@ This build replaces the Firestore/Firebase Admin database layer with Supabase Po
 2. Open **SQL Editor** → **New query**.
 3. Open `supabase/schema.sql` from this project and copy all its contents into the SQL Editor.
 4. Press **Run** and confirm that the tables and SQL functions are created without errors.
-5. Open **Table Editor** and confirm these tables exist: `smm_users`, `smm_services`, `smm_orders`, `smm_wallet_payments`, `smm_transactions`, `smm_settings`, `smm_categories`, `smm_tickets`, and `smm_ticket_messages`. The same complete schema can be re-run after a prior partial setup; new columns and RPCs are created idempotently.
+5. Open **Table Editor** and confirm these tables exist: `smm_users`, `smm_categories`, `smm_services`, `smm_orders`, `smm_wallet_payments`, `smm_transactions`, `smm_tickets`, `smm_ticket_messages`, and `smm_settings`.
 
 The script creates only the SMM tables and functions in the `public` schema. It does not modify Firebase or any older YaadPage/Qikly database.
 
@@ -50,15 +47,19 @@ Open **Vercel → Project → Settings → Environment Variables** and add:
 | `RAZORPAY_WEBHOOK_SECRET` | The same secret set in Razorpay Webhooks | Recommended |
 | `SESSION_SECRET` | Generate using `openssl rand -hex 32` | Yes |
 | `ADMIN_PASSWORD` | Unique admin password, minimum 12 characters | Yes |
+| `GOOGLE_CLIENT_ID` | Google OAuth web application client ID | Optional |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret; backend only | Optional |
+| `GOOGLE_REDIRECT_URI` | `https://YOUR_DOMAIN/api/auth/google/callback` | Optional |
 | `LUVSMM_API_URL` | `https://luvsmm.com/api/v2` | Supplier |
 | `LUVSMM_API_KEY` | Your LuvSMM API key; backend only | Supplier |
-| `LUVSMM_CURRENCY` | `USD` (default when the supplier response omits currency) | Supplier pricing |
-| `USD_TO_INR_RATE` | Optional initial USD→INR fallback | Optional; can be set in Admin → Settings |
-| `GOOGLE_CLIENT_ID` | Google Cloud Console OAuth Web Client ID | Google Sign-In |
+| `LUVSMM_CURRENCY` | Usually `INR`; verify supplier response | Yes for pricing |
+| `USD_TO_INR_RATE` | Fallback only if the database settings row is absent | Optional |
 | `SITE_NAME` | `Mintu Social` | Optional |
 | `DEFAULT_MARKUP_PERCENT` | `30` (change as needed) | Optional |
 
 Do not add `FIREBASE_SERVICE_ACCOUNT_JSON` or `FIREBASE_DATABASE_URL`; this build no longer reads them. You can remove those old Firebase variables from Vercel after deploying this build. Existing Razorpay and LuvSMM values can stay the same. Do not paste any private key into chat or commit `.env` to GitHub.
+
+To enable Google sign-in, create a Google OAuth **Web application** client, add `https://YOUR_DOMAIN` as an authorized JavaScript origin and `https://YOUR_DOMAIN/api/auth/google/callback` as an authorized redirect URI, then set the three Google variables in Vercel and redeploy. Google sign-in remains hidden until all are configured.
 
 ## 4. Deploy
 
@@ -68,10 +69,9 @@ Do not add `FIREBASE_SERVICE_ACCOUNT_JSON` or `FIREBASE_DATABASE_URL`; this buil
 4. Add the environment variables above to Production (and Preview if you test there).
 5. Redeploy.
 6. Open `https://YOUR_DOMAIN/health`. Expected example: `{"ok":true,"service":"mintu-smm-api","database":"supabase","supabase":true,...}`.
-7. Open `/admin`, log in using `ADMIN_PASSWORD`, open **Settings**, set USD→INR exchange rate, margin type/value, and minimum/maximum deposit. Save settings before importing a USD catalogue.
-8. Open **Groups** and create the customer-facing platform groups you need (Instagram, YouTube, Telegram, etc.).
-9. Open **Services** → **Import / sync all**. Supplier services enter `Needs review`. Review a service, choose its customer-facing group, verify the INR price, and approve or reject it. You can also use **Manual service** to create a service yourself; choose its group and optionally enter a LuvSMM service ID if it should be sent to the supplier.
-10. Test Google Sign-In, a Razorpay Test Mode wallet top-up (minimum deposit enforced), a manual wallet add/deduct, a support ticket and admin reply, and a small order using an approved service. Only switch to Live Mode after those flows are verified.
+7. Open `/admin`, log in using `ADMIN_PASSWORD`, choose **Services**, and press **Import / sync all** once. Supplier services are inserted into PostgreSQL and initially remain in `Needs review`.
+8. Review each service, set/confirm the selling price, and choose **Approve & publish** or **Reject & hide**.
+9. Test a Razorpay Test Mode wallet top-up, confirm one wallet transaction is created, then place a small test order using an approved service. Only switch to Live Mode after those flows are verified.
 
 ## 5. Razorpay webhook
 
@@ -87,11 +87,11 @@ Select `payment.captured` and `order.paid`, create a webhook secret, and set the
 
 The browser talks only to the existing `/api/*` endpoints. The Vercel API uses `@supabase/supabase-js` with `SUPABASE_SECRET_KEY`. The secret key never reaches the browser. Customer credentials are stored as scrypt hashes in PostgreSQL; cookies are signed using `SESSION_SECRET` and are HttpOnly/SameSite=Lax/Secure in production.
 
-### Groups, service sync and manual review
+### Service sync and manual review
 
-Admin creates platform groups (for example Instagram, YouTube and Telegram). Imported services initially enter `Needs review`. During review, the admin chooses the customer-facing group and the final name/description/price. A customer selecting Instagram sees only approved services assigned to Instagram. Hidden groups are excluded from the public catalogue. Admin can also create a custom service directly and choose its group. A custom service with a LuvSMM service ID is dispatched through LuvSMM; a service without a supplier mapping becomes an admin-fulfillment order.
+Admin presses **Import / sync all**. The server requests `action=services` from LuvSMM and upserts services into `smm_services` in batches. Existing selling prices are preserved. When supplier details materially change, that service returns to `Needs review`. New/manual services also enter `Needs review`. The admin has to review and approve before a service is shown to customers or orderable.
 
-Supplier name/category/description are stored separately from customer-facing fields. This prevents catalogue sync from undoing admin-assigned names and groups. If supplier metadata changes, the service is returned to manual review. For USD supplier rates, the configured exchange rate converts supplier cost into INR; a percentage or fixed margin is then applied. Services with manual price overrides are not overwritten by global margin updates or syncs.
+Categories are maintained in the admin **Categories** page. USD supplier costs use the admin-configured USD/INR rate; imported prices use the configured percentage and fixed margins. Existing service selling prices stay unchanged on subsequent syncs. Saved database pricing settings are authoritative over the legacy `USD_TO_INR_RATE` environment variable.
 
 ### Wallet payments
 
@@ -101,13 +101,13 @@ The API creates a Razorpay order and stores a pending row in `smm_wallet_payment
 
 A PostgreSQL function locks the selected service and user rows, validates service approval/price/quantity and available balance, deducts the wallet amount, creates an order, and inserts a ledger row atomically. Only after this reservation does the server submit LuvSMM `action=add`. A clear supplier rejection triggers a wallet refund. An ambiguous timeout is marked `Supplier confirmation needed` so the same order is not accidentally duplicated.
 
-### Wallet administration and complaints
-
-Admin can manually add or deduct funds from a customer wallet with a note; each adjustment is recorded in the same INR wallet ledger. A deduction is rejected if it would make the balance negative. Customers can open a complaint thread, reply to it, and see the admin's replies. Admin can reply and set Open, In Progress, Resolved or Closed status.
-
 ### Refunds
 
 Admin wallet refunds run through one PostgreSQL function that locks the order and user, calculates a full/partial refund, updates the balance and order, and inserts a unique refund ledger record atomically. Supplier-side cancellation/reconciliation must be completed before refunding an order that has already been accepted upstream.
+
+### Support and adjustments
+
+Customers can open tickets with an optional related order and reply in the conversation. Admin replies and status changes are visible to the customer. Wallet credits/deductions use a database function that locks the customer row and writes a signed adjustment in the transaction ledger with the admin reason.
 
 ## Local development
 
@@ -126,7 +126,6 @@ Open `http://localhost:3000` and `http://localhost:3000/admin`.
 
 - The SQL schema must be run before the first deployment/API request. Ensure the `public` schema is exposed in Supabase Data API settings if you have changed the default API exposure settings.
 - This is a fresh database; customers must register again. No Firebase data or passwords are imported.
-- Authentication uses the application's Postgres user table and signed HttpOnly cookies; the browser does not get a Supabase Auth session. Google Sign-In requires a Google OAuth Web Client ID. In Google Cloud Console, add your site origin (for example `https://YOUR_DOMAIN`) and `http://localhost:3000` under Authorized JavaScript origins, then set `GOOGLE_CLIENT_ID` in Vercel.
-- Before importing the USD catalogue, set the USD/INR rate in Admin → Settings. A zero rate intentionally leaves auto-priced USD services at ₹0 and they cannot be published until a valid rate/price is saved.
+- The application uses its own password auth table and server-side Google OAuth callback rather than Supabase Auth. Google OAuth requires the optional Google Cloud client credentials above. The project uses `@supabase/supabase-js` 2.119.x and Node.js 22 or newer.
 - Live Supabase, Razorpay, and LuvSMM credentials were not available during code generation; complete the test-mode checks above before public launch.
 - Supabase Free projects can pause after a week of inactivity and have a 500 MB database quota. Check current usage and plan limits in your Supabase dashboard.
