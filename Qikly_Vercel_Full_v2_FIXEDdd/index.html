@@ -3,13 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#080d18">
+  <meta name="theme-color" content="#f6f8fc">
   <meta name="description" content="Social media strategy and digital marketing services with a simple wallet and order dashboard.">
   <title>Mintu Social — Digital Marketing Services</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="https://checkout.razorpay.com/v1/checkout.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
@@ -17,13 +18,13 @@
   <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
   <header class="topbar">
     <a class="brand" href="/" aria-label="Mintu Social home"><span class="brand-mark">M</span><span class="brand-copy"><b id="brandName">Mintu Social</b><small>DIGITAL GROWTH STUDIO</small></span></a>
-    <nav class="main-nav"><a href="#services">Services</a><a href="#how">How it works</a><a href="#dashboard">My dashboard</a></nav>
+    <nav class="main-nav"><a href="#home">Home</a><a href="#services">Services</a><a href="#add-funds" id="navAddFunds">Add Funds</a><a href="#complaints" id="navComplaints">Raise a Complaint</a><a href="#dashboard">Order History</a></nav>
     <div class="top-actions"><span class="wallet-chip" id="headerBalance" hidden>₹0.00</span><button class="btn btn-ghost" id="loginBtn">Log in</button><button class="btn btn-primary" id="signupBtn">Get started <span>↗</span></button><button class="avatar-button" id="accountBtn" hidden aria-label="Account">M</button></div>
     <button class="mobile-menu" id="mobileMenu" aria-label="Open menu">☰</button>
   </header>
 
   <main>
-    <section class="hero wrap">
+    <section class="hero wrap" id="home">
       <div class="hero-copy">
         <div class="eyebrow"><span class="live-dot"></span> YOUR SOCIAL MEDIA SERVICE DESK</div>
         <h1>Social media<br><em>made simpler.</em></h1>
@@ -48,7 +49,8 @@
     <section class="trust-strip wrap"><div><b>01</b><span>Transparent pricing</span></div><div><b>02</b><span>Secure Razorpay checkout</span></div><div><b>03</b><span>Trackable order history</span></div><div><b>04</b><span>Support when you need it</span></div></section>
 
     <section class="section wrap" id="services">
-      <div class="section-heading"><div><div class="eyebrow">THE SERVICE DESK</div><h2>Explore the <em>catalogue.</em></h2><p>Search by platform or category, compare prices and place an order from your account.</p></div><div class="catalog-tools"><label class="search-box"><span>⌕</span><input id="serviceSearch" type="search" placeholder="Search services..."></label><select id="categoryFilter" aria-label="Filter category"><option value="all">All categories</option></select></div></div>
+      <div class="section-heading"><div><div class="eyebrow">THE SERVICE DESK</div><h2>Explore the <em>catalogue.</em></h2><p>Search by platform or category, compare prices and place an order from your account.</p></div><div class="catalog-tools"><label class="search-box"><span>⌕</span><input id="serviceSearch" type="search" placeholder="Search services..."></label></div></div>
+      <div class="category-pills" id="categoryPills" aria-label="Select platform"><button class="category-pill active" data-category="all">All</button></div>
       <div class="service-grid" id="serviceGrid"><div class="empty-state wide"><span class="loader"></span><b>Loading services</b><p>Checking the current catalogue…</p></div></div>
       <div class="catalog-footnote" id="catalogFootnote">Prices are shown in INR. Check service details and quantity limits before ordering.</div>
     </section>
@@ -59,6 +61,8 @@
 
     <section class="cta-section wrap"><div><div class="eyebrow">READY WHEN YOU ARE</div><h2>Make your next move<br><em>with clarity.</em></h2><p>Create an account to browse services, add wallet funds and track orders.</p></div><button class="btn btn-primary btn-large" id="ctaSignup">Create your account <span>↗</span></button></section>
   </main>
+
+  <section class="section wrap" id="complaints"><div class="section-heading"><div><div class="eyebrow">CUSTOMER SUPPORT</div><h2>Need any <em>help?</em></h2><p>Create a support ticket and continue the conversation from your dashboard.</p></div><button class="btn btn-primary" id="raiseComplaintBtn">Raise a Complaint</button></div><div class="dashboard-placeholder"><div class="placeholder-icon">?</div><div><b>Support tickets</b><p>Our admin team can reply directly to your complaint. Sign in to create and track tickets.</p></div></div></section>
 
   <footer class="footer wrap"><a class="brand" href="/"><span class="brand-mark">M</span><span class="brand-copy"><b id="footerBrand">Mintu Social</b><small>DIGITAL GROWTH STUDIO</small></span></a><span>© <span id="year"></span> Mintu Social. All rights reserved.</span><a href="mailto:support@example.com" id="supportLink">Contact support</a><a href="/admin">Admin</a></footer>
   <div id="modalRoot"></div><div class="toast" id="toast" role="status" aria-live="polite"></div>

@@ -15,6 +15,9 @@
    - `smm_wallet_payments`
    - `smm_transactions`
    - `smm_settings`
+   - `smm_categories`
+   - `smm_tickets`
+   - `smm_ticket_messages`
 
 SQL script केवल ये नई SMM tables/functions बनाता है; Firebase या पुरानी YaadPage/Qikly data को modify नहीं करता।
 
@@ -44,8 +47,9 @@ Vercel → अपना Project → Settings → Environment Variables में
 - `ADMIN_PASSWORD`
 - `LUVSMM_API_URL`
 - `LUVSMM_API_KEY`
-- `LUVSMM_CURRENCY`
-- `USD_TO_INR_RATE` (केवल जब supplier rate USD में हो)
+- `LUVSMM_CURRENCY` (इस panel के लिए default `USD` रखो, क्योंकि LuvSMM rate USD में आता है)
+- `USD_TO_INR_RATE` (optional initial fallback; admin panel के Settings से भी rate set कर सकते हो)
+- `GOOGLE_CLIENT_ID` (Google Cloud Console का OAuth Web Client ID)
 - `SITE_NAME`
 - `DEFAULT_MARKUP_PERCENT`
 
@@ -66,8 +70,11 @@ openssl rand -hex 32
 3. Vercel redeploy करो। Framework preset `Other` ही रखो।
 4. Deployment के बाद `https://YOUR_DOMAIN/health` खोलो। JSON में `"supabase":true` आना चाहिए।
 5. `/admin` खोलो और `ADMIN_PASSWORD` से login करो।
-6. Services tab → **Import / sync all** दबाओ। Imported services पहले `Needs review` में आएँगी।
-7. हर service का rate/details check करके price set करो और Approve या Reject करो।
+6. पहले **Settings** tab में USD→INR exchange rate, margin (percentage या fixed), minimum deposit और maximum deposit set करके Save करो। USD rate set किए बिना auto-priced USD services ₹0 रहेंगी और publish नहीं होंगी।
+7. **Groups** tab में Instagram, YouTube, Telegram आदि categories बनाओ।
+8. **Services** tab → **Import / sync all** दबाओ। Imported services पहले `Needs review` में आएँगी। हर service review करते समय उसका customer-facing नाम, category/group और INR price set करके Approve या Reject करो।
+9. **Manual service** से अपनी service बनाओ, group select करो और चाहो तो LuvSMM supplier service ID map करो। Supplier ID के बिना order admin fulfillment queue में आएगा।
+10. **Customers** tab में user wallet पर manual Add/Deduct कर सकते हो; reason transaction history में save होगा। **Complaints** tab में customer ticket खोलकर reply कर सकते हो।
 
 ## Step 5 — Razorpay test
 
@@ -83,15 +90,17 @@ Razorpay dashboard में `payment.captured` और `order.paid` events selec
 
 - Signup/login: PostgreSQL में account + scrypt password hash; secure HttpOnly cookie.
 - Wallet: Razorpay payment verify होने पर PostgreSQL function एक transaction में balance और ledger update करेगा।
-- Services: LuvSMM catalogue automatic import होकर `smm_services` में save होगी। New/changed services manual admin review में जाएँगी।
+- Services: LuvSMM catalogue automatic import होकर `smm_services` में save होगी। New/changed services manual admin review में जाएँगी। Admin categories/groups banata hai; Instagram select karne par customer ko sirf Instagram-assigned approved services dikhti hain. Custom services bhi ban sakti hain; optional LuvSMM service ID ho to order supplier ko dispatch hota hai, warna admin fulfillment queue mein aata hai.
+- Pricing: Supplier USD rate ko admin ke USD/INR rate se INR mein convert kiya jata hai; uske baad percentage ya fixed margin apply hota hai. Admin manual price override ko supplier sync overwrite nahi karta.
 - Orders: PostgreSQL function wallet balance check, deduction, order और ledger entry atomic तरीके से बनाएगा।
 - Status: Admin supplier status sync करेगा।
+- Complaints: Customer ticket raise/reply kar sakta hai; admin panel se reply aur Open/In Progress/Resolved/Closed status set hota hai.
 - Refund: PostgreSQL function wallet credit, order status और refund ledger एक transaction में update करेगा।
 
 ## ध्यान दें
 
 - SQL schema चलाए बिना website API काम नहीं करेगी।
 - Fresh start है: पुराने Firebase customers और balances नहीं आएँगे।
-- इस version में current email/password flow custom server-side auth से चलता है; Supabase Google OAuth अभी configure नहीं है।
-- Live credentials के साथ payment/provider test यहाँ नहीं किया गया है। Launch से पहले Test Mode में पूरा flow जाँचो।
+- Google Sign-In के लिए Google Cloud Console में OAuth Client ID (Web application) बनाओ। Authorized JavaScript origins में अपना domain (जैसे `https://YOUR_DOMAIN`) और local testing के लिए `http://localhost:3000` जोड़ो। फिर Client ID को Vercel में `GOOGLE_CLIENT_ID` के रूप में save करके redeploy करो।
+- Live credentials के साथ Supabase, Razorpay और LuvSMM provider test नहीं किया गया है। Launch से पहले Test Mode और छोटा supplier order चलाकर पूरा flow जाँचो।
 - Supabase Free project inactivity पर pause हो सकता है; current usage/plan dashboard में देखना।

@@ -288,3 +288,127 @@ grant execute on function public.smm_credit_wallet_payment(text,text,uuid,bigint
 grant execute on function public.smm_place_order(uuid,text,text,integer,text,text) to service_role;
 grant execute on function public.smm_refund_order(uuid,text) to service_role;
 grant execute on function public.smm_admin_overview() to service_role;
+
+-- ---------------------------------------------------------------------------
+-- Mintu SMM extended features (safe to run on the existing fresh schema)
+-- ---------------------------------------------------------------------------
+alter table public.smm_users alter column password_hash drop not null;
+alter table public.smm_users alter column password_salt drop not null;
+alter table public.smm_users add column if not exists google_sub text;
+alter table public.smm_users add column if not exists avatar_url text not null default '';
+create unique index if not exists smm_users_google_sub_uidx on public.smm_users (google_sub) where google_sub is not null;
+
+alter table public.smm_services add column if not exists price_override boolean not null default false;
+-- Keep supplier catalogue metadata separate from the customer-facing fields admin edits.
+alter table public.smm_services add column if not exists supplier_name text;
+alter table public.smm_services add column if not exists supplier_category text;
+alter table public.smm_services add column if not exists supplier_description text;
+alter table public.smm_services add column if not exists name_override boolean not null default false;
+alter table public.smm_services add column if not exists category_override boolean not null default false;
+alter table public.smm_services add column if not exists description_override boolean not null default false;
+update public.smm_services set
+  supplier_name = coalesce(supplier_name, name),
+  supplier_category = coalesce(supplier_category, category),
+  supplier_description = coalesce(supplier_description, description),
+  category_override = case when source = 'luvsmm' then true else category_override end
+where supplier_name is null or supplier_category is null or supplier_description is null;
+
+alter table public.smm_settings add column if not exists usd_to_inr_rate numeric(14,6) not null default 0;
+alter table public.smm_settings add column if not exists markup_type text not null default 'percent' check (markup_type in ('percent','fixed'));
+alter table public.smm_settings add column if not exists markup_value numeric(14,4) not null default 30;
+alter table public.smm_settings add column if not exists min_deposit numeric(14,2) not null default 50;
+alter table public.smm_settings add column if not exists max_deposit numeric(14,2) not null default 50000;
+update public.smm_settings set markup_value = markup_percent where id = 'main' and markup_value = 30;
+
+create table if not exists public.smm_categories (
+  id text primary key,
+  name text not null unique,
+  icon text not null default 'layers',
+  sort_order integer not null default 0,
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.smm_tickets (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.smm_users(id) on delete restrict,
+  user_email text not null default '',
+  subject text not null,
+  status text not null default 'Open' check (status in ('Open','In Progress','Resolved','Closed')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists smm_tickets_user_created_idx on public.smm_tickets(user_id, created_at desc);
+create index if not exists smm_tickets_status_updated_idx on public.smm_tickets(status, updated_at desc);
+
+create table if not exists public.smm_ticket_messages (
+  id uuid primary key default gen_random_uuid(),
+  ticket_id uuid not null references public.smm_tickets(id) on delete cascade,
+  sender_type text not null check (sender_type in ('customer','admin')),
+  sender_id uuid,
+  body text not null check (char_length(body) between 1 and 4000),
+  created_at timestamptz not null default now()
+);
+create index if not exists smm_ticket_messages_ticket_created_idx on public.smm_ticket_messages(ticket_id, created_at asc);
+
+-- Atomic admin wallet adjustment; positive adds, negative deducts. Never permits a negative wallet.
+create or replace function public.smm_admin_adjust_wallet(
+  p_user_id uuid,
+  p_amount numeric,
+  p_note text
+) returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare v_balance numeric(14,2); v_amount numeric(14,2) := round(p_amount, 2); v_user public.smm_users%rowtype;
+begin
+  if v_amount = 0 or abs(v_amount) > 1000000 then raise exception 'Enter a valid adjustment amount.'; end if;
+  select * into v_user from public.smm_users where id = p_user_id for update;
+  if not found or v_user.disabled then raise exception 'Customer account is unavailable.'; end if;
+  if v_user.balance + v_amount < 0 then raise exception 'Deduction exceeds the available customer wallet balance.'; end if;
+  update public.smm_users set balance = balance + v_amount, updated_at = now() where id = p_user_id returning balance into v_balance;
+  insert into public.smm_transactions(id,user_id,type,amount,currency,reference,note)
+  values ('admin_adjust_' || gen_random_uuid()::text, p_user_id, 'adjustment', v_amount, 'INR', 'admin', left(coalesce(p_note,'Admin wallet adjustment'),300));
+  return jsonb_build_object('ok',true,'balance',v_balance);
+end;
+$$;
+
+revoke all on function public.smm_admin_adjust_wallet(uuid,numeric,text) from public, anon, authenticated;
+grant execute on function public.smm_admin_adjust_wallet(uuid,numeric,text) to service_role;
+
+-- Recalculate all supplier retail rates in one database operation while preserving manual overrides.
+create or replace function public.smm_recalculate_supplier_prices(
+  p_usd_to_inr_rate numeric,
+  p_markup_type text,
+  p_markup_value numeric
+) returns integer
+language plpgsql security definer set search_path = public
+as $$
+declare v_count integer;
+begin
+  if p_usd_to_inr_rate < 0 or p_usd_to_inr_rate > 10000 then raise exception 'Invalid USD/INR exchange rate.'; end if;
+  if p_markup_type not in ('percent','fixed') or p_markup_value < 0 or p_markup_value > 500 then raise exception 'Invalid margin settings.'; end if;
+  update public.smm_services
+  set selling_price_per_1000 = case
+    when upper(coalesce(supplier_currency,'USD')) = 'USD' then
+      round((supplier_rate * p_usd_to_inr_rate * case when p_markup_type = 'percent' then (1 + p_markup_value / 100.0) else 1 end
+        + case when p_markup_type = 'fixed' then p_markup_value else 0 end)::numeric, 2)
+    when upper(coalesce(supplier_currency,'USD')) = 'INR' then
+      round((supplier_rate * case when p_markup_type = 'percent' then (1 + p_markup_value / 100.0) else 1 end
+        + case when p_markup_type = 'fixed' then p_markup_value else 0 end)::numeric, 2)
+    else 0 end,
+    updated_at = now()
+  where source = 'luvsmm' and price_override = false;
+  get diagnostics v_count = row_count;
+  return v_count;
+end;
+$$;
+revoke all on function public.smm_recalculate_supplier_prices(numeric,text,numeric) from public, anon, authenticated;
+grant execute on function public.smm_recalculate_supplier_prices(numeric,text,numeric) to service_role;
+
+alter table public.smm_categories enable row level security;
+alter table public.smm_tickets enable row level security;
+alter table public.smm_ticket_messages enable row level security;
+revoke all on public.smm_categories, public.smm_tickets, public.smm_ticket_messages from public, anon, authenticated;
+grant all on public.smm_categories, public.smm_tickets, public.smm_ticket_messages to service_role;
+notify pgrst, 'reload schema';
