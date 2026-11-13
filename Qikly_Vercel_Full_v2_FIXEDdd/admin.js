@@ -1,7 +1,7 @@
 (() => {
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
-  const S = { overview: null, services: [], orders: [], transactions: [], tab: "overview", busy: false };
+  const S = { overview: null, services: [], orders: [], users: [], transactions: [], tab: "overview", busy: false };
   const money = n => `₹${Number(n || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const date = value => { const d = value?.toDate ? value.toDate() : value?.seconds ? new Date(value.seconds * 1000) : value ? new Date(value) : null; return d && !Number.isNaN(d.getTime()) ? d.toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"; };
@@ -20,13 +20,30 @@
     $("#todayDate").textContent = new Date().toLocaleDateString("en-IN", { weekday: "short", day: "2-digit", month: "short", year: "numeric" });
   }
   async function refreshData() {
-    const [overview, services, orders, transactions] = await Promise.all([
-      api("/api/admin/overview"), api("/api/admin/services"), api("/api/admin/orders"), api("/api/admin/transactions")
-    ]);
-    S.overview = overview; S.services = services.services || []; S.orders = orders.orders || []; S.transactions = transactions.transactions || [];
-    $("#serviceCount").textContent = S.services.length; $("#orderCount").textContent = S.orders.length;
+    // Load the small overview first; fetch large tables only when that tab is opened.
+    const tab = S.tab;
+    const jobs = [api("/api/admin/overview")];
+    if (tab === "services") jobs.push(api("/api/admin/services"));
+    if (tab === "orders") jobs.push(api("/api/admin/orders"));
+    if (tab === "users") jobs.push(api("/api/admin/users"));
+    if (tab === "transactions") jobs.push(api("/api/admin/transactions"));
+    const results = await Promise.all(jobs);
+    S.overview = results[0];
+    if (S.tab !== tab) return;
+    if (tab === "services") S.services = results[1].services || [];
+    if (tab === "orders") S.orders = results[1].orders || [];
+    if (tab === "users") S.users = results[1].users || [];
+    if (tab === "transactions") S.transactions = results[1].transactions || [];
+    $("#serviceCount").textContent = S.services.length || Number(S.overview?.stats?.services || 0);
+    $("#orderCount").textContent = S.orders.length || Number(S.overview?.stats?.orders || 0);
   }
-  function go(tab) { S.tab = tab; $$("[data-tab]").forEach(b => b.classList.toggle("active", b.dataset.tab === tab)); $("#pageTitle").textContent = ({ overview: "Overview", services: "Service catalogue", orders: "Order management", users: "Customers", transactions: "Transactions", settings: "Settings" })[tab] || "Overview"; renderTab(); }
+  function go(tab, reload = true) {
+    S.tab = tab;
+    $$("[data-tab]").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+    $("#pageTitle").textContent = ({ overview: "Overview", services: "Service catalogue", orders: "Order management", users: "Customers", transactions: "Transactions", settings: "Settings" })[tab] || "Overview";
+    renderTab();
+    if (reload) refreshData().then(() => { if (S.tab === tab) renderTab(); }).catch(e => toast(e.message, "error"));
+  }
   function status(s) { const v = String(s || "").toLowerCase(); const cls = v.includes("complete") ? "good" : v.includes("cancel") || v.includes("refund") || v.includes("blocked") || v.includes("reject") ? "bad" : v.includes("review") || v.includes("confirm") || v.includes("pending") ? "warn" : "info"; return `<span class="pill ${cls}">${esc(s || "—")}</span>`; }
   function renderTab() {
     const root = $("#adminContent");
@@ -68,7 +85,7 @@
     return `<tr data-order-row data-search="${esc(`${o.id} ${o.userEmail || ""} ${o.serviceName || ""} ${o.link || ""}`.toLowerCase())}"><td><b class="mono">${esc(o.id.slice(0, 12))}</b><small>${esc(o.userEmail || "Customer")}<br>${date(o.createdAt)}</small></td><td><b>${esc(o.serviceName || "—")}</b><small class="truncate"><a href="${esc(o.link || "#")}" target="_blank" rel="noopener">${esc(o.link || "—")}</a><br>Supplier: ${esc(o.supplierOrderId || "Manual")}</small></td><td>${Number(o.quantity || 0).toLocaleString("en-IN")}<small>Remains: ${Number(o.remains ?? 0).toLocaleString("en-IN")}</small></td><td>${money(o.amount)}</td><td>${status(o.status)}</td><td><div class="order-actions"><select data-order-status="${esc(o.id)}">${options.map(v => `<option ${v === o.status ? "selected" : ""}>${esc(v)}</option>`).join("")}</select><button class="table-action" data-save-order="${esc(o.id)}">Save</button>${canRefund ? `<button class="table-action refund" data-refund-order="${esc(o.id)}">Refund</button>` : ""}</div></td></tr>`;
   }
   function usersHtml() {
-    const users = S.overview?.users || [];
+    const users = S.users || [];
     return `<div class="page-toolbar"><div><h2>Customers</h2><p>Registered user accounts and current wallet balances.</p></div><div class="toolbar-actions"><span class="summary-label">${users.length} latest customers</span></div></div><div class="admin-panel"><div class="panel-head"><div><span class="admin-kicker">CUSTOMER DIRECTORY</span><h3>Accounts</h3></div><input class="table-search" id="userSearch" placeholder="Search customer…"></div><div class="table-wrap"><table><thead><tr><th>Customer</th><th>Account ID</th><th>Wallet balance</th><th>Joined</th><th>Account</th></tr></thead><tbody id="userRows">${users.map(u => `<tr data-user-row data-search="${esc(`${u.name} ${u.email} ${u.id}`.toLowerCase())}"><td><b>${esc(u.name)}</b><small>${esc(u.email)}</small></td><td class="mono">${esc(u.id.slice(0, 14))}</td><td><b>${money(u.balance)}</b></td><td>${date(u.createdAt)}</td><td>${u.disabled ? status("Disabled") : status("Active")}</td></tr>`).join("") || `<tr><td colspan="5" class="empty-cell">No customer accounts yet.</td></tr>`}</tbody></table></div></div>`;
   }
   function transactionsHtml() {
@@ -80,7 +97,7 @@
   }
   function bindTab() {
     $$('[data-go]').forEach(b => b.addEventListener("click", () => go(b.dataset.go)));
-    $("#syncServices")?.addEventListener("click", async () => { const b = $("#syncServices"); b.disabled = true; b.textContent = "Syncing catalogue…"; try { const r = await api("/api/admin/services/sync", { method: "POST", body: "{}" }); await refreshData(); renderTab(); toast(`Sync complete: ${r.total} services · ${r.added} new · ${r.updated} updated · ${r.pendingReview} pending review · ${r.legacyMigrated || 0} legacy rows migrated.`, "success"); } catch (e) { toast(e.message, "error"); b.disabled = false; b.textContent = "↻ Import / sync all"; } });
+    $("#syncServices")?.addEventListener("click", async () => { const b = $("#syncServices"); b.disabled = true; b.textContent = "Syncing catalogue…"; try { const r = await api("/api/admin/services/sync", { method: "POST", body: "{}" }); await refreshData(); renderTab(); toast(`Sync complete: ${r.total} services · ${r.added} new · ${r.updated} updated · ${r.unchanged || 0} unchanged · ${r.pendingReview} pending review · ${r.legacyMigrated || 0} legacy rows migrated.`, "success"); } catch (e) { toast(e.message, "error"); b.disabled = false; b.textContent = "↻ Import / sync all"; } });
     $("#supplierBalance")?.addEventListener("click", async () => { const b = $("#supplierBalance"); b.disabled = true; b.textContent = "Checking…"; try { const r = await api("/api/admin/provider/balance"); const value = r.balance?.balance ?? r.balance?.amount ?? "Response received"; toast(`LuvSMM balance: ${value} ${r.balance?.currency || ""}`, "success"); } catch (e) { toast(e.message, "error"); } finally { b.disabled = false; b.textContent = "Supplier balance"; } });
     $("#addManual")?.addEventListener("click", manualServiceModal);
     $("#serviceAdminSearch")?.addEventListener("input", e => filterRows("serviceRows", "data-service-row", e.target.value));
@@ -130,7 +147,7 @@
   }
   async function startApp() {
     shell();
-    try { await refreshData(); go("overview"); }
+    try { S.tab = "overview"; await refreshData(); go("overview", false); }
     catch (e) { $("#adminContent").innerHTML = `<div class="admin-panel error-panel"><h3>Could not load admin data</h3><p>${esc(e.message)}</p><button class="admin-primary" id="retryLoad">Retry</button></div>`; $("#retryLoad").addEventListener("click", startApp); }
   }
   async function init() {

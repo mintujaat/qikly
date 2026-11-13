@@ -2,6 +2,7 @@ const express = require("express");
 const crypto = require("crypto");
 const Razorpay = require("razorpay");
 const admin = require("firebase-admin");
+const { AggregateField } = require("firebase-admin/firestore");
 
 const app = express();
 app.disable("x-powered-by");
@@ -100,7 +101,13 @@ function safeUser(data, id) {
 }
 function money(n) { return Math.round((Number(n) + Number.EPSILON) * 100) / 100; }
 function asNum(v, fallback = 0) { const n = Number(v); return Number.isFinite(n) ? n : fallback; }
-function errorText(e) { return String(e?.error?.description || e?.message || "Something went wrong.").slice(0, 300); }
+function errorText(e) {
+  const message = String(e?.error?.description || e?.message || "Something went wrong.");
+  if (e?.code === 8 || e?.code === "resource-exhausted" || /RESOURCE_EXHAUSTED|Quota exceeded/i.test(message)) {
+    return "Firebase Firestore quota or request-rate limit reached. Check Firebase Console → Firestore Database → Usage. Reduce repeated reads or enable billing if you need more capacity.";
+  }
+  return message.slice(0, 300);
+}
 function validateHttpUrl(value) {
   try { const u = new URL(String(value)); return ["http:", "https:"].includes(u.protocol) && u.hostname.includes(".") ? u.toString() : ""; }
   catch { return ""; }
@@ -134,9 +141,15 @@ async function luvsmm(action, extra = {}) {
   if (data?.error) throw new Error(String(data.error));
   return data;
 }
-async function listCollection(name, max = 250) {
-  const snap = await db.collection(name).limit(max).get();
+async function listCollection(name, max = 250, orderField = null) {
+  let query = db.collection(name);
+  if (orderField) query = query.orderBy(orderField, "desc");
+  const snap = await query.limit(max).get();
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+async function countCollection(query) {
+  const snapshot = await query.count().get();
+  return Number(snapshot.data().count || 0);
 }
 function mapProviderStatus(value) {
   const s = String(value || "Pending").toLowerCase();
@@ -231,8 +244,9 @@ app.post("/api/auth/logout", (_req, res) => { clearCookie(res, SESSION_COOKIE); 
 // Public catalogue contains only services manually approved by an admin.
 app.get("/api/services", async (_req, res) => {
   try {
-    const all = await listCollection("smmServices", 1000);
-    const services = all.filter(serviceIsSellable).map(s => ({
+    // Pending/rejected catalogue entries are never read by the public storefront.
+    const snap = await db.collection("smmServices").where("active", "==", true).limit(1500).get();
+    const services = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(serviceIsSellable).map(s => ({
       id: s.id, name: s.name, category: s.category || "Other", description: s.description || "",
       min: Number(s.min || 1), max: Number(s.max || 10000), pricePer1000: Number(s.sellingPricePer1000 || 0), pricingModel: s.pricingModel || "per1000",
       type: s.type || "Default", refill: Boolean(s.refill), cancel: Boolean(s.cancel), source: s.source || "manual"
@@ -305,7 +319,7 @@ app.post("/api/razorpay/webhook", async (req, res) => {
 // Orders ---------------------------------------------------------------------
 app.get("/api/orders", requireUser, async (req, res) => {
   try {
-    const snap = await db.collection("smmOrders").where("userId", "==", req.user.uid).limit(100).get();
+    const snap = await db.collection("smmOrders").where("userId", "==", req.user.uid).limit(50).get();
     const orders = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
     res.json({ orders });
   } catch (e) { res.status(500).json({ error: errorText(e) }); }
@@ -417,21 +431,25 @@ app.post("/api/admin/login", (req, res) => {
 app.post("/api/admin/logout", (_req, res) => { clearCookie(res, ADMIN_COOKIE); res.json({ ok: true }); });
 app.get("/api/admin/overview", requireAdmin, async (_req, res) => {
   try {
-    const [users, services, orders, payments, transactions] = await Promise.all([
-      listCollection("smmUsers", 1000), listCollection("smmServices", 1000), listCollection("smmOrders", 1000),
-      listCollection("smmWalletPayments", 1000), listCollection("smmTransactions", 1000)
+    // Aggregations prevent the dashboard from downloading thousands of documents
+    // just to show totals. Only the latest 15 orders are read as full documents.
+    const activeStatuses = ["Awaiting review", "Submitting", "Pending", "Processing", "In progress", "Supplier confirmation needed"];
+    const [users, services, approvedServices, orders, activeOrders, payments, depositsAgg, salesAgg, recentOrderSnap, settings] = await Promise.all([
+      countCollection(db.collection("smmUsers")),
+      countCollection(db.collection("smmServices")),
+      countCollection(db.collection("smmServices").where("active", "==", true)),
+      countCollection(db.collection("smmOrders")),
+      countCollection(db.collection("smmOrders").where("status", "in", activeStatuses)),
+      countCollection(db.collection("smmWalletPayments").where("status", "==", "paid")),
+      db.collection("smmWalletPayments").where("status", "==", "paid").aggregate({ total: AggregateField.sum("amount") }).get(),
+      db.collection("smmOrders").aggregate({ total: AggregateField.sum("amount") }).get(),
+      db.collection("smmOrders").orderBy("createdAt", "desc").limit(15).get(),
+      getAdminSettings()
     ]);
-    const paid = payments.filter(p => p.status === "paid");
-    const totalDeposits = money(paid.reduce((n, p) => n + Number(p.amount || 0), 0));
-    const totalSales = money(orders.reduce((n, o) => n + Number(o.amount || 0), 0));
     res.json({
-      stats: { users: users.length, services: services.length, approvedServices: services.filter(serviceIsSellable).length,
-        orders: orders.length, activeOrders: orders.filter(o => !["Completed", "Partial", "Partially refunded", "Canceled", "Refunded"].includes(o.status)).length,
-        totalDeposits, totalSales },
-      recentOrders: orders.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0)).slice(0, 15),
-      recentPayments: paid.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0)).slice(0, 10),
-      users: users.map(u => safeUser(u, u.id)).slice(0, 100),
-      settings: await getAdminSettings()
+      stats: { users, services, approvedServices, orders, activeOrders, payments, totalDeposits: money(Number(depositsAgg.data().total || 0)), totalSales: money(Number(salesAgg.data().total || 0)) },
+      recentOrders: recentOrderSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+      settings
     });
   } catch (e) { res.status(500).json({ error: errorText(e) }); }
 });
@@ -440,6 +458,12 @@ async function getAdminSettings() {
   const d = snap.exists ? snap.data() : {};
   return { siteName: d.siteName || SITE_NAME, markupPercent: Number(d.markupPercent ?? DEFAULT_MARKUP), supportEmail: d.supportEmail || "" };
 }
+app.get("/api/admin/users", requireAdmin, async (_req, res) => {
+  try {
+    const users = await listCollection("smmUsers", 100, "createdAt");
+    res.json({ users: users.map(u => safeUser(u, u.id)) });
+  } catch (e) { res.status(500).json({ error: errorText(e) }); }
+});
 app.get("/api/admin/services", requireAdmin, async (_req, res) => {
   try {
     const services = await listCollection("smmServices", 1500);
@@ -466,14 +490,19 @@ app.post("/api/admin/services/sync", requireAdmin, async (_req, res) => {
     }
     const settings = await getAdminSettings();
     const margin = Math.max(0, Math.min(500, Number(settings.markupPercent ?? DEFAULT_MARKUP)));
-    let added = 0, updated = 0, pendingReview = 0;
-    for (let i = 0; i < incoming.length; i += 250) {
-      const chunk = incoming.slice(i, i + 250);
-      const existingSnaps = await Promise.all(chunk.map(rawItem => {
+    let added = 0, updated = 0, unchanged = 0, pendingReview = 0;
+    for (let i = 0; i < incoming.length; i += 100) {
+      const chunk = incoming.slice(i, i + 100);
+      const refs = chunk.map(rawItem => {
         const itemId = String(rawItem.service ?? rawItem.id ?? "").trim();
-        return itemId ? db.collection("smmServices").doc(`luvsmm_${itemId}`).get() : Promise.resolve(null);
-      }));
+        return itemId ? db.collection("smmServices").doc(`luvsmm_${itemId}`) : null;
+      });
+      const validRefs = refs.filter(Boolean);
+      const validSnaps = validRefs.length ? await db.getAll(...validRefs) : [];
+      const snapshotsById = new Map(validSnaps.map(snap => [snap.ref.path, snap]));
+      const existingSnaps = refs.map(ref => ref ? snapshotsById.get(ref.path) || null : null);
       const batch = db.batch();
+      let writesInBatch = 0;
       chunk.forEach((raw, idx) => {
         const sid = String(raw.service ?? raw.id ?? "").trim();
         if (!sid) return;
@@ -514,14 +543,23 @@ app.post("/api/admin/services/sync", requireAdmin, async (_req, res) => {
           sellingPricePer1000: Number.isFinite(Number(old.sellingPricePer1000)) && Number(old.sellingPricePer1000) > 0 ? Number(old.sellingPricePer1000) : calculatedPrice,
           importedAt: FV.serverTimestamp(), updatedAt: FV.serverTimestamp(), createdAt: old.createdAt || FV.serverTimestamp()
         };
-        if (oldSnap?.exists) updated++; else added++;
         if (approvalStatus === "needs_review") pendingReview++;
+        const changed = !oldSnap?.exists || supplierMetadataChanged ||
+          old.source !== "luvsmm" || old.supplierServiceId !== sid || old.pricingModel !== "per1000" ||
+          old.approvalStatus !== approvalStatus ||
+          Boolean(old.complianceVerified) !== Boolean(record.complianceVerified) ||
+          Boolean(old.active) !== Boolean(record.active) ||
+          old.restricted !== false ||
+          Number(old.sellingPricePer1000 || 0) !== Number(record.sellingPricePer1000 || 0);
+        if (!changed) { unchanged++; return; }
+        if (oldSnap?.exists) updated++; else added++;
         batch.set(ref, record, { merge: true });
+        writesInBatch++;
       });
-      await batch.commit();
+      if (writesInBatch) await batch.commit();
     }
     await db.collection("smmSettings").doc("main").set({ lastServiceSyncAt: FV.serverTimestamp(), lastServiceSyncCount: incoming.length }, { merge: true });
-    res.json({ ok: true, total: incoming.length, added, updated, pendingReview, legacyMigrated });
+    res.json({ ok: true, total: incoming.length, added, updated, unchanged, pendingReview, legacyMigrated });
   } catch (e) { res.status(502).json({ error: errorText(e) }); }
 });
 app.patch("/api/admin/services/:id", requireAdmin, async (req, res) => {
@@ -593,14 +631,14 @@ app.delete("/api/admin/services/:id", requireAdmin, async (req, res) => {
 });
 app.get("/api/admin/orders", requireAdmin, async (_req, res) => {
   try {
-    const orders = await listCollection("smmOrders", 1000);
+    const orders = await listCollection("smmOrders", 150, "createdAt");
     orders.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
     res.json({ orders });
   } catch (e) { res.status(500).json({ error: errorText(e) }); }
 });
 app.post("/api/admin/orders/sync", requireAdmin, async (_req, res) => {
   try {
-    const orders = (await listCollection("smmOrders", 1000)).filter(o => o.source === "luvsmm" && o.supplierOrderId && !["Completed", "Canceled", "Refunded", "Partially refunded"].includes(o.status)).slice(0, 100);
+    const orders = (await listCollection("smmOrders", 150, "createdAt")).filter(o => o.source === "luvsmm" && o.supplierOrderId && !["Completed", "Canceled", "Refunded", "Partially refunded"].includes(o.status)).slice(0, 100);
     if (!orders.length) return res.json({ ok: true, checked: 0, updated: 0 });
     const ids = orders.map(o => o.supplierOrderId);
     const result = await luvsmm("status", { orders: ids.join(",") });
@@ -647,9 +685,8 @@ app.get("/api/admin/provider/balance", requireAdmin, async (_req, res) => {
 });
 app.get("/api/admin/transactions", requireAdmin, async (_req, res) => {
   try {
-    const txs = await listCollection("smmTransactions", 1000);
-    txs.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
-    res.json({ transactions: txs.slice(0, 300) });
+    const txs = await listCollection("smmTransactions", 100, "createdAt");
+    res.json({ transactions: txs });
   } catch (e) { res.status(500).json({ error: errorText(e) }); }
 });
 app.put("/api/admin/settings", requireAdmin, async (req, res) => {
