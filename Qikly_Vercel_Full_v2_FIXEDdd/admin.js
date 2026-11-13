@@ -2,6 +2,9 @@
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
   const S = { overview: null, services: [], orders: [], users: [], transactions: [], categories: [], tickets: [], tab: "overview", busy: false };
+  let ticketPollTimer = null;
+  let ticketPollBusy = false;
+  let ticketPollErrorShown = false;
   const money = n => `₹${Number(n || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const date = value => { const d = value?.toDate ? value.toDate() : value?.seconds ? new Date(value.seconds * 1000) : value ? new Date(value) : null; return d && !Number.isNaN(d.getTime()) ? d.toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"; };
@@ -15,7 +18,7 @@
   function shell() {
     $("#adminApp").innerHTML = `<div class="admin-layout"><aside class="sidebar"><a class="admin-logo" href="/"><span class="brand-mark">M</span><span><b>Mintu Social</b><small>CONTROL CENTRE</small></span></a><div class="side-label">WORKSPACE</div><nav class="side-nav"><button data-tab="overview" class="active"><i>▦</i>Overview</button><button data-tab="users"><i>♙</i>Customers</button><button data-tab="wallet"><i>₹</i>Wallet</button><button data-tab="categories"><i>▤</i>Categories</button><button data-tab="services"><i>◈</i>Services & Import <span class="nav-count" id="serviceCount">0</span></button><button data-tab="orders"><i>⇄</i>Orders <span class="nav-count" id="orderCount">0</span></button><button data-tab="tickets"><i>✉</i>Complaints</button><button data-tab="transactions"><i>↗</i>Deposits & Payments</button><button data-tab="settings"><i>⚙</i>Pricing & Settings</button></nav><div class="sidebar-bottom"><div class="admin-status"><i></i><span>Admin session active</span></div><a href="/" target="_blank">↗ Open website</a><button id="adminLogout">Log out <span>→</span></button></div></aside><main class="admin-main"><header class="admin-topbar"><div><span class="admin-kicker">MINTU SOCIAL / ADMIN</span><h1 id="pageTitle">Overview</h1></div><div class="admin-top-actions"><span class="admin-date" id="todayDate"></span><button class="admin-icon-btn" id="refreshAll" title="Refresh data">↻</button><span class="admin-avatar">M</span></div></header><div id="adminContent" class="admin-content"><div class="admin-loading"><span class="loader"></span><p>Loading dashboard data…</p></div></div></main></div>`;
     $$("[data-tab]").forEach(b => b.addEventListener("click", () => go(b.dataset.tab)));
-    $("#adminLogout").addEventListener("click", async () => { try { await api("/api/admin/logout", { method: "POST", body: "{}" }); } finally { loginScreen(); } });
+    $("#adminLogout").addEventListener("click", async () => { try { await api("/api/admin/logout", { method: "POST", body: "{}" }); } finally { setTicketPolling(false); loginScreen(); } });
     $("#refreshAll").addEventListener("click", async () => { await refreshData(); renderTab(); toast("Dashboard refreshed."); });
     $("#todayDate").textContent = new Date().toLocaleDateString("en-IN", { weekday: "short", day: "2-digit", month: "short", year: "numeric" });
   }
@@ -24,16 +27,20 @@
     const tab = S.tab;
     const jobs = [api("/api/admin/overview")];
     if (tab === "services") jobs.push(api("/api/admin/services"));
+    if (tab === "services") jobs.push(api("/api/admin/categories"));
     if (tab === "orders") jobs.push(api("/api/admin/orders"));
     if (tab === "users") jobs.push(api("/api/admin/users"));
     if (tab === "transactions") jobs.push(api("/api/admin/transactions"));
     if (tab === "categories") jobs.push(api("/api/admin/categories"));
-    if (tab === "tickets") jobs.push(api("/api/admin/tickets"));
+    if (tab === "tickets") jobs.push(api("/api/admin/tickets", { cache: "no-store" }));
     if (tab === "wallet") jobs.push(api("/api/admin/users"));
     const results = await Promise.all(jobs);
     S.overview = results[0];
     if (S.tab !== tab) return;
-    if (tab === "services") S.services = results[1].services || [];
+    if (tab === "services") {
+      S.services = results[1].services || [];
+      S.categories = results[2].categories || [];
+    }
     if (tab === "orders") S.orders = results[1].orders || [];
     if (tab === "users") S.users = results[1].users || [];
     if (tab === "transactions") S.transactions = results[1].transactions || [];
@@ -45,10 +52,38 @@
   }
   function go(tab, reload = true) {
     S.tab = tab;
+    setTicketPolling(tab === "tickets");
     $$("[data-tab]").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
     $("#pageTitle").textContent = ({ overview: "Overview", categories: "Categories", services: "Services & LuvSMM import", orders: "Order management", users: "Customers", wallet: "Wallet management", tickets: "Complaints & support", transactions: "Deposits & payments", settings: "Pricing & website settings" })[tab] || "Overview";
     renderTab();
     if (reload) refreshData().then(() => { if (S.tab === tab) renderTab(); }).catch(e => toast(e.message, "error"));
+  }
+  function setTicketPolling(enabled) {
+    clearInterval(ticketPollTimer);
+    ticketPollTimer = null;
+    if (!enabled) return;
+    ticketPollTimer = setInterval(async () => {
+      if (S.tab !== "tickets" || document.visibilityState === "hidden" || ticketPollBusy) return;
+      if ($$(".ticket-reply-form textarea").some(textarea => textarea.value.trim()) || document.activeElement?.closest(".ticket-admin-card")) return;
+      ticketPollBusy = true;
+      try {
+        const previousSignature = ticketSignature(S.tickets);
+        await refreshData();
+        if (S.tab === "tickets" && previousSignature !== ticketSignature(S.tickets)) renderTab();
+        ticketPollErrorShown = false;
+      } catch (error) {
+        if (!ticketPollErrorShown) toast(`Support messages could not refresh: ${error.message}`, "error");
+        ticketPollErrorShown = true;
+      } finally {
+        ticketPollBusy = false;
+      }
+    }, 10000);
+  }
+  function ticketSignature(tickets) {
+    return tickets.map(ticket => {
+      const messages = ticket.messages || [];
+      return `${ticket.id}:${ticket.status}:${ticket.updated_at}:${messages.length}:${messages[messages.length - 1]?.id || ""}`;
+    }).join("|");
   }
   function status(s) { const v = String(s || "").toLowerCase(); const cls = v.includes("complete") ? "good" : v.includes("cancel") || v.includes("refund") || v.includes("blocked") || v.includes("reject") ? "bad" : v.includes("review") || v.includes("confirm") || v.includes("pending") ? "warn" : "info"; return `<span class="pill ${cls}">${esc(s || "—")}</span>`; }
   function renderTab() {
@@ -175,17 +210,23 @@
   function openServiceReview(id) {
     const s = S.services.find(item => item.id === id);
     if (!s) return toast("Service details are not available. Refresh the dashboard.", "error");
+    const activeCategories = S.categories.filter(category => category.active);
+    const selectedCategory = activeCategories.some(category => category.name === s.category) ? s.category : "";
     const supplierRate = s.source === "luvsmm" ? `${s.supplierCurrency || "INR"} ${Number(s.supplierRate || 0).toFixed(4)}` : "Manual service";
     const isApproved = s.approvalStatus === "approved";
     const overlay = document.createElement("div");
     overlay.className = "admin-modal-backdrop";
-    overlay.innerHTML = `<form class="admin-modal review-modal" id="serviceReviewForm"><button type="button" class="admin-modal-x" data-dismiss>×</button><div class="admin-kicker">SERVICE REVIEW & EDIT</div><h2>${esc(s.name)}</h2><p>Inspect supplier details, edit the selling information and manually approve or reject this service.</p><div class="review-details"><div><small>Supplier rate</small><b>${esc(supplierRate)}</b></div><div><small>Supplier service ID</small><b>${esc(s.supplierServiceId || s.id)}</b></div><div><small>Provider type</small><b>${esc(s.supplierType || "Default")}</b></div><div><small>Refill / Cancel</small><b>${s.refill ? "Refill" : "No refill"} / ${s.cancel ? "Cancel" : "No cancel"}</b></div><div><small>Current status</small><b>${esc(s.approvalStatus || "needs_review")}</b></div></div><label>Service name<input name="name" required minlength="3" maxlength="180" value="${esc(s.name)}"></label><label>Category<input name="category" required maxlength="100" value="${esc(s.category || "Other")}"></label><label>Description<textarea name="description" rows="3" maxlength="500">${esc(s.description || "")}</textarea></label><div class="two-fields"><label>Minimum quantity<input name="min" type="number" min="1" value="${Number(s.min || 1)}" required></label><label>Maximum quantity<input name="max" type="number" min="1" value="${Number(s.max || 10000)}" required></label></div><label>Price (₹ / ${s.pricingModel === "fixed" ? "order" : "1,000"})<input name="sellingPricePer1000" type="number" min="0.01" step="0.01" value="${Number(s.sellingPricePer1000 || 0)}" required></label><label>Delivery / processing details<textarea name="processingDetails" rows="2" maxlength="500">${esc(s.processingDetails || "")}</textarea></label><label>Fulfillment method<select name="fulfillmentMethod"><option value="manual" ${s.fulfillmentMethod !== "supplier" ? "selected" : ""}>Manual</option><option value="supplier" ${s.fulfillmentMethod === "supplier" ? "selected" : ""}>LuvSMM supplier</option></select></label><label>Supplier service ID<input name="supplierServiceId" maxlength="120" value="${esc(s.supplierServiceId || "")}" placeholder="Required for supplier fulfillment"></label><label>Admin review note<textarea name="reviewNote" rows="2" placeholder="Optional note about this decision">${esc(s.reviewNote || "")}</textarea></label><label class="review-confirm"><input type="checkbox" name="adminReviewed" required><span>I personally checked the service name, description, supplier details and customer price before making this decision.</span></label><div class="review-actions"><button type="button" class="admin-secondary reject-review" id="rejectReviewedService">Reject & hide</button><button type="submit" class="admin-primary">${isApproved ? "Save & approve" : "Approve & publish"} ↗</button></div><div class="admin-error" id="serviceReviewError"></div></form>`;
+    overlay.innerHTML = `<form class="admin-modal review-modal" id="serviceReviewForm"><button type="button" class="admin-modal-x" data-dismiss>×</button><div class="admin-kicker">SERVICE REVIEW & EDIT</div><h2>${esc(s.name)}</h2><p>Inspect supplier details, edit the selling information and manually approve or reject this service.</p><div class="review-details"><div><small>Supplier rate</small><b>${esc(supplierRate)}</b></div><div><small>Supplier service ID</small><b>${esc(s.supplierServiceId || s.id)}</b></div><div><small>Provider type</small><b>${esc(s.supplierType || "Default")}</b></div><div><small>Refill / Cancel</small><b>${s.refill ? "Refill" : "No refill"} / ${s.cancel ? "Cancel" : "No cancel"}</b></div><div><small>Current status</small><b>${esc(s.approvalStatus || "needs_review")}</b></div></div><label>Service name<input name="name" required minlength="3" maxlength="180" value="${esc(s.name)}"></label><label>Category<select name="category" required><option value="" disabled ${selectedCategory ? "" : "selected"}>Choose an active category</option>${activeCategories.map(category => `<option value="${esc(category.name)}" ${category.name === selectedCategory ? "selected" : ""}>${esc(category.name)}</option>`).join("")}</select></label><label>Description<textarea name="description" rows="3" maxlength="500">${esc(s.description || "")}</textarea></label><div class="two-fields"><label>Minimum quantity<input name="min" type="number" min="1" value="${Number(s.min || 1)}" required></label><label>Maximum quantity<input name="max" type="number" min="1" value="${Number(s.max || 10000)}" required></label></div><label>Price (₹ / ${s.pricingModel === "fixed" ? "order" : "1,000"})<input name="sellingPricePer1000" type="number" min="0.01" step="0.01" value="${Number(s.sellingPricePer1000 || 0)}" required></label><label>Delivery / processing details<textarea name="processingDetails" rows="2" maxlength="500">${esc(s.processingDetails || "")}</textarea></label><label>Fulfillment method<select name="fulfillmentMethod"><option value="manual" ${s.fulfillmentMethod !== "supplier" ? "selected" : ""}>Manual</option><option value="supplier" ${s.fulfillmentMethod === "supplier" ? "selected" : ""}>LuvSMM supplier</option></select></label><label>Supplier service ID<input name="supplierServiceId" maxlength="120" value="${esc(s.supplierServiceId || "")}" placeholder="Required for supplier fulfillment"></label><label>Admin review note<textarea name="reviewNote" rows="2" placeholder="Optional note about this decision">${esc(s.reviewNote || "")}</textarea></label><label class="review-confirm"><input type="checkbox" name="adminReviewed" required><span>I personally checked the service name, description, supplier details and customer price before making this decision.</span></label><div class="review-actions"><button type="button" class="admin-secondary reject-review" id="rejectReviewedService">Reject & hide</button><button type="submit" class="admin-primary">${isApproved ? "Save & approve" : "Approve & publish"} ↗</button></div><div class="admin-error" id="serviceReviewError"></div></form>`;
     document.body.append(overlay);
     overlay.addEventListener("click", e => { if (e.target === overlay || e.target.closest("[data-dismiss]")) overlay.remove(); });
     const form = $("#serviceReviewForm", overlay);
     const confirmChecked = () => form.elements.adminReviewed.checked;
     const saveDecision = async approvalStatus => {
       if (!confirmChecked()) { $("#serviceReviewError", overlay).textContent = "Tick the review confirmation after checking the details."; return; }
+      if (approvalStatus === "approved" && !activeCategories.some(category => category.name === form.elements.category.value)) {
+        $("#serviceReviewError", overlay).textContent = "Create and activate a category before approving this service.";
+        return;
+      }
       const note = form.elements.reviewNote.value.trim();
       const fields = Object.fromEntries(new FormData(form).entries());
       const buttons = $$('button', form); buttons.forEach(button => button.disabled = true);
@@ -206,7 +247,7 @@
   }
   function filterRows(rootId, selector, query) { const q = query.trim().toLowerCase(); $$(`#${rootId} ${selector}`).forEach(row => row.hidden = !row.dataset.search.includes(q)); }
   function manualServiceModal() {
-    const overlay = document.createElement("div"); overlay.className = "admin-modal-backdrop";     overlay.innerHTML = `<form class="admin-modal" id="manualServiceForm"><button type="button" class="admin-modal-x" data-dismiss>×</button><div class="admin-kicker">CREATE CATALOGUE ITEM</div><h2>Create a custom service</h2><p>Manual services enter your admin fulfilment queue. Add a supplier ID only when this service should be sent to LuvSMM.</p><label>Service name<input name="name" required minlength="3" placeholder="e.g. Social media strategy consultation"></label><label>Category<input name="category" value="Custom" required></label><label>Description<textarea name="description" rows="3" placeholder="Explain what the customer receives"></textarea></label><label>Delivery / processing details<textarea name="processingDetails" rows="2" placeholder="Expected delivery time or fulfillment notes"></textarea></label><label>Fulfillment method<select name="fulfillmentMethod" id="manualFulfillment"><option value="manual">Manual fulfillment</option><option value="supplier">LuvSMM supplier</option></select></label><label id="manualSupplierField" hidden>Supplier service ID<input name="supplierServiceId" placeholder="LuvSMM service ID"></label><label>Pricing model<select name="pricingModel" id="manualPricingModel"><option value="fixed">Fixed price per order</option><option value="per1000">Price per 1,000 units</option></select></label><label>Price (₹)<input name="sellingPricePer1000" type="number" min="0.01" step="0.01" value="100" required></label><div class="two-fields manual-quantity-fields" hidden><label>Minimum quantity<input name="min" type="number" min="1" value="1"></label><label>Maximum quantity<input name="max" type="number" min="1" value="100"></label></div><div class="admin-error" id="manualError"></div><button class="admin-primary" type="submit">Create service ↗</button></form>`;
+    const overlay = document.createElement("div"); overlay.className = "admin-modal-backdrop";     overlay.innerHTML = `<form class="admin-modal" id="manualServiceForm"><button type="button" class="admin-modal-x" data-dismiss>×</button><div class="admin-kicker">CREATE CATALOGUE ITEM</div><h2>Create a custom service</h2><p>Manual services enter your admin fulfilment queue. Add a supplier ID only when this service should be sent to LuvSMM.</p><label>Service name<input name="name" required minlength="3" placeholder="e.g. Social media strategy consultation"></label><label>Category<select name="category" required><option value="" disabled selected>Choose an active category</option>${S.categories.filter(category => category.active).map(category => `<option value="${esc(category.name)}">${esc(category.name)}</option>`).join("")}</select></label><label>Description<textarea name="description" rows="3" placeholder="Explain what the customer receives"></textarea></label><label>Delivery / processing details<textarea name="processingDetails" rows="2" placeholder="Expected delivery time or fulfillment notes"></textarea></label><label>Fulfillment method<select name="fulfillmentMethod" id="manualFulfillment"><option value="manual">Manual fulfillment</option><option value="supplier">LuvSMM supplier</option></select></label><label id="manualSupplierField" hidden>Supplier service ID<input name="supplierServiceId" placeholder="LuvSMM service ID"></label><label>Pricing model<select name="pricingModel" id="manualPricingModel"><option value="fixed">Fixed price per order</option><option value="per1000">Price per 1,000 units</option></select></label><label>Price (₹)<input name="sellingPricePer1000" type="number" min="0.01" step="0.01" value="100" required></label><div class="two-fields manual-quantity-fields" hidden><label>Minimum quantity<input name="min" type="number" min="1" value="1"></label><label>Maximum quantity<input name="max" type="number" min="1" value="100"></label></div><div class="admin-error" id="manualError"></div><button class="admin-primary" type="submit">Create service ↗</button></form>`;
     document.body.append(overlay); overlay.addEventListener("click", e => { if (e.target === overlay || e.target.closest("[data-dismiss]")) overlay.remove(); });
     $("#manualPricingModel", overlay).addEventListener("change", e => { $(".manual-quantity-fields", overlay).hidden = e.target.value === "fixed"; });
     $("#manualFulfillment", overlay).addEventListener("change", e => { $("#manualSupplierField", overlay).hidden = e.target.value !== "supplier"; });

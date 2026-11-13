@@ -235,7 +235,7 @@
   }
   async function loadTickets() {
     try {
-      const result = await api("/api/tickets");
+      const result = await api("/api/tickets", { cache: "no-store" });
       state.tickets = result.tickets || [];
       state.dataErrors.tickets = "";
     } catch (error) {
@@ -305,7 +305,6 @@
   function renderHome() {
     const completed = state.orders.filter(order => String(order.status).toLowerCase() === "completed").length;
     const pending = state.orders.filter(order => !["completed", "canceled", "refunded", "partially refunded"].includes(String(order.status).toLowerCase())).length;
-    const categories = state.categories.filter(category => state.services.some(service => service.category === category.name));
     const popular = state.services.slice(0, 4);
     const recent = state.orders.slice(0, 4);
     return `<section class="welcome-hero">
@@ -325,10 +324,6 @@
       <article class="stat-card stat-indigo"><span class="stat-icon">${icon("bag")}</span><small>TOTAL ORDERS</small><b data-counter="${state.orders.length}">0</b><span class="stat-note">All-time activity</span></article>
       <article class="stat-card"><span class="stat-icon">${icon("check")}</span><small>COMPLETED</small><b data-counter="${completed}">0</b><span class="stat-note">Successfully delivered</span></article>
       <article class="stat-card"><span class="stat-icon">${icon("clock")}</span><small>IN PROGRESS</small><b data-counter="${pending}">0</b><span class="stat-note">Being worked on</span></article>
-    </section>
-    <section class="section-block">
-      <div class="section-title"><div><span class="eyebrow">FIND YOUR PLATFORM</span><h2>Explore categories</h2><p>Choose a category to see services currently available.</p></div><a class="text-link" href="/services" data-route="/services">View catalogue ${icon("arrow")}</a></div>
-      <div class="category-grid">${categories.length ? categories.slice(0, 6).map((category, index) => `<a class="category-tile tile-${index % 4}" style="--delay:${index * 55}ms" href="/services?category=${encodeURIComponent(category.name)}" data-route="/services?category=${encodeURIComponent(category.name)}"><span class="category-mark">${categoryGlyph(category)}</span><span><b>${esc(category.name)}</b><small>${state.services.filter(service => service.category === category.name).length} services</small></span>${icon("arrow")}</a>`).join("") : `<div class="empty-panel">${state.serviceError ? "The catalogue could not be loaded." : "Service categories will appear here when available."}</div>`}</div>
     </section>
     <section class="section-block">
       <div class="section-title"><div><span class="eyebrow">POPULAR RIGHT NOW</span><h2>Featured services</h2><p>See the details and choose the option that fits your needs.</p></div><a class="text-link" href="/services" data-route="/services">Browse all services ${icon("arrow")}</a></div>
@@ -353,15 +348,11 @@
   }
 
   function renderServicesPage() {
-    const params = new URLSearchParams(location.search);
-    const chosenCategory = params.get("category") || "all";
-    const categories = state.categories.filter(category => state.services.some(service => service.category === category.name));
-    const filtered = state.services.filter(service => chosenCategory === "all" || service.category === chosenCategory);
+    const filtered = state.services;
     return `<section class="page-intro services-intro"><div><span class="eyebrow">SERVICE CATALOGUE</span><h1>Find the right<br><em>service for you.</em></h1><p>Search approved services, compare the details and continue to a guided order form.</p></div><div class="intro-art">${icon("search")}<span>Explore<br>with ease</span></div></section>
       ${state.serviceError ? `<div class="notice notice-error">${esc(state.serviceError)} <button type="button" data-retry-services>Retry</button></div>` : ""}
-      <section class="catalog-toolbar"><label class="search-field">${icon("search")}<input type="search" id="catalogSearch" placeholder="Search service name or description" autocomplete="off"></label><label class="select-field"><span>Category</span><select id="catalogCategory"><option value="all">All categories</option>${categories.map(category => `<option value="${esc(category.name)}" ${chosenCategory === category.name ? "selected" : ""}>${esc(category.name)}</option>`).join("")}</select></label><span class="result-count" id="catalogCount">${filtered.length} services</span></section>
-      <div class="catalog-categories">${`<button class="filter-chip ${chosenCategory === "all" ? "active" : ""}" type="button" data-catalog-category="all">All services</button>`}${categories.map(category => `<button class="filter-chip ${chosenCategory === category.name ? "active" : ""}" type="button" data-catalog-category="${esc(category.name)}"><span>${categoryGlyph(category)}</span>${esc(category.name)}</button>`).join("")}</div>
-      <section class="catalog-grid" id="catalogGrid">${filtered.length ? filtered.map(serviceCard).join("") : `<div class="empty-panel">${state.serviceError ? "The service list is unavailable. Try again shortly." : "No services in this category yet. Try another category or search."}</div>`}</section>
+      <section class="catalog-toolbar"><label class="search-field">${icon("search")}<input type="search" id="catalogSearch" placeholder="Search service name, category or description" autocomplete="off"></label><span class="result-count" id="catalogCount">${filtered.length} services</span></section>
+      <section class="catalog-grid" id="catalogGrid">${filtered.length ? filtered.map(serviceCard).join("") : `<div class="empty-panel">${state.serviceError ? "The service list is unavailable. Try again shortly." : "No services are available yet."}</div>`}</section>
       <p class="catalog-note">${icon("lock")} Prices are shown in INR. Final order cost is calculated and validated by the server before wallet deduction.</p>`;
   }
 
@@ -674,18 +665,13 @@
 
   function bindServicesPage() {
     const search = $("#catalogSearch");
-    const select = $("#catalogCategory");
     const apply = () => {
       const query = search.value.trim().toLowerCase();
-      const category = select.value;
-      const filtered = state.services.filter(service => (category === "all" || service.category === category) && (!query || `${service.name} ${service.description} ${service.category}`.toLowerCase().includes(query)));
-      $("#catalogGrid").innerHTML = filtered.length ? filtered.map(serviceCard).join("") : `<div class="empty-panel">No services match your search. Try another term or category.</div>`;
+      const filtered = state.services.filter(service => !query || `${service.name} ${service.description} ${service.category}`.toLowerCase().includes(query));
+      $("#catalogGrid").innerHTML = filtered.length ? filtered.map(serviceCard).join("") : `<div class="empty-panel">No services match your search. Try another search term.</div>`;
       $("#catalogCount").textContent = `${filtered.length} service${filtered.length === 1 ? "" : "s"}`;
-      $$(".filter-chip").forEach(button => button.classList.toggle("active", button.dataset.catalogCategory === category));
     };
     search.addEventListener("input", apply);
-    select.addEventListener("change", apply);
-    $$("[data-catalog-category]").forEach(button => button.addEventListener("click", () => { select.value = button.dataset.catalogCategory; apply(); }));
   }
 
   function bindOrderPage() {
@@ -872,6 +858,7 @@
         button.disabled = false;
         button.innerHTML = `Submit complaint ${icon("arrow")}`;
       }
+
     });
     $("#ticketReplyForm")?.addEventListener("submit", async event => {
       event.preventDefault();
@@ -896,6 +883,42 @@
       try { await loadTickets(); renderRoute(); toast("Support tickets refreshed.", "success"); }
       catch (error) { toast(error.message, "error"); event.currentTarget.disabled = false; }
     });
+  }
+
+  function startTicketPolling() {
+    let refreshing = false;
+    let refreshFailed = false;
+    window.setInterval(async () => {
+      if (!state.user || location.pathname !== "/support" || document.visibilityState === "hidden") return;
+      if (new URLSearchParams(location.search).get("new") === "1") return;
+      const reply = $("#ticketReplyForm textarea");
+      if (reply && (reply.value.trim() || document.activeElement === reply)) return;
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        const previousSignature = state.tickets.map(ticket => {
+          const messages = ticket.messages || [];
+          return `${ticket.id}:${ticket.status}:${ticket.updated_at}:${messages.length}:${messages[messages.length - 1]?.id || ""}`;
+        }).join("|");
+        await loadTickets();
+        const nextSignature = state.tickets.map(ticket => {
+          const messages = ticket.messages || [];
+          return `${ticket.id}:${ticket.status}:${ticket.updated_at}:${messages.length}:${messages[messages.length - 1]?.id || ""}`;
+        }).join("|");
+        if (previousSignature !== nextSignature && location.pathname === "/support" && !$("#ticketReplyForm textarea")?.value.trim()) {
+          const scrollY = window.scrollY;
+          renderRoute();
+          window.scrollTo(0, scrollY);
+        }
+        refreshFailed = false;
+      } catch (error) {
+        if (!refreshFailed) toast(`Support messages could not refresh: ${error.message}`, "error");
+        refreshFailed = true;
+        if (location.pathname === "/support") renderRoute();
+      } finally {
+        refreshing = false;
+      }
+    }, 10000);
   }
 
   function closeModal() { $("#modalRoot").innerHTML = ""; }
@@ -952,6 +975,7 @@
     bindGlobalEvents(root);
     await Promise.all([loadConfig(), loadServices(), loadAccount()]);
     renderRoute();
+    startTicketPolling();
     const params = new URLSearchParams(location.search);
     if (params.get("oauth") === "success") {
       toast("Google sign-in successful.", "success");
