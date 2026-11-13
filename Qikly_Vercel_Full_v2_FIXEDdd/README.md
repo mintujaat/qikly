@@ -47,9 +47,7 @@ Open **Vercel → Project → Settings → Environment Variables** and add:
 | `RAZORPAY_WEBHOOK_SECRET` | The same secret set in Razorpay Webhooks | Recommended |
 | `SESSION_SECRET` | Generate using `openssl rand -hex 32` | Yes |
 | `ADMIN_PASSWORD` | Unique admin password, minimum 12 characters | Yes |
-| `GOOGLE_CLIENT_ID` | Google OAuth web application client ID | Optional |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret; backend only | Optional |
-| `GOOGLE_REDIRECT_URI` | `https://YOUR_DOMAIN/api/auth/google/callback` | Optional |
+| `SUPABASE_AUTH_CALLBACK_URL` | `https://YOUR_DOMAIN/api/auth/google/callback` | Google |
 | `LUVSMM_API_URL` | `https://luvsmm.com/api/v2` | Supplier |
 | `LUVSMM_API_KEY` | Your LuvSMM API key; backend only | Supplier |
 | `LUVSMM_CURRENCY` | Usually `INR`; verify supplier response | Yes for pricing |
@@ -59,7 +57,7 @@ Open **Vercel → Project → Settings → Environment Variables** and add:
 
 Do not add `FIREBASE_SERVICE_ACCOUNT_JSON` or `FIREBASE_DATABASE_URL`; this build no longer reads them. You can remove those old Firebase variables from Vercel after deploying this build. Existing Razorpay and LuvSMM values can stay the same. Do not paste any private key into chat or commit `.env` to GitHub.
 
-To enable Google sign-in, create a Google OAuth **Web application** client, add `https://YOUR_DOMAIN` as an authorized JavaScript origin and `https://YOUR_DOMAIN/api/auth/google/callback` as an authorized redirect URI, then set the three Google variables in Vercel and redeploy. Google sign-in remains hidden until all are configured.
+To enable Google sign-in, configure the Google provider under **Supabase Dashboard → Authentication → Providers → Google**. In Google Cloud Console, add `https://YOUR_PROJECT_REF.supabase.co/auth/v1/callback` as the authorized redirect URI, then copy the Google client ID and secret into the Supabase provider settings (not Vercel). Under **Authentication → URL Configuration**, set your site URL and allow `https://YOUR_DOMAIN/api/auth/google/callback`. Set `SUPABASE_AUTH_CALLBACK_URL` to that exact app callback in Vercel and redeploy. Google sign-in remains hidden until the callback URL is configured.
 
 ## 4. Deploy
 
@@ -126,6 +124,6 @@ Open `http://localhost:3000` and `http://localhost:3000/admin`.
 
 - The SQL schema must be run before the first deployment/API request. Ensure the `public` schema is exposed in Supabase Data API settings if you have changed the default API exposure settings.
 - This is a fresh database; customers must register again. No Firebase data or passwords are imported.
-- The application uses its own password auth table and server-side Google OAuth callback rather than Supabase Auth. Google OAuth requires the optional Google Cloud client credentials above. The project uses `@supabase/supabase-js` 2.119.x and Node.js 22 or newer.
+- Email/password sign-in continues to use the application's existing password table. Google sign-in is handled and verified by Supabase Auth, then linked by verified email to the customer's existing SMM account and server-side session. Google client credentials belong in Supabase Auth provider settings, not Vercel or frontend code. The project uses `@supabase/supabase-js` 2.119.x and Node.js 22 or newer.
 - Live Supabase, Razorpay, and LuvSMM credentials were not available during code generation; complete the test-mode checks above before public launch.
 - Supabase Free projects can pause after a week of inactivity and have a 500 MB database quota. Check current usage and plan limits in your Supabase dashboard.

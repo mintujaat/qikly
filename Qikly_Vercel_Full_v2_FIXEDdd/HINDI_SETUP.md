@@ -45,9 +45,7 @@ Vercel → अपना Project → Settings → Environment Variables में
 - `RAZORPAY_WEBHOOK_SECRET`
 - `SESSION_SECRET`
 - `ADMIN_PASSWORD`
-- `GOOGLE_CLIENT_ID` (Google sign-in enable karne ke liye)
-- `GOOGLE_CLIENT_SECRET` (sirf backend/Vercel mein)
-- `GOOGLE_REDIRECT_URI` (`https://YOUR_DOMAIN/api/auth/google/callback`)
+- `SUPABASE_AUTH_CALLBACK_URL` (`https://YOUR_DOMAIN/api/auth/google/callback`)
 - `LUVSMM_API_URL`
 - `LUVSMM_API_KEY`
 - `LUVSMM_CURRENCY`
@@ -65,7 +63,7 @@ openssl rand -hex 32
 
 `SUPABASE_SECRET_KEY`, Razorpay secret, LuvSMM key और `.env` को GitHub/frontend में कभी upload मत करना।
 
-Google sign-in के लिए Google Cloud Console में **OAuth client ID → Web application** बनाओ. Authorized origin में `https://YOUR_DOMAIN` और redirect URI में `https://YOUR_DOMAIN/api/auth/google/callback` add करके तीनों Google variables Vercel में set करो, फिर redeploy करो. Google settings न होने पर email/password login चलता रहेगा.
+Google sign-in के लिए Supabase Dashboard में **Authentication → Providers → Google** enable करो. Google Cloud Console के OAuth client में authorized redirect URI `https://YOUR_PROJECT_REF.supabase.co/auth/v1/callback` set करो, फिर client ID/secret को Supabase के Google provider settings में paste करो — Vercel या frontend में नहीं. Supabase **Authentication → URL Configuration** में site URL set करके `https://YOUR_DOMAIN/api/auth/google/callback` को allowed redirect URL में add करो. Vercel में `SUPABASE_AUTH_CALLBACK_URL` को इसी exact app callback URL पर set करके redeploy करो. Email/password login पहले की तरह चलता रहेगा.
 
 ## Step 4 — GitHub और Vercel deploy
 
@@ -101,7 +99,7 @@ Razorpay dashboard में `payment.captured` और `order.paid` events selec
 
 - SQL schema चलाए बिना website API काम नहीं करेगी।
 - Fresh start है: पुराने Firebase customers और balances नहीं आएँगे।
-- Email/password login और configured होने पर Google sign-in available हैं. Google credentials Vercel server environment में ही रखें.
+- Email/password login मौजूदा account table से चलता है. Google login Supabase Auth verify करता है और verified email के आधार पर उसी SMM account से link होता है. Google client credentials Supabase Auth provider settings में रखें; उन्हें Vercel/frontend में न डालें.
 - Admin के Complaints tab से ticket conversation का reply और status update किया जा सकता है; customer support section में reply देख सकता है.
 - Live credentials के साथ payment/provider test यहाँ नहीं किया गया है। Launch से पहले Test Mode में पूरा flow जाँचो।
 - Supabase Free project inactivity पर pause हो सकता है; current usage/plan dashboard में देखना।

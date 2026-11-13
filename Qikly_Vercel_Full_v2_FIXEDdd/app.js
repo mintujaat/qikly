@@ -981,7 +981,15 @@
       toast("Google sign-in successful.", "success");
       history.replaceState(null, "", location.pathname);
     } else if (params.has("oauth_error")) {
-      toast("Google sign-in could not be completed. Try again or use email and password.", "error");
+      const oauthErrors = {
+        cancelled: "Google sign-in was cancelled.",
+        provider: "Google sign-in failed. Check that Google is enabled in Supabase Auth.",
+        not_configured: "Google sign-in is not configured. Set the Supabase Auth callback URL.",
+        invalid_state: "Google sign-in expired or could not be verified. Please try again.",
+        account_disabled: "This account has been disabled. Contact support.",
+        verification_failed: "Supabase could not verify Google sign-in. Check the provider and redirect URL settings."
+      };
+      toast(oauthErrors[params.get("oauth_error")] || "Google sign-in could not be completed. Try again or use email and password.", "error");
       history.replaceState(null, "", location.pathname);
     }
   }
