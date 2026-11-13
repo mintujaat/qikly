@@ -19,9 +19,9 @@
       ]
     },
     {
-      "source": "/app.js",
+      "source": "/api/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=300, stale-while-revalidate=3600" }
+        { "key": "Cache-Control", "value": "no-store" }
       ]
     }
   ]

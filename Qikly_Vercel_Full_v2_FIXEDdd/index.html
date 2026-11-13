@@ -3,16 +3,63 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#fff8f5">
-  <meta name="description" content="Create a personal birthday, anniversary or love-story website in minutes. Make memories shareable with YaadPage.">
-  <title>YaadPage — Make Memories Shareable</title>
+  <meta name="theme-color" content="#080d18">
+  <meta name="description" content="Social media strategy and digital marketing services with a simple wallet and order dashboard.">
+  <title>Mintu Social — Digital Marketing Services</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Playfair+Display:wght@500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
+  <script src="https://checkout.razorpay.com/v1/checkout.js" defer></script>
+  <script src="/app.js" defer></script>
 </head>
 <body>
-  <div id="app"><div class="boot"><span class="brand-mark">Y</span><p>Opening YaadPage…</p></div></div>
-  <script src="/app.js" defer></script>
-</body>
-</html>
+  <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Mintu Social home"><span class="brand-mark">M</span><span class="brand-copy"><b id="brandName">Mintu Social</b><small>DIGITAL GROWTH STUDIO</small></span></a>
+    <nav class="main-nav"><a href="#services">Services</a><a href="#how">How it works</a><a href="#dashboard">My dashboard</a></nav>
+    <div class="top-actions"><span class="wallet-chip" id="headerBalance" hidden>₹0.00</span><button class="btn btn-ghost" id="loginBtn">Log in</button><button class="btn btn-primary" id="signupBtn">Get started <span>↗</span></button><button class="avatar-button" id="accountBtn" hidden aria-label="Account">M</button></div>
+    <button class="mobile-menu" id="mobileMenu" aria-label="Open menu">☰</button>
+  </header>
+
+  <main>
+    <section class="hero wrap">
+      <div class="hero-copy">
+        <div class="eyebrow"><span class="live-dot"></span> DIGITAL MARKETING, WITHOUT THE CHAOS</div>
+        <h1>Build your next<br><em>growth story.</em></h1>
+        <p class="hero-lead">A clean workspace for social media strategy, campaign support and digital growth services. Manage orders and payments from one place.</p>
+        <div class="hero-actions"><a class="btn btn-primary btn-large" href="#services">Explore services <span>↗</span></a><button class="btn btn-outline btn-large" id="heroLogin">Open my dashboard</button></div>
+        <div class="hero-proof"><div class="proof-avatars"><i>M</i><i>S</i><i>+</i></div><span>Simple ordering · Clear pricing · Human support</span></div>
+      </div>
+      <div class="hero-visual">
+        <div class="visual-grid"></div>
+        <div class="orbit orbit-a"></div><div class="orbit orbit-b"></div>
+        <div class="growth-card card-glass">
+          <div class="growth-top"><span class="mini-label">YOUR WORKSPACE</span><span class="status-pill"><i></i> LIVE</span></div>
+          <div class="growth-title">One place to<br>manage your growth.</div>
+          <div class="growth-bars"><span style="height:32%"></span><span style="height:48%"></span><span style="height:41%"></span><span style="height:68%"></span><span style="height:56%"></span><span style="height:82%"></span><span style="height:100%"></span></div>
+          <div class="growth-foot"><span>Campaign workspace</span><b>01 / 04</b></div>
+        </div>
+        <div class="floating-note note-top"><span class="note-icon">✦</span><span><b>Clear workflow</b><small>From brief to delivery</small></span></div>
+        <div class="floating-note note-bottom"><span class="note-icon note-green">↗</span><span><b>Track every order</b><small>Updates in your dashboard</small></span></div>
+      </div>
+    </section>
+
+    <section class="trust-strip wrap"><div><b>01</b><span>Transparent pricing</span></div><div><b>02</b><span>Secure Razorpay checkout</span></div><div><b>03</b><span>Trackable order history</span></div><div><b>04</b><span>Support when you need it</span></div></section>
+
+    <section class="section wrap" id="services">
+      <div class="section-heading"><div><div class="eyebrow">THE SERVICE DESK</div><h2>Find the right <em>support.</em></h2><p>Choose an available service, share the project link and track the request from your account.</p></div><div class="catalog-tools"><label class="search-box"><span>⌕</span><input id="serviceSearch" type="search" placeholder="Search services..."></label><select id="categoryFilter" aria-label="Filter category"><option value="all">All categories</option></select></div></div>
+      <div class="service-grid" id="serviceGrid"><div class="empty-state wide"><span class="loader"></span><b>Loading services</b><p>Checking the current catalogue…</p></div></div>
+      <div class="catalog-footnote" id="catalogFootnote">Services are reviewed before they become available for purchase.</div>
+    </section>
+
+    <section class="how-section" id="how"><div class="wrap"><div class="section-heading centered"><div><div class="eyebrow">A SIMPLE PROCESS</div><h2>From idea to <em>in progress.</em></h2><p>Everything important stays visible in your customer dashboard.</p></div></div><div class="steps-grid"><article class="step-card"><span>01</span><div class="step-icon">＋</div><h3>Create an account</h3><p>Register with your name, email and password. Your account includes a personal wallet.</p></article><article class="step-card"><span>02</span><div class="step-icon">↗</div><h3>Choose a service</h3><p>Review the service details, enter the requested project URL and select a quantity where applicable.</p></article><article class="step-card"><span>03</span><div class="step-icon">◷</div><h3>Track your order</h3><p>Follow order updates in your dashboard. Wallet movements are recorded in your transaction history.</p></article></div></div></section>
+
+    <section class="dashboard-section wrap" id="dashboard"><div class="section-heading"><div><div class="eyebrow">YOUR ACCOUNT</div><h2>Your work, <em>in one view.</em></h2><p>Sign in to see wallet balance, latest orders and payment history.</p></div><button class="btn btn-outline" id="dashboardAuth">Log in to continue</button></div><div class="dashboard-placeholder" id="dashboardContent"><div class="placeholder-icon">⌘</div><div><b>Your dashboard will appear here</b><p>Log in or create an account to manage your wallet and orders.</p></div></div></section>
+
+    <section class="cta-section wrap"><div><div class="eyebrow">READY WHEN YOU ARE</div><h2>Make your next move<br><em>with clarity.</em></h2><p>Set up an account and keep your marketing requests organised.</p></div><button class="btn btn-primary btn-large" id="ctaSignup">Create your account <span>↗</span></button></section>
+  </main>
+
+  <footer class="footer wrap"><a class="brand" href="/"><span class="brand-mark">M</span><span class="brand-copy"><b id="footerBrand">Mintu Social</b><small>DIGITAL GROWTH STUDIO</small></span></a><span>© <span id="year"></span> Mintu Social. All rights reserved.</span><a href="mailto:support@example.com" id="supportLink">Contact support</a><a href="/admin">Admin</a></footer>
+  <div id="modalRoot"></div><div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body></html>

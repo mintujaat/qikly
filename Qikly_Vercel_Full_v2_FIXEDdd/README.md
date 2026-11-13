@@ -1,98 +1,137 @@
-# YaadPage — Personalized Website Builder
+# Mintu Social — SMM / Digital Marketing Panel
 
-YaadPage turns a customer's photos and message into a personalized, shareable microsite. Customers choose a design, complete a short form, pay with Razorpay, and receive a page URL such as `https://yaadpage.online/annayabirthday`.
+This project replaces the old YaadPage storefront with a responsive marketing-services panel. It reuses the existing Firebase Admin/Firestore project and Razorpay account, adds a server-side LuvSMM v2 integration, and provides a separate admin workspace. New SMM records use isolated `smm*` Firestore collections; existing YaadPage/Qikly collections are left untouched. Existing YaadPage accounts are not automatically migrated into `smmUsers`, so customers create a new panel account.
 
 ## What is included
 
-- Responsive YaadPage storefront and 24 occasion designs, including dedicated wedding and anniversary layouts
-- Customer create-page flow with live preview, custom page slug and image upload
-- Three one-time plans: Note ₹199 (1 photo), Story ₹399 (10 photos with an interactive letter and animated chapters), and Signature ₹699 (up to 100 photos with a cinematic cover, occasion-specific layout and photo lightbox)
-- Razorpay order creation and server-side payment-signature verification
-- Firebase Admin / Firestore storage for page data, orders and slug reservations
-- Cloudflare R2 image storage; customer photo uploads are sent through the server (no bucket CORS setup required)
-- Dynamic customer pages served from one renderer at `/:slug`
-- Public image proxy that only serves assets belonging to a published page
-- Admin Studio at `/admin` for page status, unpaid-order deletion, promo-code management, YouTube walkthrough settings, revenue and pages
-- Existing legacy Qikly API routes and integrations are retained in `api/index.js`; the public UI is now YaadPage
+### Customer website
+- Responsive home page and public service catalogue.
+- Email/password signup, login and logout. Sessions are signed, HttpOnly cookies; passwords are stored as scrypt hashes.
+- Razorpay wallet top-up (₹50–₹50,000 per checkout).
+- Server-side Razorpay signature verification plus a payment-capture check before wallet credit.
+- Optional Razorpay webhook endpoint for payment reconciliation.
+- Wallet transaction history, order history and live balance display.
+- Server-side price, quantity, account and wallet validation before an order is accepted.
 
-## Required environment variables
+### Admin workspace (`/admin`)
+- Password-protected admin login.
+- Overview: customers, catalogue counts, order counts, wallet deposits and latest orders.
+- **Import / sync all**: fetches the LuvSMM `services` API response and upserts the complete service list into the `smmServices` collection.
+- Imported services are not automatically displayed to customers. They enter `Needs review` first; restricted artificial-engagement services are marked `Blocked`.
+- Service approval, publish/pause, custom selling prices, supplier balance check and manual service creation.
+- Order list, batch supplier-status synchronization, status adjustment and safeguarded wallet refunds.
+- Customer directory, wallet transaction ledger and default markup settings.
 
-Configure these in your hosting provider. The ZIP does not contain live credentials.
+## Important LuvSMM / platform-policy guardrail
 
-```env
-# Firebase Admin service account JSON (keep private)
-FIREBASE_SERVICE_ACCOUNT_JSON={"type":"service_account","project_id":"YOUR_PROJECT_ID",...}
-FIREBASE_DATABASE_URL=https://YOUR_PROJECT-default-rtdb.firebaseio.com
+The upstream provider's catalogue contains follower, like, view, subscriber, comment, member, stream and similar metric-boosting products. Artificially inflating social-platform metrics can violate those platforms' rules and mislead customers. For that reason, this build **does not enable or dispatch those artificial-engagement products**. The sync imports supplier data for admin review, the server blocks common metric-manipulation service names/categories, and the order endpoint independently checks the restriction before it can send a supplier request.
 
-# Razorpay (server-side secret must never be placed in frontend code)
-RAZORPAY_KEY_ID=rzp_live_xxxxxxxxxxxxx
-RAZORPAY_KEY_SECRET=your_razorpay_key_secret
+Use the LuvSMM automatic fulfilment route only for a service you have independently verified is a genuine, lawful, platform-compliant marketing service (for example, a real campaign/advertising deliverable, not bought engagement). Other legitimate services can be added as manual services; customer orders then enter `Awaiting review` for you to fulfil and update in the admin panel. Do not rename or disguise artificial-engagement products to bypass the checks.
 
-# Signed admin sessions and admin login
-SESSION_SECRET=replace-with-a-long-random-secret-at-least-32-characters
-ADMIN_PASSWORD=replace-with-a-strong-unique-password
+The provider API key and endpoint are called only from `api/index.js`. The integration uses HTTPS certificate validation (native Node fetch) and does not copy the unsafe SSL-verification bypass from the provider's sample PHP snippet.
 
-# Cloudflare R2 (the existing bucket can be reused; current example bucket is pdfs)
-R2_ACCOUNT_ID=your_cloudflare_account_id
-R2_ACCESS_KEY_ID=your_r2_access_key_id
-R2_SECRET_ACCESS_KEY=your_r2_secret_access_key
-R2_BUCKET=pdfs
+## Before deployment: Vercel environment variables
 
-# Optional legacy integrations kept from the source project
-R2_WORKER_URL=https://your-existing-r2-worker.example.workers.dev
-IMGBB_API_KEY=your_imgbb_api_key
-GEMINI_API_KEY=your_gemini_api_key
-GEMINI_MODEL=your-supported-gemini-model
-```
+Open **Vercel → Project → Settings → Environment Variables** and add these values for Production (and Preview/Development if needed):
 
-Do not commit a real `.env` file or service-account JSON to GitHub. Keep all secrets in Vercel Environment Variables or your server environment. Rotate any key that has previously been exposed publicly.
+| Variable | Required? | Where it comes from / purpose |
+|---|---|---|
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | Yes | Full service-account JSON from Firebase Console → Project settings → Service accounts → Generate new private key. Paste as one-line JSON. |
+| `FIREBASE_DATABASE_URL` | Optional | Keep the existing value from your old project if you use Realtime Database. This panel stores its data in Firestore. |
+| `RAZORPAY_KEY_ID` | Yes for wallet | Razorpay Dashboard → Account & Settings / API Keys. Start with Test Mode keys. |
+| `RAZORPAY_KEY_SECRET` | Yes for wallet | Secret paired with the Razorpay Key ID. Backend only. |
+| `RAZORPAY_WEBHOOK_SECRET` | Recommended | A secret you create when adding the webhook URL in Razorpay. Optional for client-side verified checkout; recommended for reconciliation. |
+| `SESSION_SECRET` | Yes | Long random secret, at least 32 characters. Example generator: `openssl rand -hex 32`. |
+| `ADMIN_PASSWORD` | Yes | Unique admin password of at least 12 characters. Keep it private. |
+| `LUVSMM_API_URL` | Yes for supplier sync | `https://luvsmm.com/api/v2` |
+| `LUVSMM_API_KEY` | Yes for supplier sync | Generate/copy your API key from your LuvSMM account's API settings. Never share it in chat or GitHub. |
+| `LUVSMM_CURRENCY` | Yes for price calculation | Currency used for service `rate` values if the API response omits currency; default is `INR`. Confirm this in your LuvSMM account/API response. |
+| `USD_TO_INR_RATE` | Only if supplier rate is USD | Current USD→INR conversion number, e.g. `83.5` (example only; set the current rate yourself). If blank and API rate is USD, imported services get no auto-calculated sale price until configured. |
+| `DEFAULT_MARKUP_PERCENT` | Optional | Starting markup applied only when a supplier service is first imported. Default `30`. |
+| `SITE_NAME` | Optional | Public brand name. Default `Mintu Social`. |
 
-## Firestore collections used by YaadPage
+The old YaadPage-only variables (`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_WORKER_URL`, `IMGBB_API_KEY`, `GEMINI_API_KEY` and `GEMINI_MODEL`) are not used by this new SMM build; you may leave them in Vercel, but they are not required.
 
-- `yaadPages/{slug}` — published page data and R2 photo keys
-- `yaadPageOrders/{razorpayOrderId}` — customer contact, order status and uploaded photo metadata
-- `yaadPageSlugLocks/{slug}` — short-lived reservation while checkout is in progress
-- `yaadPagePromoCodes/{CODE}` — discount definitions, usage counts and pending checkout reservations
-- `yaadPageSettings/main` — public how-it-works YouTube video ID
+Do **not** add `LUVSMM_API_KEY`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `SESSION_SECRET` or Firebase service-account JSON as `NEXT_PUBLIC_*` variables or put them in frontend files. Do not commit `.env` or downloaded service-account files to GitHub.
 
-The existing `firestore.rules` denies direct browser reads and writes. All page and order operations go through the Express API using Firebase Admin.
+### Razorpay webhook (recommended)
 
-## Local run
+After deployment, add a webhook in the Razorpay Dashboard pointing to:
 
-Requires Node.js 20+ and the environment variables above.
+`https://YOUR_DOMAIN/api/razorpay/webhook`
 
-```bash
-npm install
-cp .env.example .env
-# Add real values to .env
-npm start
-```
-
-Open `http://localhost:3000`. The admin area is at `http://localhost:3000/admin`.
+Select `payment.captured` and `order.paid`. Set a strong webhook secret and add the same value as `RAZORPAY_WEBHOOK_SECRET` in Vercel. Redeploy after changing Vercel environment variables.
 
 ## Deploy to Vercel
 
-1. Import this folder into a Vercel project.
-2. Add the environment variables above in Project Settings → Environment Variables.
-3. Deploy the project.
-4. Connect `yaadpage.online` in Vercel Domains after purchasing the domain.
-5. Redeploy after changing environment variables.
+1. Extract the ZIP. The project folder is `mintu-social-panel/` (the code and package configuration are inside this folder).
+2. Push the contents of `mintu-social-panel/` to a GitHub repository. Do not upload `.env` or private keys.
+3. In Vercel, import that repository. Framework preset: **Other**. Build command can remain empty; install command is `npm install`.
+4. Add the environment variables listed above. Use Razorpay Test Mode keys for the first deployment and your LuvSMM API key only in the server environment.
+5. Deploy. Open `https://YOUR_DOMAIN/health` and confirm the JSON reports `firebase: true`, `razorpay: true` (when keys exist), and `luvsmm: true` (when the provider key exists).
+6. Open `/admin`, sign in with `ADMIN_PASSWORD`, open Service catalogue and use **Import / sync all**.
+7. Review every item. Approved items must be genuine and compliant; blocked engagement-inflation items remain unavailable. Set or verify the selling price before enabling a service.
+8. Make a Test Mode wallet recharge, verify the balance and transaction record, then place a permitted test order. Do not switch to live payments until the full flow has been checked.
 
-The `vercel.json` rewrites send `/api/*` to the Express serverless API, `/admin` to the admin page, and customer slugs to the storefront app. Do not add a second wildcard rewrite above the API rewrite.
+Vercel rewrites in `vercel.json` keep `/api/*` routed to the serverless Express API, `/admin` routed to the admin HTML, and the home route routed to `index.html`.
 
-## Before accepting real orders
+## Local development
 
-1. Test Razorpay in Test Mode first, including payment success, payment failure and modal-close cases.
-2. Confirm the R2 bucket is the intended bucket and that the server-side R2 credentials have PutObject, GetObject and DeleteObject permissions.
-3. Verify Firestore Admin credentials can create, read, update and delete the YaadPage collections.
-4. Set a strong `SESSION_SECRET` and `ADMIN_PASSWORD` before production.
-5. Confirm the final domain and support email in the storefront before promoting it.
-6. Make a test page, open its public slug on mobile, and verify that images load before sharing with customers.
+Requirements: Node.js 20.6 or newer.
 
-## Notes
+```bash
+cp .env.example .env
+# Fill the .env values with test credentials
+npm install
+npm start
+```
 
-- Plans are currently one-time prices with one-year hosting. Renewal / extension checkout is not automated in this version.
-- Customers can upload JPG, PNG or WebP images smaller than 2 MB each. The Signature ₹699 plan accepts up to 100 photos. Its public page includes a cinematic cover, occasion-specific wedding / anniversary presentation, milestone section and tap-to-zoom gallery. The Story ₹399 plan includes an openable letter, animated chapters and a polaroid gallery. Images are served only through the matching published page URL.
-- A customer page is published only after the server verifies the Razorpay payment signature.
-- The order flow uses Razorpay Checkout plus server-side signature verification and a server-side payment fetch that checks capture status and exact amount. A dedicated webhook-reconciliation endpoint is not included in this build; add and test one before high-volume production use. Promo codes can apply percentage discounts, fixed rupee discounts or a full free order. Usage limits and expiry dates are enforced server-side. Free-code orders publish only after the server confirms the reserved code and upload session.
-- The archive contained `.env.example`, not real service credentials. Existing live integrations can only connect after the same values are entered in the deployment environment.
+Open `http://localhost:3000` and `http://localhost:3000/admin`.
+
+## How the main flows work
+
+### A. Service sync
+1. Admin presses **Import / sync all**.
+2. Server sends `action=services` to `https://luvsmm.com/api/v2` using `LUVSMM_API_KEY`.
+3. Every returned service with an ID is upserted into the Firestore `smmServices` collection (`luvsmm_<supplier-id>` document ID).
+4. Supplier name/category/rate/min/max/type are refreshed. Existing selling price and admin review state are preserved on later syncs.
+5. New services start as `Needs review` and are hidden from the customer catalogue. Common artificial-engagement products are marked `Blocked` by both name/category/description screening and server-side order validation.
+
+### B. Customer wallet recharge
+1. Customer signs up/logs in and enters a recharge amount.
+2. Server creates a Razorpay order and stores a pending record in `smmWalletPayments`.
+3. Razorpay Checkout opens in the browser.
+4. On payment success, the browser sends the checkout response to the server.
+5. Server verifies the Razorpay HMAC signature, fetches the payment and confirms it is captured with the exact INR amount.
+6. A Firestore transaction credits the wallet and creates one unique entry in `smmTransactions`. Repeated verification does not credit twice.
+
+### C. Customer order
+1. Customer chooses a published service, target URL and quantity.
+2. Server rechecks service approval, quantity bounds, URL and wallet balance.
+3. A Firestore transaction deducts/reserves the amount and creates the order + ledger entry.
+4. For a verified supplier service, server sends the `add` request to LuvSMM. A returned supplier order ID is saved.
+5. Admin can batch-sync supplier statuses using the `status` API action. Manual-service orders remain in the admin queue until fulfilled and updated by the admin.
+6. If LuvSMM clearly rejects an order, the server returns the reserved wallet amount. If the network times out and supplier acceptance is uncertain, it marks the order for admin reconciliation instead of risking a duplicate submission or refunding an order that may already be in progress.
+
+### D. Refunds
+
+Manual service pricing can be either a fixed price per order or a price per 1,000 units. A refund credits the customer's **internal website wallet**, not the original bank/card/UPI payment method. Supplier orders cannot be refunded from the admin panel while they are still active upstream; reconcile/cancel them first. Keep the supplier-side action and customer wallet action consistent.
+
+## Firestore collections
+
+- `smmUsers/{uid}` — customer account, scrypt password hash/salt, wallet balance and account state.
+- `smmServices/{serviceId}` — supplier or manual service details, cost metadata, selling price and approval state.
+- `smmOrders/{orderId}` — customer order, price, status and upstream supplier order ID.
+- `smmWalletPayments/{razorpayOrderId}` — pending/paid Razorpay wallet top-ups.
+- `smmTransactions/{ledgerId}` — immutable-style wallet ledger entries for deposits, order deductions and refunds.
+- `smmSettings/main` — site support email, markup and last sync details.
+
+`firestore.rules` denies direct browser access. All database operations use Firebase Admin on the server. All new collections are prefixed with `smm` so the existing YaadPage/Qikly collections are not modified. Publish these rules in Firebase Console → Firestore Database → Rules.
+
+## Limitations / things to verify on your own account
+
+- I can validate code syntax and configuration structure here, but cannot verify your private Firebase project, Razorpay account, LuvSMM API key, Vercel deployment or live supplier balance from this ZIP alone.
+- LuvSMM's public API page currently renders parts of the service response schema dynamically. The sync code accepts the common SMM v2 response shape (an array of objects with `service`, `name`, `category`, `rate`, `min`, `max`, `type`, `refill` and `cancel`). Confirm the actual response and the rate currency against your own API account before accepting orders.
+- The panel currently uses periodic/manual admin refresh for supplier order status; it does not run a background scheduler. Open Admin → Orders → **Sync supplier statuses** when you need to refresh active orders.
+- This build does not include Google sign-in, email verification, forgot-password flow, customer support ticketing or automatic cash refunds to bank accounts.
+- Before taking real payments, ask Razorpay to approve the exact business/service category and publish your refund/contact/terms policies. Follow the terms of every connected social platform.

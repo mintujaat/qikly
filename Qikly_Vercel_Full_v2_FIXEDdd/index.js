@@ -15,6 +15,6 @@ app.get("/", (req, res) => res.sendFile(path.join(__dirname, "index.html")));
 app.use((req, res) => res.status(404).sendFile(path.join(__dirname, "index.html")));
 
 if (require.main === module) {
-  app.listen(process.env.PORT || 3000, () => console.log("YaadPage running"));
+  app.listen(process.env.PORT || 3000, () => console.log("Mintu Social panel running"));
 }
 module.exports = app;
