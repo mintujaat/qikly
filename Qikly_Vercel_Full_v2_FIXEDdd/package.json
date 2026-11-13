@@ -1,17 +1,15 @@
 {
-  "name": "mintu-social-panel",
-  "version": "2.0.0",
+  "name": "mintu-social-panel-supabase",
+  "version": "3.0.0",
   "private": true,
-  "engines": {
-    "node": ">=20.6"
-  },
+  "engines": { "node": ">=22.0.0" },
   "scripts": {
     "start": "node --env-file=.env index.js",
     "check": "node --check api/index.js && node --check app.js && node --check admin.js && node --check index.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.119.0",
     "express": "^5.1.0",
-    "firebase-admin": "^13.4.0",
     "razorpay": "^2.9.6"
   }
 }
