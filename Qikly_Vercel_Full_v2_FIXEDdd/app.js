@@ -539,7 +539,7 @@
       <section class="auth-brand-panel"><a class="brand auth-brand" href="/" data-route="/"><span class="brand-mark">M</span><span class="brand-copy"><b>${esc(state.config?.siteName || "Mintu SMM")}</b><small>GROWTH WORKSPACE</small></span></a><div class="auth-brand-copy"><span class="eyebrow"><i></i> YOUR WORK, IN ONE PLACE</span><h1>${isSignup ? "Start with a<br><em>clear plan.</em>" : "Welcome back<br><em>to your desk.</em>"}</h1><p>Manage services, wallet activity and customer support in a workspace built to keep everything simple.</p><div class="auth-points"><span>${icon("check")} Order tracking</span><span>${icon("lock")} Secure wallet</span><span>${icon("support")} Helpful support</span></div></div><div class="auth-brand-bottom">MINTU SMM <span>·</span> DIGITAL SERVICES</div></section>
       <section class="auth-form-panel"><a class="auth-mobile-brand brand" href="/" data-route="/"><span class="brand-mark">M</span><span class="brand-copy"><b>${esc(state.config?.siteName || "Mintu SMM")}</b><small>GROWTH WORKSPACE</small></span></a><div class="auth-card"><span class="eyebrow">${isSignup ? "CREATE YOUR ACCOUNT" : "ACCOUNT SIGN IN"}</span><h2>${isSignup ? "Create your account" : "Good to see you again."}</h2><p>${isSignup ? "A few details and your workspace is ready." : "Sign in to manage your orders, wallet and support."}</p>
         <div class="auth-switch"><a class="${!isSignup ? "active" : ""}" href="/login${next ? `?next=${encodeURIComponent(next)}` : ""}" data-route="/login${next ? `?next=${encodeURIComponent(next)}` : ""}">Log in</a><a class="${isSignup ? "active" : ""}" href="/signup${next ? `?next=${encodeURIComponent(next)}` : ""}" data-route="/signup${next ? `?next=${encodeURIComponent(next)}` : ""}">Create account</a></div>
-        ${state.config?.googleAuthEnabled ? `<a class="google-button" href="/api/auth/google">${googleMark()}<span>Continue with Google</span></a><div class="auth-divider"><span>or continue with email</span></div>` : ""}
+        ${state.config?.googleClientId ? `<div class="google-signin-wrap"><div id="googleSignInButton" aria-label="Continue with Google"></div><div class="form-error" id="googleAuthError" role="alert"></div></div><div class="auth-divider"><span>or continue with email</span></div>` : ""}
         <form id="authForm" class="auth-form" data-mode="${mode}" data-next="${esc(next || "/")}">
           ${isSignup ? `<label class="field-label" for="authName">Full name</label><input class="form-control" id="authName" name="name" autocomplete="name" minlength="2" maxlength="60" required placeholder="Your name">` : ""}
           <label class="field-label" for="authEmail">Email address</label><input class="form-control" id="authEmail" name="email" type="email" autocomplete="email" required placeholder="you@example.com">
@@ -550,6 +550,40 @@
     </div>`;
     const form = $("#authForm");
     form.addEventListener("submit", submitAuth);
+    if (state.config?.googleClientId) {
+      const googleHost = $("#googleSignInButton");
+      try {
+        if (!window.google?.accounts?.id) throw new Error("Google sign-in could not load. Please refresh and try again.");
+        window.google.accounts.id.initialize({
+          client_id: state.config.googleClientId,
+          callback: async response => {
+            const googleError = $("#googleAuthError");
+            if (!response?.credential) {
+              googleError.textContent = "Google did not return a sign-in credential. Please try again.";
+              return;
+            }
+            googleError.textContent = "";
+            try {
+              await api("/api/auth/google", { method: "POST", body: JSON.stringify({ credential: response.credential }) });
+              await loadAccount();
+              toast("You are signed in with Google.", "success");
+              const destination = form.dataset.next || "/";
+              navPath(destination.startsWith("/") && !destination.startsWith("//") ? destination : "/");
+            } catch (error) {
+              googleError.textContent = error.message;
+            }
+          },
+          auto_select: false,
+          cancel_on_tap_outside: true
+        });
+        window.google.accounts.id.renderButton(googleHost, {
+          type: "standard", theme: "outline", size: "large", text: "continue_with",
+          shape: "rect", logo_alignment: "left", width: 350
+        });
+      } catch (error) {
+        $("#googleAuthError").textContent = error.message;
+      }
+    }
     $("#authPassword").addEventListener("input", updatePasswordStrength);
     $$("[data-toggle-password]", $("#authRoot")).forEach(button => button.addEventListener("click", () => {
       const field = $("#authPassword");
@@ -981,15 +1015,7 @@
       toast("Google sign-in successful.", "success");
       history.replaceState(null, "", location.pathname);
     } else if (params.has("oauth_error")) {
-      const oauthErrors = {
-        cancelled: "Google sign-in was cancelled.",
-        provider: "Google sign-in failed. Check that Google is enabled in Supabase Auth.",
-        not_configured: "Google sign-in is not configured. Set the Supabase Auth callback URL.",
-        invalid_state: "Google sign-in expired or could not be verified. Please try again.",
-        account_disabled: "This account has been disabled. Contact support.",
-        verification_failed: "Supabase could not verify Google sign-in. Check the provider and redirect URL settings."
-      };
-      toast(oauthErrors[params.get("oauth_error")] || "Google sign-in could not be completed. Try again or use email and password.", "error");
+      toast("Google sign-in could not be completed. Try again or use email and password.", "error");
       history.replaceState(null, "", location.pathname);
     }
   }

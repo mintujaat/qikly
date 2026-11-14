@@ -856,3 +856,9 @@ textarea.form-control { resize: vertical; line-height: 1.6; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* Google Identity Services button on customer login / signup */
+.google-signin-wrap { width: 100%; display: grid; justify-items: center; gap: 6px; margin: 2px 0 0; }
+.google-signin-wrap > div:first-child { width: 100%; min-height: 40px; display: flex; justify-content: center; }
+.google-signin-wrap iframe { max-width: 100%; }
+.google-signin-wrap .form-error { width: 100%; text-align: center; }

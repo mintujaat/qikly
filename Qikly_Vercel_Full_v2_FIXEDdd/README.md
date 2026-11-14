@@ -7,7 +7,7 @@ This build replaces the Firestore/Firebase Admin database layer with Supabase Po
 ## Included features
 
 - Responsive light-theme customer website and separate admin-only `/admin` workspace.
-- Email/password and optional Google OAuth signup/login. Google identities are matched by verified email, and the profile name/photo are stored with the account.
+- Email/password and optional Google sign-in. Verified Google identities are matched by email, and the profile name/photo are stored with the account.
 - Razorpay wallet recharge, server-side HMAC verification, captured-payment verification, webhook reconciliation, and exactly-once crediting.
 - Wallet ledger, admin wallet adjustments with reasons, configurable deposit minimum, order history, supplier status synchronization, manual order handling, and duplicate-safe refunds.
 - Admin-managed categories, editable custom/manual or supplier-mapped services, pricing conversion/margins, and customer/admin complaint conversations.
@@ -47,7 +47,7 @@ Open **Vercel → Project → Settings → Environment Variables** and add:
 | `RAZORPAY_WEBHOOK_SECRET` | The same secret set in Razorpay Webhooks | Recommended |
 | `SESSION_SECRET` | Generate using `openssl rand -hex 32` | Yes |
 | `ADMIN_PASSWORD` | Unique admin password, minimum 12 characters | Yes |
-| `SUPABASE_AUTH_CALLBACK_URL` | `https://YOUR_DOMAIN/api/auth/google/callback` | Google |
+| `GOOGLE_CLIENT_ID` | Google Identity Services web application client ID | Optional |
 | `LUVSMM_API_URL` | `https://luvsmm.com/api/v2` | Supplier |
 | `LUVSMM_API_KEY` | Your LuvSMM API key; backend only | Supplier |
 | `LUVSMM_CURRENCY` | Usually `INR`; verify supplier response | Yes for pricing |
@@ -57,7 +57,7 @@ Open **Vercel → Project → Settings → Environment Variables** and add:
 
 Do not add `FIREBASE_SERVICE_ACCOUNT_JSON` or `FIREBASE_DATABASE_URL`; this build no longer reads them. You can remove those old Firebase variables from Vercel after deploying this build. Existing Razorpay and LuvSMM values can stay the same. Do not paste any private key into chat or commit `.env` to GitHub.
 
-To enable Google sign-in, configure the Google provider under **Supabase Dashboard → Authentication → Providers → Google**. In Google Cloud Console, add `https://YOUR_PROJECT_REF.supabase.co/auth/v1/callback` as the authorized redirect URI, then copy the Google client ID and secret into the Supabase provider settings (not Vercel). Under **Authentication → URL Configuration**, set your site URL and allow `https://YOUR_DOMAIN/api/auth/google/callback`. Set `SUPABASE_AUTH_CALLBACK_URL` to that exact app callback in Vercel and redeploy. Google sign-in remains hidden until the callback URL is configured.
+To enable Google sign-in, create a Google OAuth **Web application** client, add `https://YOUR_DOMAIN` as an authorized JavaScript origin, then set `GOOGLE_CLIENT_ID` in Vercel and redeploy. Google sign-in remains hidden until the Client ID is configured.
 
 ## 4. Deploy
 
@@ -124,6 +124,6 @@ Open `http://localhost:3000` and `http://localhost:3000/admin`.
 
 - The SQL schema must be run before the first deployment/API request. Ensure the `public` schema is exposed in Supabase Data API settings if you have changed the default API exposure settings.
 - This is a fresh database; customers must register again. No Firebase data or passwords are imported.
-- Email/password sign-in continues to use the application's existing password table. Google sign-in is handled and verified by Supabase Auth, then linked by verified email to the customer's existing SMM account and server-side session. Google client credentials belong in Supabase Auth provider settings, not Vercel or frontend code. The project uses `@supabase/supabase-js` 2.119.x and Node.js 22 or newer.
+- The application uses its own password auth table and verifies Google Identity Services ID tokens on the server rather than using Supabase Auth. Google sign-in requires the optional Google Cloud Client ID above. The project uses `@supabase/supabase-js` 2.119.x and Node.js 22 or newer.
 - Live Supabase, Razorpay, and LuvSMM credentials were not available during code generation; complete the test-mode checks above before public launch.
 - Supabase Free projects can pause after a week of inactivity and have a 500 MB database quota. Check current usage and plan limits in your Supabase dashboard.

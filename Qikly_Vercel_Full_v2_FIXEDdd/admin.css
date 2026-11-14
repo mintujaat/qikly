@@ -182,3 +182,7 @@ table{color:#56637a}th{background:#f7f8fb;color:#7e899c;border-color:#e9ecf2}td{
 .metric-card:nth-child(5){animation-delay:140ms}.metric-card:nth-child(6){animation-delay:175ms}.metric-card:nth-child(7){animation-delay:210ms}.metric-card:nth-child(8){animation-delay:245ms}
 @keyframes admin-enter{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+
+/* Customer directory: profile, sign-in provider and separated service lists */
+.customer-cell{display:flex;align-items:center;gap:10px;min-width:190px}.customer-avatar{width:34px;height:34px;flex:0 0 34px;border-radius:50%;display:grid;place-items:center;overflow:hidden;background:#efedff;color:#5c55bb;font-size:12px;font-weight:800}.customer-avatar img{width:100%;height:100%;object-fit:cover}.customer-identity{min-width:0}.customer-identity b{display:block}.customer-identity small{overflow-wrap:anywhere}.google-provider{background:#4285f41a;color:#2767c5}.service-catalogue-panel{margin-bottom:14px}.service-review-panel{margin-top:14px}.service-catalogue-panel .table-wrap{max-height:66vh}.service-catalogue-panel .wide-table{min-width:1040px}
+@media(max-width:720px){.customer-cell{min-width:170px}.customer-avatar{width:30px;height:30px;flex-basis:30px}.service-catalogue-panel .table-wrap{max-height:none}}
