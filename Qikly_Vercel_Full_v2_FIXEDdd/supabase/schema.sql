@@ -694,3 +694,22 @@ revoke all on function public.smm_place_order(uuid,text,text,integer,text,text,t
 grant execute on function public.smm_place_order(uuid,text,text,integer,text,text,text) to service_role;
 
 notify pgrst, 'reload schema';
+
+-- Track welcome bonus claims per device / fingerprint / IP to prevent multi-account farming.
+create table if not exists public.smm_welcome_claims (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.smm_users(id) on delete cascade,
+  device_id text not null default '',
+  device_fp text not null default '',
+  ip_hash text not null default '',
+  amount numeric(14,2) not null default 0,
+  created_at timestamptz not null default now()
+);
+create index if not exists smm_welcome_claims_device_idx on public.smm_welcome_claims (device_id) where device_id <> '';
+create index if not exists smm_welcome_claims_fp_idx on public.smm_welcome_claims (device_fp) where device_fp <> '';
+create index if not exists smm_welcome_claims_ip_idx on public.smm_welcome_claims (ip_hash) where ip_hash <> '';
+alter table public.smm_welcome_claims enable row level security;
+revoke all on public.smm_welcome_claims from public, anon, authenticated;
+grant all on public.smm_welcome_claims to service_role;
+
+notify pgrst, 'reload schema';

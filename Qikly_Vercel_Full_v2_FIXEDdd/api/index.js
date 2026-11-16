@@ -165,6 +165,56 @@ async function getRow(table, id) {
   const { data } = await supa(db.from(table).select("*").eq("id", id).maybeSingle());
   return data;
 }
+
+const WELCOME_COOKIE = "mintu_wb_claimed";
+function clientIpHash(req) {
+  const ip = String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "").split(",")[0].trim();
+  if (!ip) return "";
+  return crypto.createHmac("sha256", SESSION_SECRET || "local-development-only").update(ip).digest("hex").slice(0, 32);
+}
+async function resolveEligibleWelcomeBonus(req, configuredBonus) {
+  const bonus = Math.max(0, money(configuredBonus || 0));
+  if (bonus <= 0) return { bonus: 0, blockedReason: "", deviceId: "", deviceFp: "", ipHash: "" };
+  const deviceId = String(req.body?.deviceId || "").trim().slice(0, 80);
+  const deviceFp = String(req.body?.deviceFp || "").trim().slice(0, 80);
+  const deviceClaimed = req.body?.deviceClaimed === true;
+  const ipHash = clientIpHash(req);
+  if (deviceClaimed || cookie(req, WELCOME_COOKIE) === "1") {
+    return { bonus: 0, blockedReason: "Already claimed on this device", deviceId, deviceFp, ipHash };
+  }
+  const checks = [];
+  if (deviceId) checks.push(`device_id.eq.${deviceId}`);
+  if (deviceFp) checks.push(`device_fp.eq.${deviceFp}`);
+  if (ipHash) checks.push(`ip_hash.eq.${ipHash}`);
+  if (checks.length) {
+    try {
+      const { data: existing } = await supa(db.from("smm_welcome_claims").select("id").or(checks.join(",")).limit(1));
+      if (existing && existing.length > 0) {
+        return { bonus: 0, blockedReason: "Already claimed on this device/IP", deviceId, deviceFp, ipHash };
+      }
+    } catch (err) {
+      console.error("Welcome claim check skipped:", err?.message || err);
+    }
+  }
+  return { bonus, blockedReason: "", deviceId, deviceFp, ipHash };
+}
+async function recordWelcomeClaim(res, userId, wbInfo) {
+  if (!wbInfo || wbInfo.bonus <= 0) return;
+  res.append ? null : null;
+  const existingCookies = res.getHeader("Set-Cookie");
+  const wbCookie = `${WELCOME_COOKIE}=1; Path=/; HttpOnly; SameSite=Lax; Max-Age=315360000${process.env.NODE_ENV === "production" ? "; Secure" : ""}`;
+  if (Array.isArray(existingCookies)) res.setHeader("Set-Cookie", [...existingCookies, wbCookie]);
+  else if (existingCookies) res.setHeader("Set-Cookie", [existingCookies, wbCookie]);
+  else res.setHeader("Set-Cookie", wbCookie);
+  try {
+    await supa(db.from("smm_welcome_claims").insert({
+      user_id: userId, device_id: wbInfo.deviceId, device_fp: wbInfo.deviceFp, ip_hash: wbInfo.ipHash, amount: wbInfo.bonus
+    }));
+  } catch (err) {
+    console.error("Record welcome claim error:", err?.message || err);
+  }
+}
+
 async function getAdminSettings() {
   const { data } = await supa(db.from("smm_settings").select("*").eq("id", "main").maybeSingle());
   const markupPercent = Number(data?.markup_percent ?? DEFAULT_MARKUP);
@@ -263,7 +313,8 @@ app.post("/api/auth/signup", async (req, res) => {
     const password = String(req.body?.password || "");
     if (!name || !/^\S+@\S+\.\S+$/.test(email) || password.length < 8 || password.length > 128) return res.status(400).json({ error: "Enter your name, a valid email and a password of at least 8 characters." });
     const settings = await getAdminSettings();
-    const welcomeBonus = Math.max(0, money(settings.welcomeBonus || 0));
+    const wbInfo = await resolveEligibleWelcomeBonus(req, settings.welcomeBonus);
+    const welcomeBonus = wbInfo.bonus;
     const salt = crypto.randomBytes(16).toString("hex");
     const hash = await new Promise((resolve, reject) => crypto.scrypt(password, salt, 64, (err, key) => err ? reject(err) : resolve(key.toString("hex"))));
     const { data } = await supa(db.from("smm_users").insert({ name, email, password_hash: hash, password_salt: salt, balance: welcomeBonus, disabled: false }).select("id,name,email,balance,disabled,created_at").single());
@@ -274,11 +325,12 @@ app.post("/api/auth/signup", async (req, res) => {
       }));
     }
     setCookie(res, SESSION_COOKIE, sign({ uid: data.id, name, email, exp: Date.now() + 7 * 86400000 }));
+    await recordWelcomeClaim(res, data.id, wbInfo);
     await notifyTelegramAdmin(
       `🆕 <b>New User Registered (Email)</b>\n` +
       `👤 Name: <b>${escTg(name)}</b>\n` +
       `📧 Email: <code>${escTg(email)}</code>\n` +
-      `🎁 Welcome Bonus: <b>₹${welcomeBonus.toFixed(2)}</b>\n` +
+      `🎁 Welcome Bonus: <b>₹${welcomeBonus.toFixed(2)}</b>${wbInfo.blockedReason ? ` (${escTg(wbInfo.blockedReason)})` : ""}\n` +
       `🕒 ${escTg(istNow())}`
     );
     res.json({ ok: true, user: safeUser({ ...data, createdAt: data.created_at }), welcomeBonus });
@@ -331,10 +383,12 @@ app.post("/api/auth/google", async (req, res) => {
         user = updated.data;
       } else {
         const settings = await getAdminSettings();
-        welcomeBonus = Math.max(0, money(settings.welcomeBonus || 0));
+        const wbInfo = await resolveEligibleWelcomeBonus(req, settings.welcomeBonus);
+        welcomeBonus = wbInfo.bonus;
         const created = await supa(db.from("smm_users").insert({ name, email, google_sub: String(profile.sub), avatar_url: avatarUrl, password_hash: null, password_salt: null, balance: welcomeBonus, disabled: false }).select("*").single());
         user = created.data;
         isNewUser = true;
+        user._wbInfo = wbInfo;
         if (welcomeBonus > 0) {
           await supa(db.from("smm_transactions").insert({
             id: `welcome_${user.id}`, user_id: user.id, type: "adjustment",
@@ -346,11 +400,12 @@ app.post("/api/auth/google", async (req, res) => {
     if (user.disabled) return res.status(403).json({ error: "This account has been disabled. Contact support." });
     setCookie(res, SESSION_COOKIE, sign({ uid: user.id, name: user.name || name, email: user.email, exp: Date.now() + 7 * 86400000 }));
     if (isNewUser) {
+      await recordWelcomeClaim(res, user.id, user._wbInfo);
       await notifyTelegramAdmin(
         `🆕 <b>New User Registered (Google)</b>\n` +
         `👤 Name: <b>${escTg(user.name || name)}</b>\n` +
         `📧 Email: <code>${escTg(user.email)}</code>\n` +
-        `🎁 Welcome Bonus: <b>₹${welcomeBonus.toFixed(2)}</b>\n` +
+        `🎁 Welcome Bonus: <b>₹${welcomeBonus.toFixed(2)}</b>${user._wbInfo?.blockedReason ? ` (${escTg(user._wbInfo.blockedReason)})` : ""}\n` +
         `🕒 ${escTg(istNow())}`
       );
     }

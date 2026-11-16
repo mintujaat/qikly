@@ -606,7 +606,7 @@
     const next = new URLSearchParams(location.search).get("next");
     $("#authRoot").innerHTML = `<div class="auth-layout">
       <section class="auth-brand-panel"><a class="brand auth-brand" href="/" data-route="/"><span class="brand-mark">M</span><span class="brand-copy"><b>${esc(state.config?.siteName || "Mintu SMM")}</b><small>GROWTH WORKSPACE</small></span></a><div class="auth-brand-copy"><span class="eyebrow"><i></i> YOUR WORK, IN ONE PLACE</span><h1>${isSignup ? "Start with a<br><em>clear plan.</em>" : "Welcome back<br><em>to your desk.</em>"}</h1><p>Manage services, wallet activity and customer support in a workspace built to keep everything simple.</p><div class="auth-points"><span>${icon("check")} Order tracking</span><span>${icon("lock")} Secure wallet</span><span>${icon("support")} Helpful support</span></div></div><div class="auth-brand-bottom">MINTU SMM <span>·</span> DIGITAL SERVICES</div></section>
-      <section class="auth-form-panel"><div class="auth-theme-bar"><button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle dark or light mode" title="Switch theme">${icon(state.theme === "dark" ? "sun" : "moon")}</button></div><a class="auth-mobile-brand brand" href="/" data-route="/"><span class="brand-mark">M</span><span class="brand-copy"><b>${esc(state.config?.siteName || "Mintu SMM")}</b><small>GROWTH WORKSPACE</small></span></a><div class="auth-card">${isSignup && Number(state.config?.welcomeBonus || 0) > 0 ? `<div class="auth-bonus-pill">🎁 Get ${money(state.config.welcomeBonus)} Welcome Bonus</div>` : ""}<span class="eyebrow">${isSignup ? "CREATE YOUR ACCOUNT" : "ACCOUNT SIGN IN"}</span><h2>${isSignup ? "Create your account" : "Good to see you again."}</h2><p>${isSignup ? (Number(state.config?.welcomeBonus || 0) > 0 ? `A few details and your workspace is ready. Get ${money(state.config.welcomeBonus)} welcome bonus on signup.` : "A few details and your workspace is ready.") : "Sign in to manage your orders, wallet and support."}</p>
+      <section class="auth-form-panel"><div class="auth-theme-bar"><button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle dark or light mode" title="Switch theme">${icon(state.theme === "dark" ? "sun" : "moon")}</button></div><a class="auth-mobile-brand brand" href="/" data-route="/"><span class="brand-mark">M</span><span class="brand-copy"><b>${esc(state.config?.siteName || "Mintu SMM")}</b><small>GROWTH WORKSPACE</small></span></a><div class="auth-card">${isSignup && Number(state.config?.welcomeBonus || 0) > 0 && !getDeviceMeta().deviceClaimed ? `<div class="auth-bonus-pill">🎁 Get ${money(state.config.welcomeBonus)} Welcome Bonus</div>` : ""}<span class="eyebrow">${isSignup ? "CREATE YOUR ACCOUNT" : "ACCOUNT SIGN IN"}</span><h2>${isSignup ? "Create your account" : "Good to see you again."}</h2><p>${isSignup ? (Number(state.config?.welcomeBonus || 0) > 0 ? `A few details and your workspace is ready. Get ${money(state.config.welcomeBonus)} welcome bonus on signup.` : "A few details and your workspace is ready.") : "Sign in to manage your orders, wallet and support."}</p>
         <div class="auth-switch"><a class="${!isSignup ? "active" : ""}" href="/login${next ? `?next=${encodeURIComponent(next)}` : ""}" data-route="/login${next ? `?next=${encodeURIComponent(next)}` : ""}">Log in</a><a class="${isSignup ? "active" : ""}" href="/signup${next ? `?next=${encodeURIComponent(next)}` : ""}" data-route="/signup${next ? `?next=${encodeURIComponent(next)}` : ""}">Create account</a></div>
         ${state.config?.googleClientId ? `<div class="google-signin-wrap"><div id="googleSignInButton" aria-label="Continue with Google"></div><div class="form-error" id="googleAuthError" role="alert"></div></div><div class="auth-divider"><span>or continue with email</span></div>` : ""}
         <form id="authForm" class="auth-form" data-mode="${mode}" data-next="${esc(next || "/")}">
@@ -633,7 +633,8 @@
             }
             googleError.textContent = "";
             try {
-              const authResult = await api("/api/auth/google", { method: "POST", body: JSON.stringify({ credential: response.credential }) });
+              const authResult = await api("/api/auth/google", { method: "POST", body: JSON.stringify({ credential: response.credential, ...getDeviceMeta() }) });
+              if (Number(authResult?.welcomeBonus || 0) > 0) markDeviceWelcomeClaimed();
               await loadAccount();
               if (authResult?.isNewUser && Number(authResult?.welcomeBonus || 0) > 0) {
                 toast(`Welcome! ${money(authResult.welcomeBonus)} welcome bonus credited to your wallet.`, "success");
@@ -696,10 +697,11 @@
     try {
       const authResult = await api(mode === "signup" ? "/api/auth/signup" : "/api/auth/login", {
         method: "POST",
-        body: JSON.stringify({ name: formData.get("name"), email: formData.get("email"), password: formData.get("password") })
+        body: JSON.stringify({ name: formData.get("name"), email: formData.get("email"), password: formData.get("password"), ...(mode === "signup" ? getDeviceMeta() : {}) })
       });
       await loadAccount();
       if (mode === "signup" && Number(authResult?.welcomeBonus || 0) > 0) {
+        markDeviceWelcomeClaimed();
         toast(`Your account is ready! ${money(authResult.welcomeBonus)} welcome bonus credited.`, "success");
       } else {
         toast(mode === "signup" ? "Your account is ready." : "You are signed in.", "success");
@@ -1144,6 +1146,34 @@
       toast(error.message, "error");
       if (button) button.disabled = false;
     }
+  }
+
+  function getDeviceMeta() {
+    let deviceId = "";
+    let deviceClaimed = false;
+    try {
+      deviceId = localStorage.getItem("mintu_device_id") || "";
+      if (!deviceId) {
+        deviceId = (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
+        localStorage.setItem("mintu_device_id", deviceId);
+      }
+      deviceClaimed = localStorage.getItem("mintu_welcome_claimed") === "1";
+    } catch {}
+    const rawFp = [
+      navigator.platform || "",
+      navigator.language || "",
+      `${screen.width}x${screen.height}x${screen.colorDepth}`,
+      Intl.DateTimeFormat().resolvedOptions().timeZone || "",
+      navigator.hardwareConcurrency || "",
+      navigator.maxTouchPoints || 0
+    ].join("|");
+    let h = 2166136261;
+    for (let i = 0; i < rawFp.length; i++) { h ^= rawFp.charCodeAt(i); h = Math.imul(h, 16777619); }
+    const deviceFp = `fp_${(h >>> 0).toString(16)}`;
+    return { deviceId, deviceFp, deviceClaimed };
+  }
+  function markDeviceWelcomeClaimed() {
+    try { localStorage.setItem("mintu_welcome_claimed", "1"); } catch {}
   }
 
   function toggleTheme() {
