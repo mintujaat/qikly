@@ -176,6 +176,7 @@ async function getAdminSettings() {
     usdToInrRate: Number(data?.usd_to_inr_rate || process.env.USD_TO_INR_RATE || 0),
     minDeposit: Number(data?.min_deposit ?? 50),
     maxDeposit: Number(data?.max_deposit ?? 50000),
+    welcomeBonus: Math.max(0, Number(data?.welcome_bonus ?? 0)),
     supportEmail: data?.support_email || ""
   };
 }
@@ -199,8 +200,8 @@ app.get("/health", (_req, res) => res.json({ ok: true, service: "mintu-smm-api",
 app.get("/api/public/config", async (_req, res) => {
   try {
     const settings = await getAdminSettings();
-    res.json({ siteName: settings.siteName || SITE_NAME, supportEmail: settings.supportEmail || "", razorpayKeyId: process.env.RAZORPAY_KEY_ID || "", googleClientId: process.env.GOOGLE_CLIENT_ID || "", minDeposit: settings.minDeposit, maxDeposit: settings.maxDeposit, currency: "INR", signupEnabled: true });
-  } catch { res.json({ siteName: SITE_NAME, supportEmail: "", razorpayKeyId: process.env.RAZORPAY_KEY_ID || "", googleClientId: process.env.GOOGLE_CLIENT_ID || "", minDeposit: 50, maxDeposit: 50000, currency: "INR", signupEnabled: true }); }
+    res.json({ siteName: settings.siteName || SITE_NAME, supportEmail: settings.supportEmail || "", razorpayKeyId: process.env.RAZORPAY_KEY_ID || "", googleClientId: process.env.GOOGLE_CLIENT_ID || "", minDeposit: settings.minDeposit, maxDeposit: settings.maxDeposit, welcomeBonus: settings.welcomeBonus || 0, currency: "INR", signupEnabled: true });
+  } catch { res.json({ siteName: SITE_NAME, supportEmail: "", razorpayKeyId: process.env.RAZORPAY_KEY_ID || "", googleClientId: process.env.GOOGLE_CLIENT_ID || "", minDeposit: 50, maxDeposit: 50000, welcomeBonus: 0, currency: "INR", signupEnabled: true }); }
 });
 
 // Customer authentication. Passwords are scrypt hashes stored in Postgres;
@@ -212,11 +213,19 @@ app.post("/api/auth/signup", async (req, res) => {
     const email = String(req.body?.email || "").trim().toLowerCase().slice(0, 160);
     const password = String(req.body?.password || "");
     if (!name || !/^\S+@\S+\.\S+$/.test(email) || password.length < 8 || password.length > 128) return res.status(400).json({ error: "Enter your name, a valid email and a password of at least 8 characters." });
+    const settings = await getAdminSettings();
+    const welcomeBonus = Math.max(0, money(settings.welcomeBonus || 0));
     const salt = crypto.randomBytes(16).toString("hex");
     const hash = await new Promise((resolve, reject) => crypto.scrypt(password, salt, 64, (err, key) => err ? reject(err) : resolve(key.toString("hex"))));
-    const { data } = await supa(db.from("smm_users").insert({ name, email, password_hash: hash, password_salt: salt, balance: 0, disabled: false }).select("id,name,email,balance,disabled,created_at").single());
+    const { data } = await supa(db.from("smm_users").insert({ name, email, password_hash: hash, password_salt: salt, balance: welcomeBonus, disabled: false }).select("id,name,email,balance,disabled,created_at").single());
+    if (welcomeBonus > 0) {
+      await supa(db.from("smm_transactions").insert({
+        id: `welcome_${data.id}`, user_id: data.id, type: "adjustment",
+        amount: welcomeBonus, currency: "INR", reference: "welcome_bonus", note: "Welcome bonus on signup"
+      }));
+    }
     setCookie(res, SESSION_COOKIE, sign({ uid: data.id, name, email, exp: Date.now() + 7 * 86400000 }));
-    res.json({ ok: true, user: safeUser({ ...data, createdAt: data.created_at }) });
+    res.json({ ok: true, user: safeUser({ ...data, createdAt: data.created_at }), welcomeBonus });
   } catch (e) {
     if (e?.code === "23505") return res.status(409).json({ error: "An account with this email already exists." });
     res.status(500).json({ error: errorText(e) });
@@ -254,6 +263,8 @@ app.post("/api/auth/google", async (req, res) => {
     const name = String(profile.name || email.split("@")[0] || "Customer").slice(0, 60);
     const avatarUrl = /^https:\/\//.test(String(profile.picture || "")) ? String(profile.picture).slice(0, 500) : "";
     let { data: user } = await supa(db.from("smm_users").select("*").eq("google_sub", String(profile.sub)).maybeSingle());
+    let isNewUser = false;
+    let welcomeBonus = 0;
     if (!user) {
       const byEmail = await supa(db.from("smm_users").select("*").eq("email", email).maybeSingle());
       user = byEmail.data;
@@ -263,13 +274,22 @@ app.post("/api/auth/google", async (req, res) => {
         const updated = await supa(db.from("smm_users").update({ google_sub: String(profile.sub), avatar_url: avatarUrl, name: user.name || name, updated_at: new Date().toISOString() }).eq("id", user.id).select("*").single());
         user = updated.data;
       } else {
-        const created = await supa(db.from("smm_users").insert({ name, email, google_sub: String(profile.sub), avatar_url: avatarUrl, password_hash: null, password_salt: null, balance: 0, disabled: false }).select("*").single());
+        const settings = await getAdminSettings();
+        welcomeBonus = Math.max(0, money(settings.welcomeBonus || 0));
+        const created = await supa(db.from("smm_users").insert({ name, email, google_sub: String(profile.sub), avatar_url: avatarUrl, password_hash: null, password_salt: null, balance: welcomeBonus, disabled: false }).select("*").single());
         user = created.data;
+        isNewUser = true;
+        if (welcomeBonus > 0) {
+          await supa(db.from("smm_transactions").insert({
+            id: `welcome_${user.id}`, user_id: user.id, type: "adjustment",
+            amount: welcomeBonus, currency: "INR", reference: "welcome_bonus", note: "Welcome bonus on signup"
+          }));
+        }
       }
     }
     if (user.disabled) return res.status(403).json({ error: "This account has been disabled. Contact support." });
     setCookie(res, SESSION_COOKIE, sign({ uid: user.id, name: user.name || name, email: user.email, exp: Date.now() + 7 * 86400000 }));
-    res.json({ ok: true, user: safeUser(user, user.id) });
+    res.json({ ok: true, user: safeUser(user, user.id), isNewUser, welcomeBonus: isNewUser ? welcomeBonus : 0 });
   } catch (e) { res.status(500).json({ error: errorText(e) }); }
 });
 
@@ -814,11 +834,12 @@ app.put("/api/admin/settings", requireAdmin, async (req, res) => {
     const markupType = req.body?.markupType === "fixed" ? "fixed" : "percent";
     const markupValue = Math.max(0, Math.min(500, asNum(req.body?.markupValue ?? req.body?.markupPercent, DEFAULT_MARKUP)));
     const usdToInrRate = Math.max(0, Math.min(10000, asNum(req.body?.usdToInrRate, 0)));
-    const minDeposit = Math.max(1, Math.min(50000, asNum(req.body?.minDeposit, 50)));
+    const minDeposit = Math.max(1, Math.min(50000, asNum(req.body?.minDeposit ?? req.body?.minDepositInr, 50)));
     const maxDeposit = Math.max(minDeposit, Math.min(500000, asNum(req.body?.maxDeposit, 50000)));
+    const welcomeBonus = money(Math.max(0, Math.min(100000, asNum(req.body?.welcomeBonus, 0))));
     const supportEmail = String(req.body?.supportEmail || "").trim().slice(0, 160);
     const now = new Date().toISOString();
-    await supa(db.from("smm_settings").upsert({ id: "main", site_name: SITE_NAME, markup_percent: markupType === "percent" ? markupValue : 0, markup_type: markupType, markup_value: markupValue, usd_to_inr_rate: usdToInrRate, min_deposit: minDeposit, max_deposit: maxDeposit, support_email: supportEmail, updated_at: now }, { onConflict: "id" }));
+    await supa(db.from("smm_settings").upsert({ id: "main", site_name: SITE_NAME, markup_percent: markupType === "percent" ? markupValue : 0, markup_type: markupType, markup_value: markupValue, usd_to_inr_rate: usdToInrRate, min_deposit: minDeposit, max_deposit: maxDeposit, welcome_bonus: welcomeBonus, support_email: supportEmail, updated_at: now }, { onConflict: "id" }));
     // Recalculate the entire non-overridden supplier catalogue atomically in PostgreSQL.
     const { data: recalculated } = await supa(db.rpc("smm_recalculate_supplier_prices", {
       p_usd_to_inr_rate: usdToInrRate, p_markup_type: markupType, p_markup_value: markupValue

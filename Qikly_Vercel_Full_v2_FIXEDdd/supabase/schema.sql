@@ -318,6 +318,7 @@ alter table public.smm_settings add column if not exists markup_type text not nu
 alter table public.smm_settings add column if not exists markup_value numeric(14,4) not null default 30;
 alter table public.smm_settings add column if not exists min_deposit numeric(14,2) not null default 50;
 alter table public.smm_settings add column if not exists max_deposit numeric(14,2) not null default 50000;
+alter table public.smm_settings add column if not exists welcome_bonus numeric(14,2) not null default 0 check (welcome_bonus >= 0);
 update public.smm_settings set markup_value = markup_percent where id = 'main' and markup_value = 30;
 
 create table if not exists public.smm_categories (

@@ -537,7 +537,7 @@
     const next = new URLSearchParams(location.search).get("next");
     $("#authRoot").innerHTML = `<div class="auth-layout">
       <section class="auth-brand-panel"><a class="brand auth-brand" href="/" data-route="/"><span class="brand-mark">M</span><span class="brand-copy"><b>${esc(state.config?.siteName || "Mintu SMM")}</b><small>GROWTH WORKSPACE</small></span></a><div class="auth-brand-copy"><span class="eyebrow"><i></i> YOUR WORK, IN ONE PLACE</span><h1>${isSignup ? "Start with a<br><em>clear plan.</em>" : "Welcome back<br><em>to your desk.</em>"}</h1><p>Manage services, wallet activity and customer support in a workspace built to keep everything simple.</p><div class="auth-points"><span>${icon("check")} Order tracking</span><span>${icon("lock")} Secure wallet</span><span>${icon("support")} Helpful support</span></div></div><div class="auth-brand-bottom">MINTU SMM <span>·</span> DIGITAL SERVICES</div></section>
-      <section class="auth-form-panel"><a class="auth-mobile-brand brand" href="/" data-route="/"><span class="brand-mark">M</span><span class="brand-copy"><b>${esc(state.config?.siteName || "Mintu SMM")}</b><small>GROWTH WORKSPACE</small></span></a><div class="auth-card"><span class="eyebrow">${isSignup ? "CREATE YOUR ACCOUNT" : "ACCOUNT SIGN IN"}</span><h2>${isSignup ? "Create your account" : "Good to see you again."}</h2><p>${isSignup ? "A few details and your workspace is ready." : "Sign in to manage your orders, wallet and support."}</p>
+      <section class="auth-form-panel"><a class="auth-mobile-brand brand" href="/" data-route="/"><span class="brand-mark">M</span><span class="brand-copy"><b>${esc(state.config?.siteName || "Mintu SMM")}</b><small>GROWTH WORKSPACE</small></span></a><div class="auth-card"><span class="eyebrow">${isSignup ? "CREATE YOUR ACCOUNT" : "ACCOUNT SIGN IN"}</span><h2>${isSignup ? "Create your account" : "Good to see you again."}</h2><p>${isSignup ? (Number(state.config?.welcomeBonus || 0) > 0 ? `A few details and your workspace is ready. Get ${money(state.config.welcomeBonus)} welcome bonus on signup.` : "A few details and your workspace is ready.") : "Sign in to manage your orders, wallet and support."}</p>
         <div class="auth-switch"><a class="${!isSignup ? "active" : ""}" href="/login${next ? `?next=${encodeURIComponent(next)}` : ""}" data-route="/login${next ? `?next=${encodeURIComponent(next)}` : ""}">Log in</a><a class="${isSignup ? "active" : ""}" href="/signup${next ? `?next=${encodeURIComponent(next)}` : ""}" data-route="/signup${next ? `?next=${encodeURIComponent(next)}` : ""}">Create account</a></div>
         ${state.config?.googleClientId ? `<div class="google-signin-wrap"><div id="googleSignInButton" aria-label="Continue with Google"></div><div class="form-error" id="googleAuthError" role="alert"></div></div><div class="auth-divider"><span>or continue with email</span></div>` : ""}
         <form id="authForm" class="auth-form" data-mode="${mode}" data-next="${esc(next || "/")}">
@@ -564,9 +564,13 @@
             }
             googleError.textContent = "";
             try {
-              await api("/api/auth/google", { method: "POST", body: JSON.stringify({ credential: response.credential }) });
+              const authResult = await api("/api/auth/google", { method: "POST", body: JSON.stringify({ credential: response.credential }) });
               await loadAccount();
-              toast("You are signed in with Google.", "success");
+              if (authResult?.isNewUser && Number(authResult?.welcomeBonus || 0) > 0) {
+                toast(`Welcome! ${money(authResult.welcomeBonus)} welcome bonus credited to your wallet.`, "success");
+              } else {
+                toast("You are signed in with Google.", "success");
+              }
               const destination = form.dataset.next || "/";
               navPath(destination.startsWith("/") && !destination.startsWith("//") ? destination : "/");
             } catch (error) {
@@ -621,12 +625,16 @@
     error.textContent = "";
     button.innerHTML = `${mode === "signup" ? "Creating account…" : "Signing in…"} <span class="inline-spinner"></span>`;
     try {
-      await api(mode === "signup" ? "/api/auth/signup" : "/api/auth/login", {
+      const authResult = await api(mode === "signup" ? "/api/auth/signup" : "/api/auth/login", {
         method: "POST",
         body: JSON.stringify({ name: formData.get("name"), email: formData.get("email"), password: formData.get("password") })
       });
       await loadAccount();
-      toast(mode === "signup" ? "Your account is ready." : "You are signed in.", "success");
+      if (mode === "signup" && Number(authResult?.welcomeBonus || 0) > 0) {
+        toast(`Your account is ready! ${money(authResult.welcomeBonus)} welcome bonus credited.`, "success");
+      } else {
+        toast(mode === "signup" ? "Your account is ready." : "You are signed in.", "success");
+      }
       const next = form.dataset.next || "/";
       navPath(next.startsWith("/") && !next.startsWith("//") ? next : "/");
     } catch (error) {
