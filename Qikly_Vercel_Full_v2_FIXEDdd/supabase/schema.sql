@@ -413,3 +413,284 @@ alter table public.smm_ticket_messages enable row level security;
 revoke all on public.smm_categories, public.smm_tickets, public.smm_ticket_messages from public, anon, authenticated;
 grant all on public.smm_categories, public.smm_tickets, public.smm_ticket_messages to service_role;
 notify pgrst, 'reload schema';
+
+-- ---------------------------------------------------------------------------
+-- Announcement banner, Deposit Bonus Slabs & Promo / Coupon Codes
+-- ---------------------------------------------------------------------------
+alter table public.smm_settings add column if not exists announcement_enabled boolean not null default false;
+alter table public.smm_settings add column if not exists announcement_text text not null default '';
+alter table public.smm_settings add column if not exists announcement_type text not null default 'info' check (announcement_type in ('info','offer','warning'));
+alter table public.smm_settings add column if not exists announcement_link text not null default '';
+
+alter table public.smm_wallet_payments add column if not exists promo_code text not null default '';
+alter table public.smm_orders add column if not exists promo_code text not null default '';
+alter table public.smm_orders add column if not exists discount_amount numeric(14,2) not null default 0;
+
+create table if not exists public.smm_deposit_bonuses (
+  id uuid primary key default gen_random_uuid(),
+  title text not null default '',
+  min_amount numeric(14,2) not null default 0 check (min_amount >= 0),
+  bonus_type text not null default 'percent' check (bonus_type in ('percent','fixed')),
+  bonus_value numeric(14,2) not null default 0 check (bonus_value >= 0),
+  first_deposit_only boolean not null default false,
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.smm_promo_codes (
+  id uuid primary key default gen_random_uuid(),
+  code text not null,
+  applies_to text not null default 'deposit' check (applies_to in ('deposit','order')),
+  discount_type text not null default 'percent' check (discount_type in ('percent','fixed')),
+  discount_value numeric(14,2) not null default 0 check (discount_value > 0),
+  min_amount numeric(14,2) not null default 0 check (min_amount >= 0),
+  max_discount numeric(14,2) not null default 0 check (max_discount >= 0),
+  max_uses integer not null default 0 check (max_uses >= 0),
+  per_user_limit integer not null default 1 check (per_user_limit >= 0),
+  used_count integer not null default 0 check (used_count >= 0),
+  expires_at timestamptz,
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create unique index if not exists smm_promo_codes_code_upper_uidx on public.smm_promo_codes (upper(code));
+
+create table if not exists public.smm_promo_redemptions (
+  id uuid primary key default gen_random_uuid(),
+  promo_id uuid not null references public.smm_promo_codes(id) on delete cascade,
+  user_id uuid not null references public.smm_users(id) on delete cascade,
+  context text not null check (context in ('deposit','order')),
+  reference_id text not null default '',
+  bonus_amount numeric(14,2) not null default 0,
+  created_at timestamptz not null default now()
+);
+create index if not exists smm_promo_redemptions_user_idx on public.smm_promo_redemptions (promo_id, user_id);
+
+alter table public.smm_deposit_bonuses enable row level security;
+alter table public.smm_promo_codes enable row level security;
+alter table public.smm_promo_redemptions enable row level security;
+revoke all on public.smm_deposit_bonuses, public.smm_promo_codes, public.smm_promo_redemptions from public, anon, authenticated;
+grant all on public.smm_deposit_bonuses, public.smm_promo_codes, public.smm_promo_redemptions to service_role;
+
+-- Atomic Razorpay payment credit + Deposit Bonus Slabs + Deposit Promo Code bonus.
+create or replace function public.smm_credit_wallet_payment(
+  p_razorpay_order_id text,
+  p_payment_id text,
+  p_user_id uuid,
+  p_amount_paise bigint,
+  p_currency text default 'INR'
+) returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_payment public.smm_wallet_payments%rowtype;
+  v_balance numeric(14,2);
+  v_prior_paid integer := 0;
+  v_slab_bonus numeric(14,2) := 0;
+  v_slab_title text := '';
+  v_promo public.smm_promo_codes%rowtype;
+  v_promo_bonus numeric(14,2) := 0;
+  v_user_redemptions integer := 0;
+  v_total_credit numeric(14,2);
+begin
+  select * into v_payment from public.smm_wallet_payments
+  where razorpay_order_id = p_razorpay_order_id for update;
+  if not found then raise exception 'Payment record not found.'; end if;
+  if v_payment.user_id <> p_user_id then raise exception 'Payment belongs to another account.'; end if;
+  if v_payment.status = 'paid' then
+    select balance into v_balance from public.smm_users where id = p_user_id;
+    return jsonb_build_object('ok', true, 'alreadyCredited', true, 'balance', v_balance);
+  end if;
+  if v_payment.status <> 'created' then raise exception 'This payment is no longer active.'; end if;
+  if upper(coalesce(p_currency, '')) <> 'INR' or p_amount_paise <> round(v_payment.amount * 100)::bigint then
+    raise exception 'Payment amount or currency mismatch.';
+  end if;
+
+  -- Check if this is user's first paid deposit
+  select count(*) into v_prior_paid from public.smm_wallet_payments
+  where user_id = p_user_id and status = 'paid' and razorpay_order_id <> p_razorpay_order_id;
+
+  -- Highest qualifying deposit bonus slab
+  select
+    round((case when bonus_type = 'percent' then v_payment.amount * bonus_value / 100.0 else bonus_value end)::numeric, 2),
+    coalesce(nullif(title, ''), 'Deposit bonus')
+  into v_slab_bonus, v_slab_title
+  from public.smm_deposit_bonuses
+  where active = true
+    and v_payment.amount >= min_amount
+    and (first_deposit_only = false or v_prior_paid = 0)
+  order by round((case when bonus_type = 'percent' then v_payment.amount * bonus_value / 100.0 else bonus_value end)::numeric, 2) desc
+  limit 1;
+  v_slab_bonus := greatest(0, coalesce(v_slab_bonus, 0));
+
+  -- Optional deposit promo code
+  if coalesce(trim(v_payment.promo_code), '') <> '' then
+    select * into v_promo from public.smm_promo_codes
+    where upper(code) = upper(trim(v_payment.promo_code))
+      and applies_to = 'deposit'
+      and active = true
+      and (expires_at is null or expires_at > now())
+      and (max_uses = 0 or used_count < max_uses)
+      and v_payment.amount >= min_amount
+    for update;
+    if found then
+      if v_promo.per_user_limit > 0 then
+        select count(*) into v_user_redemptions from public.smm_promo_redemptions
+        where promo_id = v_promo.id and user_id = p_user_id;
+      end if;
+      if v_promo.per_user_limit = 0 or v_user_redemptions < v_promo.per_user_limit then
+        if v_promo.discount_type = 'percent' then
+          v_promo_bonus := round((v_payment.amount * v_promo.discount_value / 100.0)::numeric, 2);
+        else
+          v_promo_bonus := round(v_promo.discount_value::numeric, 2);
+        end if;
+        if v_promo.max_discount > 0 then
+          v_promo_bonus := least(v_promo_bonus, v_promo.max_discount);
+        end if;
+        v_promo_bonus := greatest(0, v_promo_bonus);
+        if v_promo_bonus > 0 then
+          update public.smm_promo_codes set used_count = used_count + 1, updated_at = now() where id = v_promo.id;
+          insert into public.smm_promo_redemptions (promo_id, user_id, context, reference_id, bonus_amount)
+          values (v_promo.id, p_user_id, 'deposit', p_razorpay_order_id, v_promo_bonus);
+        end if;
+      end if;
+    end if;
+  end if;
+
+  v_total_credit := v_payment.amount + v_slab_bonus + v_promo_bonus;
+
+  update public.smm_users
+    set balance = balance + v_total_credit, updated_at = now()
+    where id = p_user_id and disabled = false
+    returning balance into v_balance;
+  if not found then raise exception 'User account is unavailable.'; end if;
+
+  update public.smm_wallet_payments
+    set status = 'paid', payment_id = p_payment_id, paid_at = now()
+    where razorpay_order_id = p_razorpay_order_id;
+
+  insert into public.smm_transactions (id, user_id, type, amount, currency, reference, razorpay_order_id, note)
+  values ('deposit_' || p_razorpay_order_id, p_user_id, 'deposit', v_payment.amount, 'INR', p_payment_id, p_razorpay_order_id, 'Wallet recharge')
+  on conflict (id) do nothing;
+
+  if v_slab_bonus > 0 then
+    insert into public.smm_transactions (id, user_id, type, amount, currency, reference, razorpay_order_id, note)
+    values ('deposit_bonus_' || p_razorpay_order_id, p_user_id, 'adjustment', v_slab_bonus, 'INR', 'deposit_bonus', p_razorpay_order_id, left(v_slab_title, 200))
+    on conflict (id) do nothing;
+  end if;
+
+  if v_promo_bonus > 0 then
+    insert into public.smm_transactions (id, user_id, type, amount, currency, reference, razorpay_order_id, note)
+    values ('promo_bonus_' || p_razorpay_order_id, p_user_id, 'adjustment', v_promo_bonus, 'INR', upper(trim(v_payment.promo_code)), p_razorpay_order_id, 'Promo code bonus: ' || upper(trim(v_payment.promo_code)))
+    on conflict (id) do nothing;
+  end if;
+
+  return jsonb_build_object('ok', true, 'balance', v_balance, 'slabBonus', v_slab_bonus, 'promoBonus', v_promo_bonus);
+end;
+$$;
+
+-- Atomic wallet reservation + order + optional order promo discount + debit ledger.
+create or replace function public.smm_place_order(
+  p_user_id uuid,
+  p_service_id text,
+  p_link text,
+  p_quantity integer,
+  p_user_email text,
+  p_user_name text,
+  p_promo_code text default ''
+) returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_service public.smm_services%rowtype;
+  v_user public.smm_users%rowtype;
+  v_raw_cost numeric(14,2);
+  v_discount numeric(14,2) := 0;
+  v_cost numeric(14,2);
+  v_order public.smm_orders%rowtype;
+  v_source text;
+  v_status text;
+  v_promo public.smm_promo_codes%rowtype;
+  v_user_redemptions integer := 0;
+  v_applied_code text := '';
+begin
+  select * into v_service from public.smm_services
+    where id = p_service_id for update;
+  if not found or not (v_service.active and v_service.approval_status = 'approved' and v_service.compliance_verified and v_service.selling_price_per_1000 > 0) then
+    raise exception 'This service is not available for ordering.';
+  end if;
+  if p_quantity < v_service.min_quantity or p_quantity > v_service.max_quantity then
+    raise exception 'Quantity must be between % and %.', v_service.min_quantity, v_service.max_quantity;
+  end if;
+  select * into v_user from public.smm_users where id = p_user_id for update;
+  if not found or v_user.disabled then raise exception 'User account is unavailable.'; end if;
+  if v_service.pricing_model = 'fixed' then
+    v_raw_cost := round(v_service.selling_price_per_1000, 2);
+  else
+    v_raw_cost := greatest(1, round((p_quantity * v_service.selling_price_per_1000 / 1000.0), 2));
+  end if;
+
+  if coalesce(trim(p_promo_code), '') <> '' then
+    select * into v_promo from public.smm_promo_codes
+    where upper(code) = upper(trim(p_promo_code))
+      and applies_to = 'order'
+      and active = true
+      and (expires_at is null or expires_at > now())
+      and (max_uses = 0 or used_count < max_uses)
+    for update;
+    if not found then raise exception 'Promo code is invalid or expired.'; end if;
+    if v_raw_cost < v_promo.min_amount then
+      raise exception 'Minimum order amount for this promo is ₹%.', to_char(v_promo.min_amount, 'FM999999990.00');
+    end if;
+    if v_promo.per_user_limit > 0 then
+      select count(*) into v_user_redemptions from public.smm_promo_redemptions
+      where promo_id = v_promo.id and user_id = p_user_id;
+      if v_user_redemptions >= v_promo.per_user_limit then
+        raise exception 'You have already used this promo code.';
+      end if;
+    end if;
+    if v_promo.discount_type = 'percent' then
+      v_discount := round((v_raw_cost * v_promo.discount_value / 100.0)::numeric, 2);
+    else
+      v_discount := round(v_promo.discount_value::numeric, 2);
+    end if;
+    if v_promo.max_discount > 0 then
+      v_discount := least(v_discount, v_promo.max_discount);
+    end if;
+    v_discount := greatest(0, least(v_discount, v_raw_cost - 0.01));
+    v_applied_code := upper(trim(v_promo.code));
+  end if;
+
+  v_cost := greatest(0.01, v_raw_cost - v_discount);
+  if v_user.balance < v_cost then raise exception 'Insufficient wallet balance. Required ₹%.', to_char(v_cost, 'FM999999990.00'); end if;
+  v_source := case when v_service.source = 'luvsmm' then 'luvsmm' else 'manual' end;
+  if v_source = 'luvsmm' and coalesce(v_service.supplier_service_id, '') = '' then raise exception 'Supplier service ID is missing. Re-sync the catalogue.'; end if;
+  update public.smm_users set balance = balance - v_cost, updated_at = now() where id = p_user_id;
+  v_status := case when v_source = 'manual' then 'Awaiting review' else 'Submitting' end;
+  insert into public.smm_orders (
+    user_id, user_email, user_name, service_id, service_name, category, pricing_model,
+    source, supplier_service_id, link, quantity, amount, status, remains, promo_code, discount_amount
+  ) values (
+    p_user_id, coalesce(p_user_email,''), coalesce(p_user_name,''), v_service.id, v_service.name,
+    v_service.category, v_service.pricing_model, v_source, v_service.supplier_service_id,
+    p_link, p_quantity, v_cost, v_status, p_quantity, v_applied_code, v_discount
+  ) returning * into v_order;
+
+  if v_applied_code <> '' and v_discount > 0 then
+    update public.smm_promo_codes set used_count = used_count + 1, updated_at = now() where id = v_promo.id;
+    insert into public.smm_promo_redemptions (promo_id, user_id, context, reference_id, bonus_amount)
+    values (v_promo.id, p_user_id, 'order', v_order.id::text, v_discount);
+  end if;
+
+  insert into public.smm_transactions (id, user_id, type, amount, currency, reference, note)
+  values ('order_' || v_order.id::text, p_user_id, 'order', -v_cost, 'INR', v_order.id::text,
+    'Order: ' || v_service.name || case when v_applied_code <> '' then ' (Promo ' || v_applied_code || ')' else '' end);
+  return to_jsonb(v_order);
+end;
+$$;
+
+revoke all on function public.smm_place_order(uuid,text,text,integer,text,text,text) from public, anon, authenticated;
+grant execute on function public.smm_place_order(uuid,text,text,integer,text,text,text) to service_role;
+
+notify pgrst, 'reload schema';

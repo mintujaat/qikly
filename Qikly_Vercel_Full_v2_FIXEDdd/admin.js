@@ -1,7 +1,7 @@
 (() => {
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
-  const S = { overview: null, services: [], orders: [], users: [], transactions: [], categories: [], tickets: [], tab: "overview", busy: false };
+  const S = { overview: null, services: [], orders: [], users: [], transactions: [], categories: [], tickets: [], depositBonuses: [], promos: [], tab: "overview", busy: false };
   let ticketPollTimer = null;
   let ticketPollBusy = false;
   let ticketPollErrorShown = false;
@@ -16,7 +16,7 @@
     $("#adminLogin").addEventListener("submit", async e => { e.preventDefault(); const btn = $("#adminLogin button"); btn.disabled = true; btn.textContent = "Checking…"; try { await api("/api/admin/login", { method: "POST", body: JSON.stringify({ password: new FormData(e.currentTarget).get("password") }) }); await startApp(); } catch (err) { $("#loginError").textContent = err.message; btn.disabled = false; btn.textContent = "Open dashboard ↗"; } });
   }
   function shell() {
-    $("#adminApp").innerHTML = `<div class="admin-layout"><aside class="sidebar"><a class="admin-logo" href="/"><span class="brand-mark">M</span><span><b>Mintu Social</b><small>CONTROL CENTRE</small></span></a><div class="side-label">WORKSPACE</div><nav class="side-nav"><button data-tab="overview" class="active"><i>▦</i>Overview</button><button data-tab="users"><i>♙</i>Customers</button><button data-tab="wallet"><i>₹</i>Wallet</button><button data-tab="categories"><i>▤</i>Categories</button><button data-tab="services"><i>◈</i>Services & Import <span class="nav-count" id="serviceCount">0</span></button><button data-tab="orders"><i>⇄</i>Orders <span class="nav-count" id="orderCount">0</span></button><button data-tab="tickets"><i>✉</i>Complaints</button><button data-tab="transactions"><i>↗</i>Deposits & Payments</button><button data-tab="settings"><i>⚙</i>Pricing & Settings</button></nav><div class="sidebar-bottom"><div class="admin-status"><i></i><span>Admin session active</span></div><a href="/" target="_blank">↗ Open website</a><button id="adminLogout">Log out <span>→</span></button></div></aside><main class="admin-main"><header class="admin-topbar"><div><span class="admin-kicker">MINTU SOCIAL / ADMIN</span><h1 id="pageTitle">Overview</h1></div><div class="admin-top-actions"><span class="admin-date" id="todayDate"></span><button class="admin-icon-btn" id="refreshAll" title="Refresh data">↻</button><span class="admin-avatar">M</span></div></header><div id="adminContent" class="admin-content"><div class="admin-loading"><span class="loader"></span><p>Loading dashboard data…</p></div></div></main></div>`;
+    $("#adminApp").innerHTML = `<div class="admin-layout"><aside class="sidebar"><a class="admin-logo" href="/"><span class="brand-mark">M</span><span><b>Mintu Social</b><small>CONTROL CENTRE</small></span></a><div class="side-label">WORKSPACE</div><nav class="side-nav"><button data-tab="overview" class="active"><i>▦</i>Overview</button><button data-tab="users"><i>♙</i>Customers</button><button data-tab="wallet"><i>₹</i>Wallet</button><button data-tab="categories"><i>▤</i>Categories</button><button data-tab="services"><i>◈</i>Services & Import <span class="nav-count" id="serviceCount">0</span></button><button data-tab="orders"><i>⇄</i>Orders <span class="nav-count" id="orderCount">0</span></button><button data-tab="tickets"><i>✉</i>Complaints</button><button data-tab="transactions"><i>↗</i>Deposits & Payments</button><button data-tab="offers"><i>★</i>Offers & Promos</button><button data-tab="settings"><i>⚙</i>Pricing & Settings</button></nav><div class="sidebar-bottom"><div class="admin-status"><i></i><span>Admin session active</span></div><a href="/" target="_blank">↗ Open website</a><button id="adminLogout">Log out <span>→</span></button></div></aside><main class="admin-main"><header class="admin-topbar"><div><span class="admin-kicker">MINTU SOCIAL / ADMIN</span><h1 id="pageTitle">Overview</h1></div><div class="admin-top-actions"><span class="admin-date" id="todayDate"></span><button class="admin-icon-btn" id="refreshAll" title="Refresh data">↻</button><span class="admin-avatar">M</span></div></header><div id="adminContent" class="admin-content"><div class="admin-loading"><span class="loader"></span><p>Loading dashboard data…</p></div></div></main></div>`;
     $$("[data-tab]").forEach(b => b.addEventListener("click", () => go(b.dataset.tab)));
     $("#adminLogout").addEventListener("click", async () => { try { await api("/api/admin/logout", { method: "POST", body: "{}" }); } finally { setTicketPolling(false); loginScreen(); } });
     $("#refreshAll").addEventListener("click", async () => { await refreshData(); renderTab(); toast("Dashboard refreshed."); });
@@ -34,6 +34,7 @@
     if (tab === "categories") jobs.push(api("/api/admin/categories"));
     if (tab === "tickets") jobs.push(api("/api/admin/tickets", { cache: "no-store" }));
     if (tab === "wallet") jobs.push(api("/api/admin/users"));
+    if (tab === "offers") { jobs.push(api("/api/admin/deposit-bonuses")); jobs.push(api("/api/admin/promos")); }
     const results = await Promise.all(jobs);
     S.overview = results[0];
     if (S.tab !== tab) return;
@@ -47,6 +48,7 @@
     if (tab === "categories") S.categories = results[1].categories || [];
     if (tab === "tickets") S.tickets = results[1].tickets || [];
     if (tab === "wallet") S.users = results[1].users || [];
+    if (tab === "offers") { S.depositBonuses = results[1].bonuses || []; S.promos = results[2].promos || []; }
     $("#serviceCount").textContent = S.services.length || Number(S.overview?.stats?.services || 0);
     $("#orderCount").textContent = S.orders.length || Number(S.overview?.stats?.orders || 0);
   }
@@ -54,7 +56,7 @@
     S.tab = tab;
     setTicketPolling(tab === "tickets");
     $$("[data-tab]").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
-    $("#pageTitle").textContent = ({ overview: "Overview", categories: "Categories", services: "Services & LuvSMM import", orders: "Order management", users: "Customers", wallet: "Wallet management", tickets: "Complaints & support", transactions: "Deposits & payments", settings: "Pricing & website settings" })[tab] || "Overview";
+    $("#pageTitle").textContent = ({ overview: "Overview", categories: "Categories", services: "Services & LuvSMM import", orders: "Order management", users: "Customers", wallet: "Wallet management", tickets: "Complaints & support", transactions: "Deposits & payments", offers: "Offers, promos & announcements", settings: "Pricing & website settings" })[tab] || "Overview";
     renderTab();
     if (reload) refreshData().then(() => { if (S.tab === tab) renderTab(); }).catch(e => toast(e.message, "error"));
   }
@@ -96,6 +98,7 @@
     if (S.tab === "wallet") root.innerHTML = walletHtml();
     if (S.tab === "tickets") root.innerHTML = ticketsHtml();
     if (S.tab === "transactions") root.innerHTML = transactionsHtml();
+    if (S.tab === "offers") root.innerHTML = offersHtml();
     if (S.tab === "settings") root.innerHTML = settingsHtml();
     bindTab();
   }
@@ -155,6 +158,69 @@
   function transactionsHtml() {
     return `<div class="page-toolbar"><div><h2>Deposits & payments</h2><p>Razorpay deposits, order deductions, manual wallet changes and refunds in the customer ledger.</p></div></div><div class="admin-panel"><div class="panel-head"><div><span class="admin-kicker">WALLET LEDGER</span><h3>Latest transactions</h3></div><input class="table-search" id="transactionSearch" placeholder="Search type, reference or user…"></div><div class="table-wrap"><table><thead><tr><th>Type / reference</th><th>Customer</th><th>Amount</th><th>Note</th><th>Date</th></tr></thead><tbody id="transactionRows">${S.transactions.map(t => `<tr data-transaction-row data-search="${esc(`${t.type} ${t.reference} ${t.userId} ${t.note}`.toLowerCase())}"><td><b>${esc(t.type || "Entry")}</b><small class="mono">${esc(t.reference || "—")}</small></td><td class="mono">${esc(t.userId || "—")}</td><td class="${Number(t.amount) >= 0 ? "positive" : "negative"}">${Number(t.amount) >= 0 ? "+" : "−"}${money(Math.abs(Number(t.amount)))}</td><td>${esc(t.note || "—")}</td><td>${date(t.createdAt)}</td></tr>`).join("") || `<tr><td colspan="5" class="empty-cell">No transactions yet.</td></tr>`}</tbody></table></div></div>`;
   }
+  function offersHtml() {
+    const s = S.overview?.settings || {};
+    const slabs = S.depositBonuses || [];
+    const promos = S.promos || [];
+    return `<div class="page-toolbar"><div><h2>Offers, Promos & Banner</h2><p>Manage top customer announcement banner, automatic deposit bonus slabs, and coupon codes.</p></div></div>
+    <div class="settings-grid">
+      <section class="admin-panel settings-card">
+        <div class="panel-head"><div><span class="admin-kicker">CUSTOMER DASHBOARD</span><h3>Announcement banner</h3></div></div>
+        <form id="announcementForm" class="admin-form">
+          <label class="review-confirm"><input type="checkbox" name="enabled" ${s.announcementEnabled ? "checked" : ""}><span>Show announcement banner at the top of the customer dashboard</span></label>
+          <label>Banner style<select name="type" class="admin-select"><option value="info" ${s.announcementType === "info" ? "selected" : ""}>Info (Blue/Indigo)</option><option value="offer" ${s.announcementType === "offer" ? "selected" : ""}>Offer / Promo (Green)</option><option value="warning" ${s.announcementType === "warning" ? "selected" : ""}>Alert / Maintenance (Amber)</option></select></label>
+          <label>Announcement message<textarea name="text" rows="2" maxlength="300" placeholder="e.g. Weekend Offer: Get 5% extra bonus on deposits of ₹500+!">${esc(s.announcementText || "")}</textarea></label>
+          <label>Optional link path or URL<input name="link" maxlength="200" value="${esc(s.announcementLink || "")}" placeholder="/wallet or /services"><small>Clicking the banner CTA navigates here (leave blank for no button).</small></label>
+          <button class="admin-primary" type="submit">Save banner <span>↗</span></button>
+        </form>
+      </section>
+      <section class="admin-panel settings-card">
+        <div class="panel-head"><div><span class="admin-kicker">AUTOMATIC WALLET REWARDS</span><h3>Add deposit bonus slab</h3></div></div>
+        <form id="depositBonusForm" class="admin-form">
+          <label>Offer title<input name="title" maxlength="80" required placeholder="e.g. ₹500+ Deposit Bonus"></label>
+          <div class="two-fields">
+            <label>Minimum deposit (₹)<input type="number" name="minAmount" min="0" step="1" value="500" required></label>
+            <label>Bonus type<select name="bonusType" class="admin-select"><option value="percent">Percentage (%)</option><option value="fixed">Flat amount (₹)</option></select></label>
+          </div>
+          <label>Bonus value (% or ₹)<input type="number" name="bonusValue" min="0.01" step="0.01" value="5" required></label>
+          <label class="review-confirm"><input type="checkbox" name="firstDepositOnly"><span>First deposit only (valid only on user's first paid recharge)</span></label>
+          <button class="admin-primary" type="submit">Create deposit offer <span>＋</span></button>
+        </form>
+      </section>
+    </div>
+    <div class="admin-panel" style="margin-top:14px">
+      <div class="panel-head"><div><span class="admin-kicker">ACTIVE & PAUSED SLABS</span><h3>Deposit bonus slabs (${slabs.length})</h3></div></div>
+      <div class="table-wrap"><table><thead><tr><th>Title</th><th>Min Deposit</th><th>Bonus</th><th>Eligibility</th><th>Status</th><th>Actions</th></tr></thead><tbody>${slabs.map(b => `<tr><td><b>${esc(b.title || "Deposit bonus")}</b></td><td>${money(b.min_amount)}</td><td><b>${b.bonus_type === "percent" ? `${Number(b.bonus_value)}%` : money(b.bonus_value)}</b></td><td>${b.first_deposit_only ? status("First deposit") : "Every deposit"}</td><td>${status(b.active ? "Active" : "Paused")}</td><td><button class="table-action" data-toggle-bonus="${esc(b.id)}" data-active="${b.active ? "1" : "0"}">${b.active ? "Pause" : "Activate"}</button> <button class="table-action refund" data-delete-bonus="${esc(b.id)}">Delete</button></td></tr>`).join("") || `<tr><td colspan="6" class="empty-cell">No deposit bonus slabs created yet.</td></tr>`}</tbody></table></div>
+    </div>
+    <section class="admin-panel settings-card" style="margin-top:14px">
+      <div class="panel-head"><div><span class="admin-kicker">COUPONS & PROMOS</span><h3>Create promo code</h3></div></div>
+      <form id="promoForm" class="admin-form promo-grid-form">
+        <div class="two-fields">
+          <label>Promo code<input name="code" minlength="3" maxlength="40" required placeholder="e.g. BONUS10" style="text-transform:uppercase"></label>
+          <label>Applies to<select name="appliesTo" class="admin-select"><option value="deposit">Wallet Deposit (Extra Bonus)</option><option value="order">Order Checkout (Discount)</option></select></label>
+        </div>
+        <div class="two-fields">
+          <label>Reward type<select name="discountType" class="admin-select"><option value="percent">Percentage (%)</option><option value="fixed">Flat amount (₹)</option></select></label>
+          <label>Value (% or ₹)<input type="number" name="discountValue" min="0.01" step="0.01" value="10" required></label>
+        </div>
+        <div class="two-fields">
+          <label>Min amount (₹)<input type="number" name="minAmount" min="0" step="1" value="100"></label>
+          <label>Max cap (₹, 0 = no limit)<input type="number" name="maxDiscount" min="0" step="1" value="0"></label>
+        </div>
+        <div class="two-fields">
+          <label>Total usage limit (0 = unlimited)<input type="number" name="maxUses" min="0" step="1" value="0"></label>
+          <label>Per-user limit<input type="number" name="perUserLimit" min="0" step="1" value="1"></label>
+        </div>
+        <label>Expiry date & time (optional)<input type="datetime-local" name="expiresAt"></label>
+        <button class="admin-primary" type="submit">Create promo code <span>＋</span></button>
+      </form>
+    </section>
+    <div class="admin-panel" style="margin-top:14px">
+      <div class="panel-head"><div><span class="admin-kicker">COUPON DIRECTORY</span><h3>Promo codes (${promos.length})</h3></div></div>
+      <div class="table-wrap"><table><thead><tr><th>Code</th><th>Applies to</th><th>Reward</th><th>Min / Cap</th><th>Usage</th><th>Expires</th><th>Status</th><th>Actions</th></tr></thead><tbody>${promos.map(p => `<tr><td><b class="mono">${esc(p.code)}</b></td><td>${p.applies_to === "order" ? "Order discount" : "Wallet bonus"}</td><td><b>${p.discount_type === "percent" ? `${Number(p.discount_value)}%` : money(p.discount_value)}</b></td><td>Min ${money(p.min_amount)}${Number(p.max_discount) > 0 ? ` · Cap ${money(p.max_discount)}` : ""}</td><td>${Number(p.used_count || 0)} / ${Number(p.max_uses || 0) > 0 ? p.max_uses : "∞"}</td><td>${p.expires_at ? date(p.expires_at) : "Never"}</td><td>${status(p.active ? "Active" : "Paused")}</td><td><button class="table-action" data-toggle-promo="${esc(p.id)}" data-active="${p.active ? "1" : "0"}">${p.active ? "Pause" : "Activate"}</button> <button class="table-action refund" data-delete-promo="${esc(p.id)}">Delete</button></td></tr>`).join("") || `<tr><td colspan="8" class="empty-cell">No promo codes created yet.</td></tr>`}</tbody></table></div>
+    </div>`;
+  }
+
   function settingsHtml() {
     const s = S.overview?.settings || {};
     return `<div class="page-toolbar"><div><h2>Settings</h2><p>Configure website branding, exchange rate, new-service price calculation, customer deposits and support contact.</p></div></div><div class="settings-grid"><section class="admin-panel settings-card"><div class="panel-head"><div><span class="admin-kicker">WEBSITE & PRICING RULES</span><h3>Branding and defaults</h3></div></div><form id="settingsForm" class="admin-form"><label>Website name<input name="siteName" value="${esc(s.siteName || "Mintu Social")}" maxlength="50" required></label><label>USD to INR exchange rate<input type="number" min="1" max="1000" step="0.01" name="usdToInrRate" value="${Number(s.usdToInrRate ?? 83)}" required><small>Applied only to supplier rates reported in USD. INR rates are not converted.</small></label><label>Default margin (%)<input type="number" min="0" max="500" step="0.5" name="markupPercent" value="${Number(s.markupPercent ?? 30)}" required></label><label>Fixed margin per 1,000 (₹)<input type="number" min="0" step="0.01" name="fixedMarginInr" value="${Number(s.fixedMarginInr ?? 0)}" required></label><label>Minimum deposit (₹)<input type="number" min="1" max="50000" step="1" name="minDepositInr" value="${Number(s.minDeposit ?? s.minDepositInr ?? 50)}" required></label><label>New user welcome bonus (₹)<input type="number" min="0" max="100000" step="0.01" name="welcomeBonus" value="${Number(s.welcomeBonus ?? 0)}" required><small>Automatically credited to every new user's wallet on signup. Set 0 to disable.</small></label><label>Support email<input type="email" name="supportEmail" value="${esc(s.supportEmail || "")}" placeholder="support@example.com"><small>Displayed in the customer support area.</small></label><button class="admin-primary" type="submit">Save settings <span>↗</span></button></form></section><section class="admin-panel settings-card"><div class="panel-head"><div><span class="admin-kicker">INTEGRATIONS</span><h3>Connection checklist</h3></div></div><div class="integration-row"><span class="integration-icon">S</span><div><b>Supabase</b><small>PostgreSQL database connection</small></div><span class="connection-state">Server configured</span></div><div class="integration-row"><span class="integration-icon">R</span><div><b>Razorpay</b><small>Payments and wallet recharge</small></div><span class="connection-state">Check /health</span></div><div class="integration-row"><span class="integration-icon">L</span><div><b>LuvSMM API</b><small>Service import and order status</small></div><span class="connection-state">Server secret</span></div><div class="secure-note"><b>Keep API keys private</b><p>Do not put LUVSMM_API_KEY, RAZORPAY_KEY_SECRET or Supabase Secret Key in frontend JavaScript or GitHub. Add them only under Vercel → Settings → Environment Variables.</p></div></section></div>`;
@@ -213,6 +279,49 @@
     $("#syncOrders")?.addEventListener("click", async () => { const b = $("#syncOrders"); b.disabled = true; b.textContent = "Checking supplier…"; try { const r = await api("/api/admin/orders/sync", { method: "POST", body: "{}" }); await refreshData(); renderTab(); toast(`Checked ${r.checked} orders; updated ${r.updated}.`, "success"); } catch (e) { toast(e.message, "error"); b.disabled = false; b.textContent = "↻ Sync supplier statuses"; } });
     $$('[data-save-order]').forEach(b => b.addEventListener("click", async () => { const select = $(`[data-order-status="${CSS.escape(b.dataset.saveOrder)}"]`); const reconciled = $(`[data-supplier-reconciled="${CSS.escape(b.dataset.saveOrder)}"]`); b.disabled = true; try { await api(`/api/admin/orders/${encodeURIComponent(b.dataset.saveOrder)}`, { method: "PATCH", body: JSON.stringify({ status: select.value, supplierReconciled: Boolean(reconciled?.checked) }) }); await refreshData(); renderTab(); toast("Order status updated.", "success"); } catch (e) { toast(e.message, "error"); b.disabled = false; } }));
     $$('[data-refund-order]').forEach(b => b.addEventListener("click", async () => { if (!confirm("Refund this order amount to the customer's internal wallet? Ensure the supplier side has already been cancelled/reconciled.")) return; b.disabled = true; try { await api(`/api/admin/orders/${encodeURIComponent(b.dataset.refundOrder)}/refund`, { method: "POST", body: JSON.stringify({ note: "Refunded by admin" }) }); await refreshData(); renderTab(); toast("Wallet refund completed.", "success"); } catch (e) { toast(e.message, "error"); b.disabled = false; } }));
+        $("#announcementForm")?.addEventListener("submit", async e => {
+      e.preventDefault(); const form = new FormData(e.currentTarget); const b = $("#announcementForm button"); b.disabled = true;
+      try {
+        await api("/api/admin/announcement", { method: "PUT", body: JSON.stringify({ enabled: form.get("enabled") === "on", type: form.get("type"), text: form.get("text"), link: form.get("link") }) });
+        await refreshData(); renderTab(); toast("Announcement banner saved.", "success");
+      } catch (err) { toast(err.message, "error"); b.disabled = false; }
+    });
+    $("#depositBonusForm")?.addEventListener("submit", async e => {
+      e.preventDefault(); const form = new FormData(e.currentTarget); const b = $("#depositBonusForm button"); b.disabled = true;
+      try {
+        await api("/api/admin/deposit-bonuses", { method: "POST", body: JSON.stringify({ title: form.get("title"), minAmount: Number(form.get("minAmount")), bonusType: form.get("bonusType"), bonusValue: Number(form.get("bonusValue")), firstDepositOnly: form.get("firstDepositOnly") === "on" }) });
+        await refreshData(); renderTab(); toast("Deposit bonus slab created.", "success");
+      } catch (err) { toast(err.message, "error"); b.disabled = false; }
+    });
+    $$("[data-toggle-bonus]").forEach(b => b.addEventListener("click", async () => {
+      b.disabled = true;
+      try { await api(`/api/admin/deposit-bonuses/${encodeURIComponent(b.dataset.toggleBonus)}`, { method: "PATCH", body: JSON.stringify({ active: b.dataset.active !== "1" }) }); await refreshData(); renderTab(); toast("Offer status updated."); }
+      catch (err) { toast(err.message, "error"); b.disabled = false; }
+    }));
+    $$("[data-delete-bonus]").forEach(b => b.addEventListener("click", async () => {
+      if (!confirm("Delete this deposit bonus slab?")) return;
+      b.disabled = true;
+      try { await api(`/api/admin/deposit-bonuses/${encodeURIComponent(b.dataset.deleteBonus)}`, { method: "DELETE" }); await refreshData(); renderTab(); toast("Offer deleted."); }
+      catch (err) { toast(err.message, "error"); b.disabled = false; }
+    }));
+    $("#promoForm")?.addEventListener("submit", async e => {
+      e.preventDefault(); const form = new FormData(e.currentTarget); const b = $("#promoForm button"); b.disabled = true;
+      try {
+        await api("/api/admin/promos", { method: "POST", body: JSON.stringify({ code: form.get("code"), appliesTo: form.get("appliesTo"), discountType: form.get("discountType"), discountValue: Number(form.get("discountValue")), minAmount: Number(form.get("minAmount")), maxDiscount: Number(form.get("maxDiscount")), maxUses: Number(form.get("maxUses")), perUserLimit: Number(form.get("perUserLimit")), expiresAt: form.get("expiresAt") || null }) });
+        await refreshData(); renderTab(); toast("Promo code created.", "success");
+      } catch (err) { toast(err.message, "error"); b.disabled = false; }
+    });
+    $$("[data-toggle-promo]").forEach(b => b.addEventListener("click", async () => {
+      b.disabled = true;
+      try { await api(`/api/admin/promos/${encodeURIComponent(b.dataset.togglePromo)}`, { method: "PATCH", body: JSON.stringify({ active: b.dataset.active !== "1" }) }); await refreshData(); renderTab(); toast("Promo status updated."); }
+      catch (err) { toast(err.message, "error"); b.disabled = false; }
+    }));
+    $$("[data-delete-promo]").forEach(b => b.addEventListener("click", async () => {
+      if (!confirm("Delete this promo code?")) return;
+      b.disabled = true;
+      try { await api(`/api/admin/promos/${encodeURIComponent(b.dataset.deletePromo)}`, { method: "DELETE" }); await refreshData(); renderTab(); toast("Promo code deleted."); }
+      catch (err) { toast(err.message, "error"); b.disabled = false; }
+    }));
     $("#settingsForm")?.addEventListener("submit", async e => { e.preventDefault(); const form = new FormData(e.currentTarget); const b = $("#settingsForm button"); b.disabled = true; try { await api("/api/admin/settings", { method: "PUT", body: JSON.stringify({ siteName: form.get("siteName"), markupPercent: Number(form.get("markupPercent")), usdToInrRate: Number(form.get("usdToInrRate")), fixedMarginInr: Number(form.get("fixedMarginInr")), minDeposit: Number(form.get("minDepositInr")), minDepositInr: Number(form.get("minDepositInr")), welcomeBonus: Number(form.get("welcomeBonus")), supportEmail: form.get("supportEmail") }) }); await refreshData(); renderTab(); toast("Settings saved.", "success"); } catch (err) { toast(err.message, "error"); } finally { b.disabled = false; } });
   }
   function openServiceReview(id) {

@@ -5,7 +5,8 @@
     config: null, user: null, services: [], categories: [], wallet: null,
     orders: [], tickets: [], dataErrors: { wallet: "", orders: "", tickets: "" },
     route: "/", orderCategory: "", orderServiceId: "",
-    orderBusy: false, orderPage: 1
+    orderBusy: false, orderPage: 1,
+    walletPromo: null, orderPromo: null, announcementDismissed: false
   };
   const icons = {
     home: '<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
@@ -275,7 +276,7 @@
       "/orders": renderOrdersPage, "/wallet": renderWalletPage, "/support": renderSupportPage,
       "/profile": renderProfilePage
     };
-    page.innerHTML = `<div class="page-transition">${renderers[route]()}</div>`;
+    page.innerHTML = `${announcementMarkup()}<div class="page-transition">${renderers[route]()}</div>`;
     page.focus({ preventScroll: true });
     bindPage(route);
     animateCounters();
@@ -302,6 +303,22 @@
     });
   }
 
+  function announcementMarkup() {
+    const a = state.config?.announcement;
+    if (!a?.enabled || !a?.text || state.announcementDismissed) return "";
+    const kind = ["info", "offer", "warning"].includes(a.type) ? a.type : "info";
+    const link = String(a.link || "").trim();
+    const isInternal = link.startsWith("/") && !link.startsWith("//");
+    const cta = link ? (isInternal
+      ? `<a class="announcement-cta" href="${esc(link)}" data-route="${esc(link)}">Check now →</a>`
+      : `<a class="announcement-cta" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Open →</a>`) : "";
+    return `<div class="announcement-bar ${kind}" role="status">
+      <span class="announcement-badge">${kind === "offer" ? "OFFER" : kind === "warning" ? "ALERT" : "NOTICE"}</span>
+      <p>${esc(a.text)}</p>
+      <div class="announcement-actions">${cta}<button type="button" class="announcement-close" id="dismissAnnouncement" aria-label="Dismiss announcement">×</button></div>
+    </div>`;
+  }
+
   function renderHome() {
     const completed = state.orders.filter(order => String(order.status).toLowerCase() === "completed").length;
     const pending = state.orders.filter(order => !["completed", "canceled", "refunded", "partially refunded"].includes(String(order.status).toLowerCase())).length;
@@ -319,6 +336,12 @@
     </section>
     ${state.serviceError ? `<div class="notice notice-error">${esc(state.serviceError)} <button type="button" data-retry-services>Try again</button></div>` : ""}
     ${state.accountError && state.user ? `<div class="notice notice-warning">${esc(state.accountError)} <button type="button" data-refresh-account>Refresh account</button></div>` : ""}
+    <section class="smm-quick-bar" aria-label="Quick actions">
+      <a class="quick-pill" href="/new-order" data-route="/new-order"><span>${icon("bag")}</span><div><b>New Order</b><small>Fast checkout</small></div></a>
+      <a class="quick-pill" href="/services" data-route="/services"><span>${icon("order")}</span><div><b>Services</b><small>${state.services.length} active</small></div></a>
+      <a class="quick-pill" href="${state.user ? "/wallet" : "/login"}" data-route="${state.user ? "/wallet" : "/login"}"><span>${icon("wallet")}</span><div><b>Add Funds</b><small>Instant UPI</small></div></a>
+      <a class="quick-pill" href="${state.user ? "/orders" : "/login"}" data-route="${state.user ? "/orders" : "/login"}"><span>${icon("clock")}</span><div><b>Track Orders</b><small>${state.orders.length} total</small></div></a>
+    </section>
     <section class="home-summary">
       <article class="balance-card"><div class="balance-label"><span>WALLET BALANCE</span>${icon("wallet")}</div><b>${money(state.user?.balance || 0)}</b><p>${state.user ? "Ready when you are. Add funds securely at any time." : "Sign in to manage your wallet and payments."}</p><a class="btn btn-light" href="${state.user ? "/wallet" : "/login"}" data-route="${state.user ? "/wallet" : "/login"}">${state.user ? "Add funds" : "Sign in"} ${icon("arrow")}</a><div class="balance-decoration"></div></article>
       <article class="stat-card stat-indigo"><span class="stat-icon">${icon("bag")}</span><small>TOTAL ORDERS</small><b data-counter="${state.orders.length}">0</b><span class="stat-note">All-time activity</span></article>
@@ -391,6 +414,15 @@
               <label class="field-label" for="orderLink">Target link</label><input class="form-control" id="orderLink" name="link" type="url" required placeholder="https://www.example.com/your-page">
               <div class="field-row"><div><label class="field-label" for="orderQuantity">Quantity</label><input class="form-control" id="orderQuantity" name="quantity" type="number" step="1" min="${selected?.min || 1}" max="${selected?.max || 1}" value="${selected?.min || 1}" ${selected?.pricingModel === "fixed" ? "readonly" : ""} required></div><div class="quantity-limit"><span>Allowed range</span><b id="quantityRange">${selected ? `${Number(selected.min).toLocaleString("en-IN")} – ${Number(selected.max).toLocaleString("en-IN")}` : "—"}</b></div></div>
               <div class="quantity-presets" id="quantityPresets">${selected && selected.pricingModel !== "fixed" ? quantityPresets(selected).map(value => `<button type="button" data-quantity="${value}">${Number(value).toLocaleString("en-IN")}</button>`).join("") : ""}</div>
+              <div class="promo-box">
+                <label class="field-label" for="orderPromoInput">Promo code <span class="optional">(optional)</span></label>
+                <div class="promo-row">
+                  <input class="form-control" id="orderPromoInput" type="text" maxlength="40" placeholder="Enter coupon code" value="${esc(state.orderPromo?.code || "")}">
+                  <button type="button" class="btn btn-outline" id="applyOrderPromo">Apply</button>
+                  ${state.orderPromo ? `<button type="button" class="btn btn-quiet" id="clearOrderPromo">Remove</button>` : ""}
+                </div>
+                <div class="promo-status" id="orderPromoStatus">${state.orderPromo ? `<span class="promo-applied">Applied ${esc(state.orderPromo.code)} (−${money(state.orderPromo.effectAmount)})</span>` : ""}</div>
+              </div>
               <p class="field-hint" id="orderHint">${selected?.pricingModel === "fixed" ? "This service has a fixed price per order." : "The total updates as you change the quantity."}</p>
               <div class="form-error" id="orderError" role="alert"></div>
               <button class="btn btn-primary btn-large submit-order" id="reviewOrder" type="submit" ${selected ? "" : "disabled"}>Review order ${icon("arrow")}</button>
@@ -403,7 +435,7 @@
             <div class="charge-card-title"><span class="charge-icon">${icon("wallet")}</span><div><small>ORDER SUMMARY</small><b>Estimated charge</b></div></div>
             <div class="charge-line"><span>Service</span><b class="truncate" id="chargeService">${esc(selected?.name || "Select a service")}</b></div>
             <div class="charge-line"><span>Quantity</span><b id="chargeQuantity">${Number(selected?.min || 1).toLocaleString("en-IN")}</b></div>
-            <div class="charge-total"><span>Total charge</span><b id="chargeTotal">${money(selected ? calculateCost(selected, selected.min) : 0)}</b></div>
+            <div class="charge-line" id="chargeDiscountRow" hidden><span>Promo discount</span><b class="positive" id="chargeDiscount">−₹0.00</b></div><div class="charge-total"><span>Total charge</span><b id="chargeTotal">${money(selected ? calculateCost(selected, selected.min) : 0)}</b></div>
             <div class="balance-after"><span>Available balance</span><b id="chargeBalance">${money(state.user?.balance || 0)}</b><small id="balanceAfterNote">${state.user ? "Your balance after this order" : "Sign in to see your balance"}</small><strong id="remainingBalance">${money((state.user?.balance || 0) - (selected ? calculateCost(selected, selected.min) : 0))}</strong></div>
             <p class="charge-footnote">${icon("lock")} Server verifies the service price and balance when you place the order.</p>
           </section>
@@ -470,15 +502,43 @@
     $("#ordersPagination").innerHTML = pages > 1 ? `<button type="button" data-order-page="${state.orderPage - 1}" ${state.orderPage <= 1 ? "disabled" : ""}>Previous</button><span>Page ${state.orderPage} of ${pages}</span><button type="button" data-order-page="${state.orderPage + 1}" ${state.orderPage >= pages ? "disabled" : ""}>Next</button>` : `<span>${filtered.length ? `Showing ${filtered.length} order${filtered.length === 1 ? "" : "s"}` : ""}</span>`;
   }
 
+  function computeSlabBonus(amount) {
+    const slabs = state.config?.depositBonuses || [];
+    const isFirst = !state.wallet?.hasPaidDeposit;
+    let best = 0;
+    let label = "";
+    for (const s of slabs) {
+      if (s.firstDepositOnly && !isFirst) continue;
+      if (amount < Number(s.minAmount || 0)) continue;
+      const b = s.bonusType === "percent" ? Math.round((amount * Number(s.bonusValue || 0) / 100 + Number.EPSILON) * 100) / 100 : Number(s.bonusValue || 0);
+      if (b > best) { best = b; label = s.title || "Deposit bonus"; }
+    }
+    return { bonus: best, label };
+  }
+
   function renderWalletPage() {
-    const minDeposit = Number(state.config?.minDepositInr || 50);
+    const minDeposit = Number(state.config?.minDeposit || state.config?.minDepositInr || 50);
     const transactions = state.wallet?.transactions || [];
     const quickAmounts = [100, 200, 500, 1000, 2000].filter(amount => amount >= minDeposit);
+    const slabs = (state.config?.depositBonuses || []).filter(s => !s.firstDepositOnly || !state.wallet?.hasPaidDeposit);
+    const defaultAmt = Math.max(minDeposit, 200);
     return `<section class="wallet-hero"><div><span class="eyebrow">WALLET CENTER</span><h1>Keep your work<br><em>moving forward.</em></h1><p>Recharge securely and keep a clear record of every wallet movement.</p></div><div class="wallet-total-card"><span>${icon("wallet")} AVAILABLE BALANCE</span><b>${money(state.user?.balance || 0)}</b><small>Your wallet is only credited after payment verification.</small></div></section>
+      ${slabs.length ? `<section class="bonus-offers-strip">${slabs.map(s => `<div class="offer-chip"><span class="offer-tag">${s.firstDepositOnly ? "FIRST DEPOSIT" : "BONUS"}</span><div><b>${esc(s.title || "Deposit Bonus")}</b><small>Add ${money(s.minAmount)}+ → Get +${s.bonusType === "percent" ? `${Number(s.bonusValue)}%` : money(s.bonusValue)} extra</small></div></div>`).join("")}</section>` : ""}
       <div class="wallet-layout">
         <section class="deposit-panel"><div class="panel-heading"><span class="panel-icon">${icon("plus")}</span><div><span class="eyebrow">ADD FUNDS</span><h2>Recharge your wallet</h2><p>Choose an amount and continue to secure Razorpay checkout.</p></div></div>
           <div class="minimum-note">${icon("lock")} Minimum deposit: <b>${money(minDeposit)}</b><span>Maximum ₹50,000 per payment</span></div>
-          <form id="walletForm" class="wallet-form"><label class="field-label" for="walletAmount">Amount in INR</label><div class="amount-input-wrap"><span>₹</span><input id="walletAmount" name="amount" type="number" min="${minDeposit}" max="50000" step="1" value="${Math.max(minDeposit, 200)}" required></div><div class="quick-amounts">${quickAmounts.map(amount => `<button type="button" data-amount="${amount}">${money(amount)}</button>`).join("")}</div><div class="payment-method"><span class="razorpay-mark">R</span><span><b>Razorpay secure checkout</b><small>Cards, UPI and supported payment methods</small></span><span class="secure-check">${icon("lock")}</span></div><div class="form-error" id="walletError" role="alert"></div><button class="btn btn-primary btn-large full-width" type="submit" id="payButton">Continue to payment ${icon("arrow")}</button></form>
+          <form id="walletForm" class="wallet-form"><label class="field-label" for="walletAmount">Amount in INR</label><div class="amount-input-wrap"><span>₹</span><input id="walletAmount" name="amount" type="number" min="${minDeposit}" max="50000" step="1" value="${defaultAmt}" required></div><div class="quick-amounts">${quickAmounts.map(amount => `<button type="button" data-amount="${amount}">${money(amount)}</button>`).join("")}</div>
+          <div class="promo-box">
+            <label class="field-label" for="walletPromoInput">Promo code <span class="optional">(optional)</span></label>
+            <div class="promo-row">
+              <input class="form-control" id="walletPromoInput" type="text" maxlength="40" placeholder="Enter deposit promo code" value="${esc(state.walletPromo?.code || "")}">
+              <button type="button" class="btn btn-outline" id="applyWalletPromo">Apply</button>
+              ${state.walletPromo ? `<button type="button" class="btn btn-quiet" id="clearWalletPromo">Remove</button>` : ""}
+            </div>
+            <div class="promo-status" id="walletPromoStatus">${state.walletPromo ? `<span class="promo-applied">Applied ${esc(state.walletPromo.code)} (+${money(state.walletPromo.effectAmount)} bonus)</span>` : ""}</div>
+          </div>
+          <div class="bonus-preview" id="walletBonusPreview"></div>
+          <div class="payment-method"><span class="razorpay-mark">R</span><span><b>Razorpay secure checkout</b><small>Cards, UPI and supported payment methods</small></span><span class="secure-check">${icon("lock")}</span></div><div class="form-error" id="walletError" role="alert"></div><button class="btn btn-primary btn-large full-width" type="submit" id="payButton">Continue to payment ${icon("arrow")}</button></form>
           <p class="security-note">${icon("lock")} Payment details are handled by Razorpay. Mintu SMM never receives your card or UPI credentials.</p>
         </section>
         <aside class="wallet-side"><div class="wallet-side-title"><span class="eyebrow">YOUR WALLET</span><h2>Simple and transparent</h2></div><div class="wallet-benefit">${icon("check")}<span><b>Verified payments</b><small>Funds are credited only after server-side payment verification.</small></span></div><div class="wallet-benefit">${icon("order")}<span><b>Track every movement</b><small>Deposits, order deductions and refunds appear in your ledger.</small></span></div><div class="wallet-help"><b>Need help with a payment?</b><p>Raise a support ticket and include the payment reference if available.</p><a href="/support?new=1" data-route="/support?new=1">Contact support ${icon("arrow")}</a></div></aside>
@@ -660,7 +720,7 @@
     button.disabled = true;
     button.innerHTML = `Preparing secure checkout… <span class="inline-spinner"></span>`;
     try {
-      const order = await api("/api/wallet/create-order", { method: "POST", body: JSON.stringify({ amount }) });
+      const order = await api("/api/wallet/create-order", { method: "POST", body: JSON.stringify({ amount, promoCode: state.walletPromo?.code || "" }) });
       const checkout = new Razorpay({
         key: order.keyId, amount: order.amount, currency: order.currency,
         name: state.config?.siteName || "Mintu SMM", description: "Wallet recharge",
@@ -760,9 +820,39 @@
       if (!Number.isInteger(quantity) || quantity < Number(service.min) || quantity > Number(service.max)) {
         return error.textContent = `Quantity must be between ${Number(service.min).toLocaleString("en-IN")} and ${Number(service.max).toLocaleString("en-IN")}.`;
       }
-      const amount = calculateCost(service, quantity);
+      const rawAmount = calculateCost(service, quantity);
+      const discount = computeOrderPromoDiscount(rawAmount);
+      const amount = Math.max(0, Math.round((rawAmount - discount + Number.EPSILON) * 100) / 100);
       if (amount > Number(state.user.balance)) return error.textContent = `Your balance is ${money(state.user.balance)}. Add funds before placing this order.`;
-      openOrderConfirmation(service, link, quantity, amount);
+      openOrderConfirmation(service, link, quantity, amount, state.orderPromo?.code || "", discount);
+    });
+    $("#applyOrderPromo")?.addEventListener("click", async () => {
+      const codeInput = $("#orderPromoInput");
+      const statusEl = $("#orderPromoStatus");
+      const codeVal = String(codeInput?.value || "").trim().toUpperCase();
+      if (!state.user) return navPath(`/login?next=${encodeURIComponent("/new-order")}`);
+      const service = state.services.find(item => item.id === state.orderServiceId);
+      const quantity = Number($("#orderQuantity")?.value || service?.min || 1);
+      const rawAmount = service ? calculateCost(service, quantity) : 0;
+      if (!codeVal) { statusEl.innerHTML = `<span class="promo-err">Enter a promo code.</span>`; return; }
+      statusEl.innerHTML = `<span>Checking…</span>`;
+      try {
+        const res = await api("/api/promos/validate", { method: "POST", body: JSON.stringify({ code: codeVal, context: "order", amount: rawAmount }) });
+        state.orderPromo = res.promo;
+        statusEl.innerHTML = `<span class="promo-applied">Applied ${esc(res.promo.code)} (−${money(res.promo.effectAmount)})</span>`;
+        updateOrderTotal();
+        toast(`Promo ${res.promo.code} applied!`, "success");
+      } catch (err) {
+        state.orderPromo = null;
+        statusEl.innerHTML = `<span class="promo-err">${esc(err.message)}</span>`;
+        updateOrderTotal();
+      }
+    });
+    $("#clearOrderPromo")?.addEventListener("click", () => {
+      state.orderPromo = null;
+      if ($("#orderPromoInput")) $("#orderPromoInput").value = "";
+      if ($("#orderPromoStatus")) $("#orderPromoStatus").innerHTML = "";
+      updateOrderTotal();
     });
     updateOrderPreview();
   }
@@ -792,10 +882,24 @@
     updateOrderTotal();
   }
 
+  function computeOrderPromoDiscount(rawAmount) {
+    const p = state.orderPromo;
+    if (!p || rawAmount <= 0) return 0;
+    let d = p.discountType === "percent" ? Math.round((rawAmount * Number(p.discountValue || 0) / 100 + Number.EPSILON) * 100) / 100 : Number(p.discountValue || 0);
+    return Math.max(0, Math.min(d, Math.max(0, rawAmount - 0.01)));
+  }
+
   function updateOrderTotal() {
     const service = state.services.find(item => item.id === state.orderServiceId);
     const quantity = Number($("#orderQuantity")?.value || service?.min || 1);
-    const amount = service ? calculateCost(service, quantity) : 0;
+    const rawAmount = service ? calculateCost(service, quantity) : 0;
+    const discount = computeOrderPromoDiscount(rawAmount);
+    const amount = Math.max(0, Math.round((rawAmount - discount + Number.EPSILON) * 100) / 100);
+    const discRow = $("#chargeDiscountRow");
+    if (discRow) {
+      discRow.hidden = discount <= 0;
+      $("#chargeDiscount").textContent = `−${money(discount)}`;
+    }
     $("#chargeTotal").textContent = money(amount);
     $("#chargeQuantity").textContent = quantity.toLocaleString("en-IN");
     $("#chargeBalance").textContent = money(state.user?.balance || 0);
@@ -803,15 +907,15 @@
     $("#remainingBalance").classList.toggle("insufficient", amount > Number(state.user?.balance || 0));
   }
 
-  function openOrderConfirmation(service, link, quantity, amount) {
+  function openOrderConfirmation(service, link, quantity, amount, promoCode = "", discount = 0) {
     const modalRoot = $("#modalRoot");
-    modalRoot.innerHTML = `<div class="modal-backdrop" data-modal-backdrop><section class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle"><button class="modal-close" type="button" data-modal-close aria-label="Close">×</button><span class="eyebrow">FINAL REVIEW</span><h2 id="confirmTitle">Confirm this order</h2><p>Check the details below. Your wallet will only be charged after the server accepts the order.</p><div class="confirm-summary"><div><small>SERVICE</small><b>${esc(service.name)}</b></div><div><small>TARGET LINK</small><b class="break-anywhere">${esc(link)}</b></div><div><small>QUANTITY</small><b>${Number(quantity).toLocaleString("en-IN")}</b></div><div><small>WALLET DEDUCTION</small><b>${money(amount)}</b></div><div class="confirm-balance"><small>ESTIMATED REMAINING BALANCE</small><b>${money(Number(state.user.balance) - amount)}</b></div></div><div class="form-error" id="confirmError" role="alert"></div><div class="confirm-actions"><button class="btn btn-outline" type="button" data-modal-close>Go back</button><button class="btn btn-primary" type="button" id="confirmPlaceOrder">Confirm and place order ${icon("arrow")}</button></div></section></div>`;
+    modalRoot.innerHTML = `<div class="modal-backdrop" data-modal-backdrop><section class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle"><button class="modal-close" type="button" data-modal-close aria-label="Close">×</button><span class="eyebrow">FINAL REVIEW</span><h2 id="confirmTitle">Confirm this order</h2><p>Check the details below. Your wallet will only be charged after the server accepts the order.</p><div class="confirm-summary"><div><small>SERVICE</small><b>${esc(service.name)}</b></div><div><small>TARGET LINK</small><b class="break-anywhere">${esc(link)}</b></div><div><small>QUANTITY</small><b>${Number(quantity).toLocaleString("en-IN")}</b></div>${discount > 0 ? `<div><small>PROMO (${esc(promoCode)})</small><b class="positive">−${money(discount)}</b></div>` : ""}<div><small>WALLET DEDUCTION</small><b>${money(amount)}</b></div><div class="confirm-balance"><small>ESTIMATED REMAINING BALANCE</small><b>${money(Number(state.user.balance) - amount)}</b></div></div><div class="form-error" id="confirmError" role="alert"></div><div class="confirm-actions"><button class="btn btn-outline" type="button" data-modal-close>Go back</button><button class="btn btn-primary" type="button" id="confirmPlaceOrder">Confirm and place order ${icon("arrow")}</button></div></section></div>`;
     modalRoot.querySelector("[data-modal-backdrop]").addEventListener("click", event => { if (event.target === event.currentTarget) closeModal(); });
     modalRoot.querySelectorAll("[data-modal-close]").forEach(button => button.addEventListener("click", closeModal));
-    $("#confirmPlaceOrder").addEventListener("click", () => placeOrder(service, link, quantity));
+    $("#confirmPlaceOrder").addEventListener("click", () => placeOrder(service, link, quantity, promoCode));
   }
 
-  async function placeOrder(service, link, quantity) {
+  async function placeOrder(service, link, quantity, promoCode = "") {
     if (state.orderBusy) return;
     state.orderBusy = true;
     const button = $("#confirmPlaceOrder");
@@ -819,7 +923,8 @@
     button.innerHTML = `Placing your order… <span class="inline-spinner"></span>`;
     $("#confirmError").textContent = "";
     try {
-      const result = await api("/api/orders/create", { method: "POST", body: JSON.stringify({ serviceId: service.id, link, quantity }) });
+      const result = await api("/api/orders/create", { method: "POST", body: JSON.stringify({ serviceId: service.id, link, quantity, promoCode }) });
+      state.orderPromo = null;
       closeModal();
       await loadAccount();
       toast(`Order ${String(result.orderId || "").slice(0, 12)} submitted.`, "success");
@@ -863,16 +968,63 @@
     $("#modalRoot").querySelectorAll("[data-modal-close]").forEach(button => button.addEventListener("click", closeModal));
   }
 
+  function updateWalletBonusPreview() {
+    const preview = $("#walletBonusPreview");
+    if (!preview) return;
+    const amount = Math.max(0, Number($("#walletAmount")?.value || 0));
+    const { bonus: slabBonus, label } = computeSlabBonus(amount);
+    let promoBonus = 0;
+    if (state.walletPromo && amount > 0) {
+      const p = state.walletPromo;
+      promoBonus = p.discountType === "percent" ? Math.round((amount * Number(p.discountValue || 0) / 100 + Number.EPSILON) * 100) / 100 : Number(p.discountValue || 0);
+    }
+    const totalCredit = Math.round((amount + slabBonus + promoBonus + Number.EPSILON) * 100) / 100;
+    if (slabBonus <= 0 && promoBonus <= 0) {
+      preview.innerHTML = "";
+      preview.hidden = true;
+      return;
+    }
+    preview.hidden = false;
+    preview.innerHTML = `<div><span>Recharge</span><b>${money(amount)}</b></div>${slabBonus > 0 ? `<div><span>${esc(label)}</span><b class="positive">+${money(slabBonus)}</b></div>` : ""}${promoBonus > 0 ? `<div><span>Promo (${esc(state.walletPromo.code)})</span><b class="positive">+${money(promoBonus)}</b></div>` : ""}<div class="preview-total"><span>Total wallet credit</span><b>${money(totalCredit)}</b></div>`;
+  }
+
   function bindWalletPage() {
     $("#walletForm").addEventListener("submit", event => {
       event.preventDefault();
       const amount = Number(new FormData(event.currentTarget).get("amount"));
       startWalletPayment(amount);
     });
+    $("#walletAmount")?.addEventListener("input", updateWalletBonusPreview);
     $$("[data-amount]").forEach(button => button.addEventListener("click", () => {
       $("#walletAmount").value = button.dataset.amount;
       $$(".quick-amounts button").forEach(item => item.classList.toggle("active", item === button));
+      updateWalletBonusPreview();
     }));
+    $("#applyWalletPromo")?.addEventListener("click", async () => {
+      const codeVal = String($("#walletPromoInput")?.value || "").trim().toUpperCase();
+      const statusEl = $("#walletPromoStatus");
+      const amount = Number($("#walletAmount")?.value || 0);
+      if (!codeVal) { statusEl.innerHTML = `<span class="promo-err">Enter a promo code.</span>`; return; }
+      statusEl.innerHTML = `<span>Checking…</span>`;
+      try {
+        const res = await api("/api/promos/validate", { method: "POST", body: JSON.stringify({ code: codeVal, context: "deposit", amount }) });
+        state.walletPromo = res.promo;
+        statusEl.innerHTML = `<span class="promo-applied">Applied ${esc(res.promo.code)} (+${money(res.promo.effectAmount)} bonus)</span>`;
+        updateWalletBonusPreview();
+        toast(`Promo ${res.promo.code} applied!`, "success");
+      } catch (err) {
+        state.walletPromo = null;
+        statusEl.innerHTML = `<span class="promo-err">${esc(err.message)}</span>`;
+        updateWalletBonusPreview();
+      }
+    });
+    $("#clearWalletPromo")?.addEventListener("click", () => {
+      state.walletPromo = null;
+      if ($("#walletPromoInput")) $("#walletPromoInput").value = "";
+      if ($("#walletPromoStatus")) $("#walletPromoStatus").innerHTML = "";
+      updateWalletBonusPreview();
+    });
+    updateWalletBonusPreview();
     $("#refreshWallet").addEventListener("click", async event => {
       const button = event.currentTarget;
       button.disabled = true;
@@ -998,6 +1150,7 @@
         return;
       }
       if (event.target.closest("#drawerScrim")) closeSidebar();
+      if (event.target.closest("#dismissAnnouncement")) { state.announcementDismissed = true; event.target.closest(".announcement-bar")?.remove(); return; }
       if (event.target.closest("#sidebarLogout")) logout();
       if (event.target.closest("#topAvatar")) navPath("/profile");
       const retry = event.target.closest("[data-retry-services]");

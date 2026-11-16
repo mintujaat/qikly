@@ -177,6 +177,10 @@ async function getAdminSettings() {
     minDeposit: Number(data?.min_deposit ?? 50),
     maxDeposit: Number(data?.max_deposit ?? 50000),
     welcomeBonus: Math.max(0, Number(data?.welcome_bonus ?? 0)),
+    announcementEnabled: Boolean(data?.announcement_enabled),
+    announcementText: String(data?.announcement_text || ""),
+    announcementType: ["info", "offer", "warning"].includes(data?.announcement_type) ? data.announcement_type : "info",
+    announcementLink: String(data?.announcement_link || ""),
     supportEmail: data?.support_email || ""
   };
 }
@@ -199,9 +203,25 @@ function mapProviderStatus(value) {
 app.get("/health", (_req, res) => res.json({ ok: true, service: "mintu-smm-api", database: "supabase", supabase: true, razorpay: razorpayReady, luvsmm: providerConfigured() }));
 app.get("/api/public/config", async (_req, res) => {
   try {
-    const settings = await getAdminSettings();
-    res.json({ siteName: settings.siteName || SITE_NAME, supportEmail: settings.supportEmail || "", razorpayKeyId: process.env.RAZORPAY_KEY_ID || "", googleClientId: process.env.GOOGLE_CLIENT_ID || "", minDeposit: settings.minDeposit, maxDeposit: settings.maxDeposit, welcomeBonus: settings.welcomeBonus || 0, currency: "INR", signupEnabled: true });
-  } catch { res.json({ siteName: SITE_NAME, supportEmail: "", razorpayKeyId: process.env.RAZORPAY_KEY_ID || "", googleClientId: process.env.GOOGLE_CLIENT_ID || "", minDeposit: 50, maxDeposit: 50000, welcomeBonus: 0, currency: "INR", signupEnabled: true }); }
+    const [settings, slabsRes] = await Promise.all([
+      getAdminSettings(),
+      supa(db.from("smm_deposit_bonuses").select("id,title,min_amount,bonus_type,bonus_value,first_deposit_only").eq("active", true).order("min_amount", { ascending: true }))
+    ]);
+    const depositBonuses = (slabsRes.data || []).map(r => ({
+      id: r.id, title: r.title || "", minAmount: Number(r.min_amount || 0),
+      bonusType: r.bonus_type || "percent", bonusValue: Number(r.bonus_value || 0),
+      firstDepositOnly: Boolean(r.first_deposit_only)
+    }));
+    res.json({
+      siteName: settings.siteName || SITE_NAME, supportEmail: settings.supportEmail || "",
+      razorpayKeyId: process.env.RAZORPAY_KEY_ID || "", googleClientId: process.env.GOOGLE_CLIENT_ID || "",
+      minDeposit: settings.minDeposit, maxDeposit: settings.maxDeposit, welcomeBonus: settings.welcomeBonus || 0,
+      announcement: { enabled: settings.announcementEnabled, text: settings.announcementText, type: settings.announcementType, link: settings.announcementLink },
+      depositBonuses, currency: "INR", signupEnabled: true
+    });
+  } catch {
+    res.json({ siteName: SITE_NAME, supportEmail: "", razorpayKeyId: process.env.RAZORPAY_KEY_ID || "", googleClientId: process.env.GOOGLE_CLIENT_ID || "", minDeposit: 50, maxDeposit: 50000, welcomeBonus: 0, announcement: { enabled: false, text: "", type: "info", link: "" }, depositBonuses: [], currency: "INR", signupEnabled: true });
+  }
 });
 
 // Customer authentication. Passwords are scrypt hashes stored in Postgres;
@@ -344,13 +364,51 @@ app.get("/api/categories", async (_req, res) => {
 // Wallet ---------------------------------------------------------------------
 app.get("/api/wallet", requireUser, async (req, res) => {
   try {
-    const [userResult, txResult] = await Promise.all([
+    const [userResult, txResult, paidResult] = await Promise.all([
       supa(db.from("smm_users").select("id,balance,disabled").eq("id", req.user.uid).maybeSingle()),
-      supa(db.from("smm_transactions").select("*").eq("user_id", req.user.uid).order("created_at", { ascending: false }).limit(30))
+      supa(db.from("smm_transactions").select("*").eq("user_id", req.user.uid).order("created_at", { ascending: false }).limit(30)),
+      supa(db.from("smm_wallet_payments").select("razorpay_order_id").eq("user_id", req.user.uid).eq("status", "paid").limit(1))
     ]);
     if (!userResult.data || userResult.data.disabled) return res.status(404).json({ error: "Account not found." });
-    res.json({ balance: Number(userResult.data.balance || 0), transactions: (txResult.data || []).map(transactionFromDb) });
+    res.json({ balance: Number(userResult.data.balance || 0), hasPaidDeposit: (paidResult.data || []).length > 0, transactions: (txResult.data || []).map(transactionFromDb) });
   } catch (e) { res.status(500).json({ error: errorText(e) }); }
+});
+
+async function validatePromoForUser(rawCode, context, amount, userId) {
+  const cleanCode = String(rawCode || "").trim().toUpperCase().slice(0, 40);
+  if (!cleanCode) throw new Error("Enter a promo code.");
+  const { data: promos } = await supa(db.from("smm_promo_codes").select("*").eq("applies_to", context).eq("active", true));
+  const promo = (promos || []).find(p => String(p.code || "").trim().toUpperCase() === cleanCode);
+  if (!promo) throw new Error("Promo code is invalid or inactive.");
+  if (promo.expires_at && new Date(promo.expires_at).getTime() <= Date.now()) throw new Error("This promo code has expired.");
+  if (Number(promo.max_uses || 0) > 0 && Number(promo.used_count || 0) >= Number(promo.max_uses)) throw new Error("This promo code has reached its usage limit.");
+  const minAmt = Number(promo.min_amount || 0);
+  if (amount < minAmt) throw new Error(`Minimum ${context === "deposit" ? "deposit" : "order"} amount for this promo is ₹${minAmt.toLocaleString("en-IN")}.`);
+  const perUser = Number(promo.per_user_limit || 0);
+  if (perUser > 0) {
+    const { data: redemptions } = await supa(db.from("smm_promo_redemptions").select("id").eq("promo_id", promo.id).eq("user_id", userId));
+    if ((redemptions || []).length >= perUser) throw new Error("You have already used this promo code.");
+  }
+  const val = Number(promo.discount_value || 0);
+  let effect = promo.discount_type === "percent" ? money(amount * val / 100) : money(val);
+  const maxDisc = Number(promo.max_discount || 0);
+  if (maxDisc > 0) effect = Math.min(effect, maxDisc);
+  if (context === "order") effect = Math.max(0, Math.min(effect, money(amount - 0.01)));
+  return {
+    id: promo.id, code: cleanCode, appliesTo: promo.applies_to,
+    discountType: promo.discount_type, discountValue: val,
+    effectAmount: effect
+  };
+}
+
+app.post("/api/promos/validate", requireUser, async (req, res) => {
+  try {
+    const context = req.body?.context === "order" ? "order" : "deposit";
+    const amount = money(asNum(req.body?.amount, 0));
+    if (amount <= 0) return res.status(400).json({ error: "Enter a valid amount first." });
+    const result = await validatePromoForUser(req.body?.code, context, amount, req.user.uid);
+    res.json({ ok: true, promo: result });
+  } catch (e) { res.status(400).json({ error: errorText(e) }); }
 });
 app.post("/api/wallet/create-order", requireUser, async (req, res) => {
   try {
@@ -360,8 +418,17 @@ app.post("/api/wallet/create-order", requireUser, async (req, res) => {
     const minDeposit = Math.max(1, Number(settings.minDeposit || 50));
     const maxDeposit = Math.max(minDeposit, Number(settings.maxDeposit || 50000));
     if (amount < minDeposit || amount > maxDeposit) return res.status(400).json({ error: `Wallet recharge must be between ₹${minDeposit.toLocaleString("en-IN")} and ₹${maxDeposit.toLocaleString("en-IN")}.` });
+    let appliedPromoCode = "";
+    if (String(req.body?.promoCode || "").trim()) {
+      try {
+        const promo = await validatePromoForUser(req.body.promoCode, "deposit", amount, req.user.uid);
+        appliedPromoCode = promo.code;
+      } catch (promoErr) {
+        return res.status(400).json({ error: errorText(promoErr) });
+      }
+    }
     const order = await razorpay.orders.create({ amount: Math.round(amount * 100), currency: "INR", receipt: `wallet_${req.user.uid.slice(0, 8)}_${Date.now()}` });
-    await supa(db.from("smm_wallet_payments").insert({ razorpay_order_id: order.id, user_id: req.user.uid, amount, currency: "INR", status: "created" }));
+    await supa(db.from("smm_wallet_payments").insert({ razorpay_order_id: order.id, user_id: req.user.uid, amount, currency: "INR", status: "created", promo_code: appliedPromoCode }));
     res.json({ orderId: order.id, amount: order.amount, currency: order.currency, keyId: process.env.RAZORPAY_KEY_ID });
   } catch (e) { res.status(502).json({ error: errorText(e) }); }
 });
@@ -422,9 +489,11 @@ app.post("/api/orders/create", requireUser, async (req, res) => {
     const link = validateHttpUrl(req.body?.link);
     const quantity = Math.floor(asNum(req.body?.quantity));
     if (!serviceId || !link || !Number.isSafeInteger(quantity) || quantity < 1) return res.status(400).json({ error: "Select a service, enter a valid URL and quantity." });
+    const promoCode = String(req.body?.promoCode || "").trim().toUpperCase().slice(0, 40);
     const { data: rawOrder } = await supa(db.rpc("smm_place_order", {
       p_user_id: req.user.uid, p_service_id: serviceId, p_link: link,
-      p_quantity: quantity, p_user_email: req.user.email || "", p_user_name: req.user.name || "Customer"
+      p_quantity: quantity, p_user_email: req.user.email || "", p_user_name: req.user.name || "Customer",
+      p_promo_code: promoCode
     }));
     const orderData = orderFromDb(rawOrder);
     reservedOrder = orderData;
@@ -848,4 +917,105 @@ app.put("/api/admin/settings", requireAdmin, async (req, res) => {
   } catch (e) { res.status(500).json({ error: errorText(e) }); }
 });
 
+
+// Admin: Announcement, Deposit Bonus Slabs & Promo Codes -----------------------
+app.put("/api/admin/announcement", requireAdmin, async (req, res) => {
+  try {
+    const enabled = req.body?.enabled === true;
+    const text = String(req.body?.text || "").trim().slice(0, 300);
+    const type = ["info", "offer", "warning"].includes(req.body?.type) ? req.body.type : "info";
+    const link = String(req.body?.link || "").trim().slice(0, 200);
+    if (enabled && text.length < 3) return res.status(400).json({ error: "Enter an announcement message before enabling the banner." });
+    await supa(db.from("smm_settings").upsert({
+      id: "main", site_name: SITE_NAME,
+      announcement_enabled: enabled, announcement_text: text,
+      announcement_type: type, announcement_link: link,
+      updated_at: new Date().toISOString()
+    }, { onConflict: "id" }));
+    res.json({ ok: true, settings: await getAdminSettings() });
+  } catch (e) { res.status(500).json({ error: errorText(e) }); }
+});
+
+app.get("/api/admin/deposit-bonuses", requireAdmin, async (_req, res) => {
+  try {
+    const { data } = await supa(db.from("smm_deposit_bonuses").select("*").order("min_amount", { ascending: true }));
+    res.json({ bonuses: data || [] });
+  } catch (e) { res.status(500).json({ error: errorText(e) }); }
+});
+app.post("/api/admin/deposit-bonuses", requireAdmin, async (req, res) => {
+  try {
+    const title = String(req.body?.title || "").trim().slice(0, 80) || "Deposit bonus";
+    const minAmount = money(Math.max(0, asNum(req.body?.minAmount, 0)));
+    const bonusType = req.body?.bonusType === "fixed" ? "fixed" : "percent";
+    const bonusValue = money(Math.max(0, asNum(req.body?.bonusValue, 0)));
+    const firstDepositOnly = req.body?.firstDepositOnly === true;
+    if (bonusValue <= 0 || (bonusType === "percent" && bonusValue > 500)) return res.status(400).json({ error: "Enter a valid bonus value." });
+    const { data } = await supa(db.from("smm_deposit_bonuses").insert({
+      title, min_amount: minAmount, bonus_type: bonusType, bonus_value: bonusValue,
+      first_deposit_only: firstDepositOnly, active: true
+    }).select("*").single());
+    res.json({ ok: true, bonus: data });
+  } catch (e) { res.status(500).json({ error: errorText(e) }); }
+});
+app.patch("/api/admin/deposit-bonuses/:id", requireAdmin, async (req, res) => {
+  try {
+    const patch = { updated_at: new Date().toISOString() };
+    if (req.body?.active !== undefined) patch.active = req.body.active === true;
+    if (req.body?.title !== undefined) patch.title = String(req.body.title).trim().slice(0, 80);
+    await supa(db.from("smm_deposit_bonuses").update(patch).eq("id", req.params.id));
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: errorText(e) }); }
+});
+app.delete("/api/admin/deposit-bonuses/:id", requireAdmin, async (req, res) => {
+  try {
+    await supa(db.from("smm_deposit_bonuses").delete().eq("id", req.params.id));
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: errorText(e) }); }
+});
+
+app.get("/api/admin/promos", requireAdmin, async (_req, res) => {
+  try {
+    const { data } = await supa(db.from("smm_promo_codes").select("*").order("created_at", { ascending: false }));
+    res.json({ promos: data || [] });
+  } catch (e) { res.status(500).json({ error: errorText(e) }); }
+});
+app.post("/api/admin/promos", requireAdmin, async (req, res) => {
+  try {
+    const code = String(req.body?.code || "").trim().toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 40);
+    const appliesTo = req.body?.appliesTo === "order" ? "order" : "deposit";
+    const discountType = req.body?.discountType === "fixed" ? "fixed" : "percent";
+    const discountValue = money(Math.max(0, asNum(req.body?.discountValue, 0)));
+    const minAmount = money(Math.max(0, asNum(req.body?.minAmount, 0)));
+    const maxDiscount = money(Math.max(0, asNum(req.body?.maxDiscount, 0)));
+    const maxUses = Math.max(0, Math.floor(asNum(req.body?.maxUses, 0)));
+    const perUserLimit = Math.max(0, Math.floor(asNum(req.body?.perUserLimit, 1)));
+    const expiresAt = req.body?.expiresAt ? new Date(req.body.expiresAt).toISOString() : null;
+    if (code.length < 3) return res.status(400).json({ error: "Promo code must be at least 3 letters/numbers." });
+    if (discountValue <= 0 || (discountType === "percent" && discountValue > 100)) return res.status(400).json({ error: "Enter a valid discount/bonus value." });
+    const { data } = await supa(db.from("smm_promo_codes").insert({
+      code, applies_to: appliesTo, discount_type: discountType, discount_value: discountValue,
+      min_amount: minAmount, max_discount: maxDiscount, max_uses: maxUses, per_user_limit: perUserLimit,
+      expires_at: expiresAt, active: true
+    }).select("*").single());
+    res.json({ ok: true, promo: data });
+  } catch (e) {
+    res.status(e?.code === "23505" ? 409 : 500).json({ error: e?.code === "23505" ? "This promo code already exists." : errorText(e) });
+  }
+});
+app.patch("/api/admin/promos/:id", requireAdmin, async (req, res) => {
+  try {
+    const patch = { updated_at: new Date().toISOString() };
+    if (req.body?.active !== undefined) patch.active = req.body.active === true;
+    await supa(db.from("smm_promo_codes").update(patch).eq("id", req.params.id));
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: errorText(e) }); }
+});
+app.delete("/api/admin/promos/:id", requireAdmin, async (req, res) => {
+  try {
+    await supa(db.from("smm_promo_codes").delete().eq("id", req.params.id));
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: errorText(e) }); }
+});
+
 module.exports = app;
+
