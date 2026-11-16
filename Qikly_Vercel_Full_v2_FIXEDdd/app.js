@@ -643,7 +643,7 @@
         });
         window.google.accounts.id.renderButton(googleHost, {
           type: "standard", theme: "outline", size: "large", text: "continue_with",
-          shape: "rect", logo_alignment: "left", width: 350
+          shape: "rect", logo_alignment: "left", width: Math.min(340, Math.max(230, window.innerWidth - 76))
         });
       } catch (error) {
         $("#googleAuthError").textContent = error.message;

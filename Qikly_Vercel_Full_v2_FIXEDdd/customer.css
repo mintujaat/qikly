@@ -1760,3 +1760,41 @@ html, body {
     align-items: flex-start;
   }
 }
+
+/* Auth mobile layout & Google button overflow fix */
+.auth-card {
+  width: 100%;
+  max-width: 420px;
+  min-width: 0;
+}
+.auth-card .eyebrow {
+  display: flex;
+}
+.auth-bonus-pill {
+  display: inline-flex;
+  margin-bottom: 10px;
+}
+.google-signin-wrap {
+  max-width: 100%;
+  overflow: hidden;
+}
+@media (max-width: 860px) {
+  .auth-form-panel {
+    justify-content: flex-start;
+    padding: 20px 16px 36px;
+  }
+  .auth-mobile-brand {
+    position: static;
+    align-self: flex-start;
+    margin-bottom: 18px;
+  }
+  .auth-theme-bar {
+    top: 18px;
+    right: 16px;
+  }
+}
+@media (max-width: 480px) {
+  .auth-card {
+    padding: 22px 18px;
+  }
+}

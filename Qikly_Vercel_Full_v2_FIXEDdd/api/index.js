@@ -188,6 +188,35 @@ async function refundReservedOrder(orderId, note) {
   const { data } = await supa(db.rpc("smm_refund_order", { p_order_id: orderId, p_note: String(note || "Refunded by admin").slice(0, 300) }));
   return data;
 }
+
+const TELEGRAM_BOT_TOKEN = String(process.env.TELEGRAM_BOT_TOKEN || "").trim();
+const TELEGRAM_CHANNEL_ID = String(process.env.TELEGRAM_CHANNEL_ID || "").trim();
+
+function escTg(s) {
+  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function istNow() {
+  return new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+async function notifyTelegramAdmin(htmlMessage) {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHANNEL_ID) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${encodeURIComponent(TELEGRAM_BOT_TOKEN)}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: TELEGRAM_CHANNEL_ID,
+        text: htmlMessage,
+        parse_mode: "HTML",
+        disable_web_page_preview: true
+      }),
+      signal: AbortSignal.timeout(5000)
+    });
+  } catch (err) {
+    console.error("Telegram notify failed:", err?.message || err);
+  }
+}
+
 function mapProviderStatus(value) {
   const s = String(value || "Pending").toLowerCase();
   if (s.includes("complete")) return "Completed";
@@ -245,6 +274,13 @@ app.post("/api/auth/signup", async (req, res) => {
       }));
     }
     setCookie(res, SESSION_COOKIE, sign({ uid: data.id, name, email, exp: Date.now() + 7 * 86400000 }));
+    await notifyTelegramAdmin(
+      `🆕 <b>New User Registered (Email)</b>\n` +
+      `👤 Name: <b>${escTg(name)}</b>\n` +
+      `📧 Email: <code>${escTg(email)}</code>\n` +
+      `🎁 Welcome Bonus: <b>₹${welcomeBonus.toFixed(2)}</b>\n` +
+      `🕒 ${escTg(istNow())}`
+    );
     res.json({ ok: true, user: safeUser({ ...data, createdAt: data.created_at }), welcomeBonus });
   } catch (e) {
     if (e?.code === "23505") return res.status(409).json({ error: "An account with this email already exists." });
@@ -309,6 +345,15 @@ app.post("/api/auth/google", async (req, res) => {
     }
     if (user.disabled) return res.status(403).json({ error: "This account has been disabled. Contact support." });
     setCookie(res, SESSION_COOKIE, sign({ uid: user.id, name: user.name || name, email: user.email, exp: Date.now() + 7 * 86400000 }));
+    if (isNewUser) {
+      await notifyTelegramAdmin(
+        `🆕 <b>New User Registered (Google)</b>\n` +
+        `👤 Name: <b>${escTg(user.name || name)}</b>\n` +
+        `📧 Email: <code>${escTg(user.email)}</code>\n` +
+        `🎁 Welcome Bonus: <b>₹${welcomeBonus.toFixed(2)}</b>\n` +
+        `🕒 ${escTg(istNow())}`
+      );
+    }
     res.json({ ok: true, user: safeUser(user, user.id), isNewUser, welcomeBonus: isNewUser ? welcomeBonus : 0 });
   } catch (e) { res.status(500).json({ error: errorText(e) }); }
 });
@@ -437,6 +482,22 @@ async function creditWalletFromPayment({ razorpayOrderId, paymentId, userId, amo
     p_razorpay_order_id: String(razorpayOrderId), p_payment_id: String(paymentId),
     p_user_id: userId, p_amount_paise: Math.round(Number(amountPaise)), p_currency: currency
   }));
+  if (data && !data.alreadyCredited) {
+    const { data: u } = await supa(db.from("smm_users").select("name,email").eq("id", userId).maybeSingle());
+    const paidInr = Number(amountPaise || 0) / 100;
+    const slabBonus = Number(data.slabBonus || 0);
+    const promoBonus = Number(data.promoBonus || 0);
+    await notifyTelegramAdmin(
+      `💰 <b>Wallet Recharge Received</b>\n` +
+      `👤 User: <b>${escTg(u?.name || "Customer")}</b> (<code>${escTg(u?.email || userId)}</code>)\n` +
+      `💵 Paid: <b>₹${paidInr.toFixed(2)}</b>` +
+      (slabBonus > 0 ? ` + Slab Bonus: <b>₹${slabBonus.toFixed(2)}</b>` : "") +
+      (promoBonus > 0 ? ` + Promo Bonus: <b>₹${promoBonus.toFixed(2)}</b>` : "") + `\n` +
+      `💼 New Balance: <b>₹${Number(data.balance || 0).toFixed(2)}</b>\n` +
+      `🧾 Payment ID: <code>${escTg(paymentId)}</code>\n` +
+      `🕒 ${escTg(istNow())}`
+    );
+  }
   return data;
 }
 app.post("/api/wallet/verify", requireUser, async (req, res) => {
@@ -497,7 +558,17 @@ app.post("/api/orders/create", requireUser, async (req, res) => {
     }));
     const orderData = orderFromDb(rawOrder);
     reservedOrder = orderData;
-    if (orderData.source === "manual") return res.json({ ok: true, orderId: orderData.id, status: "Awaiting review", amount: orderData.amount });
+    if (orderData.source === "manual") {
+      await notifyTelegramAdmin(
+        `🛒 <b>New Order (Manual Review)</b>\n` +
+        `👤 ${escTg(req.user.name || "Customer")} (<code>${escTg(req.user.email || "")}</code>)\n` +
+        `📦 Service: <b>${escTg(orderData.serviceName)}</b>\n` +
+        `🔢 Qty: <b>${orderData.quantity}</b> · Amount: <b>₹${Number(orderData.amount).toFixed(2)}</b>\n` +
+        `🔗 ${escTg(orderData.link)}\n` +
+        `🆔 Order: <code>${escTg(orderData.id)}</code>`
+      );
+      return res.json({ ok: true, orderId: orderData.id, status: "Awaiting review", amount: orderData.amount });
+    }
     let upstream;
     try {
       upstream = await luvsmm("add", { service: orderData.supplierServiceId, link: orderData.link, quantity: orderData.quantity });
@@ -517,6 +588,14 @@ app.post("/api/orders/create", requireUser, async (req, res) => {
       return res.status(502).json({ error: "Supplier did not return an order ID. Wallet amount was returned." });
     }
     await supa(db.from("smm_orders").update({ status: "Pending", supplier_order_id: supplierOrderId, supplier_response_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", orderData.id));
+    await notifyTelegramAdmin(
+      `🛒 <b>New Order Placed</b>\n` +
+      `👤 ${escTg(req.user.name || "Customer")} (<code>${escTg(req.user.email || "")}</code>)\n` +
+      `📦 Service: <b>${escTg(orderData.serviceName)}</b>\n` +
+      `🔢 Qty: <b>${orderData.quantity}</b> · Amount: <b>₹${Number(orderData.amount).toFixed(2)}</b>\n` +
+      `🔗 ${escTg(orderData.link)}\n` +
+      `🆔 Order: <code>${escTg(orderData.id)}</code> (Supplier #${escTg(supplierOrderId)})`
+    );
     res.json({ ok: true, orderId: orderData.id, status: "Pending", amount: orderData.amount });
   } catch (e) {
     const message = errorText(e);
