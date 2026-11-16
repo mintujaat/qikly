@@ -260,7 +260,7 @@ async function notifyTelegramAdmin(htmlMessage) {
         parse_mode: "HTML",
         disable_web_page_preview: true
       }),
-      signal: AbortSignal.timeout(5000)
+      signal: AbortSignal.timeout(2500)
     });
   } catch (err) {
     console.error("Telegram notify failed:", err?.message || err);
@@ -291,6 +291,7 @@ app.get("/api/public/config", async (_req, res) => {
       bonusType: r.bonus_type || "percent", bonusValue: Number(r.bonus_value || 0),
       firstDepositOnly: Boolean(r.first_deposit_only)
     }));
+    res.set("Cache-Control", "public, max-age=20, stale-while-revalidate=60");
     res.json({
       siteName: settings.siteName || SITE_NAME, supportEmail: settings.supportEmail || "",
       razorpayKeyId: process.env.RAZORPAY_KEY_ID || "", googleClientId: process.env.GOOGLE_CLIENT_ID || "",
@@ -440,7 +441,7 @@ app.get("/api/services", async (_req, res) => {
       min: s.min, max: s.max, pricePer1000: s.sellingPricePer1000, pricingModel: s.pricingModel || "per1000",
       type: s.supplierType || "Default", refill: s.refill, cancel: s.cancel, source: s.source || "manual"
     })).filter(s => s.pricePer1000 > 0);
-    res.set("Cache-Control", "no-store"); res.json({ services });
+    res.set("Cache-Control", "public, max-age=30, stale-while-revalidate=120"); res.json({ services });
   } catch (e) { res.status(500).json({ error: errorText(e) }); }
 });
 
@@ -457,7 +458,7 @@ app.get("/api/categories", async (_req, res) => {
     const ordered = rows.filter(row => row.active && used.has(row.name));
     // Backward compatibility for services created before service groups were introduced.
     for (const name of [...used].sort()) if (!knownNames.has(name)) ordered.push({ id: name.toLowerCase().replace(/[^a-z0-9]+/g,"-"), name, icon: "layers", sort_order: 999, active: true });
-    res.set("Cache-Control", "no-store"); res.json({ categories: ordered });
+    res.set("Cache-Control", "public, max-age=30, stale-while-revalidate=120"); res.json({ categories: ordered });
   } catch (e) { res.status(500).json({ error: errorText(e) }); }
 });
 

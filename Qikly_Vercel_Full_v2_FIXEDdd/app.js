@@ -53,6 +53,38 @@
     return data;
   }
 
+  const CACHE_KEY = "mintu_swr_v1";
+  function readCache() {
+    try { return JSON.parse(localStorage.getItem(CACHE_KEY) || "null"); } catch { return null; }
+  }
+  function writeCache() {
+    try {
+      localStorage.setItem(CACHE_KEY, JSON.stringify({
+        ts: Date.now(),
+        config: state.config,
+        services: state.services,
+        categories: state.categories,
+        user: state.user
+      }));
+    } catch {}
+  }
+  async function withBusyButton(button, loadingLabel, fn) {
+    if (!button || button.disabled || button.dataset.busy === "1") return;
+    const originalHtml = button.innerHTML;
+    button.dataset.busy = "1";
+    button.disabled = true;
+    button.classList.add("is-loading");
+    button.innerHTML = `<span class="inline-spinner"></span><span>${esc(loadingLabel)}</span>`;
+    try {
+      return await fn();
+    } finally {
+      button.dataset.busy = "0";
+      button.disabled = false;
+      button.classList.remove("is-loading");
+      if (button.isConnected) button.innerHTML = originalHtml;
+    }
+  }
+
   let toastTimer;
   function toast(message, kind = "") {
     const node = $("#toast");
@@ -210,6 +242,7 @@
       return;
     }
     const requests = await Promise.allSettled([loadWallet(), loadOrders(), loadTickets()]);
+    writeCache();
     const failures = requests.filter(result => result.status === "rejected");
     if (failures.length) {
       state.accountError = failures.map(result => result.reason.message).join(" ");
@@ -841,27 +874,29 @@
       if (amount > Number(state.user.balance)) return error.textContent = `Your balance is ${money(state.user.balance)}. Add funds before placing this order.`;
       openOrderConfirmation(service, link, quantity, amount, state.orderPromo?.code || "", discount);
     });
-    $("#applyOrderPromo")?.addEventListener("click", async () => {
-      const codeInput = $("#orderPromoInput");
-      const statusEl = $("#orderPromoStatus");
-      const codeVal = String(codeInput?.value || "").trim().toUpperCase();
-      if (!state.user) return navPath(`/login?next=${encodeURIComponent("/new-order")}`);
-      const service = state.services.find(item => item.id === state.orderServiceId);
-      const quantity = Number($("#orderQuantity")?.value || service?.min || 1);
-      const rawAmount = service ? calculateCost(service, quantity) : 0;
-      if (!codeVal) { statusEl.innerHTML = `<span class="promo-err">Enter a promo code.</span>`; return; }
-      statusEl.innerHTML = `<span>Checking…</span>`;
-      try {
-        const res = await api("/api/promos/validate", { method: "POST", body: JSON.stringify({ code: codeVal, context: "order", amount: rawAmount }) });
-        state.orderPromo = res.promo;
-        statusEl.innerHTML = `<span class="promo-applied">Applied ${esc(res.promo.code)} (−${money(res.promo.effectAmount)})</span>`;
-        updateOrderTotal();
-        toast(`Promo ${res.promo.code} applied!`, "success");
-      } catch (err) {
-        state.orderPromo = null;
-        statusEl.innerHTML = `<span class="promo-err">${esc(err.message)}</span>`;
-        updateOrderTotal();
-      }
+    $("#applyOrderPromo")?.addEventListener("click", e => {
+      withBusyButton(e.currentTarget, "Checking…", async () => {
+        const codeInput = $("#orderPromoInput");
+        const statusEl = $("#orderPromoStatus");
+        const codeVal = String(codeInput?.value || "").trim().toUpperCase();
+        if (!state.user) return navPath(`/login?next=${encodeURIComponent("/new-order")}`);
+        const service = state.services.find(item => item.id === state.orderServiceId);
+        const quantity = Number($("#orderQuantity")?.value || service?.min || 1);
+        const rawAmount = service ? calculateCost(service, quantity) : 0;
+        if (!codeVal) { statusEl.innerHTML = `<span class="promo-err">Enter a promo code.</span>`; return; }
+        statusEl.innerHTML = `<span>Checking…</span>`;
+        try {
+          const res = await api("/api/promos/validate", { method: "POST", body: JSON.stringify({ code: codeVal, context: "order", amount: rawAmount }) });
+          state.orderPromo = res.promo;
+          statusEl.innerHTML = `<span class="promo-applied">Applied ${esc(res.promo.code)} (−${money(res.promo.effectAmount)})</span>`;
+          updateOrderTotal();
+          toast(`Promo ${res.promo.code} applied!`, "success");
+        } catch (err) {
+          state.orderPromo = null;
+          statusEl.innerHTML = `<span class="promo-err">${esc(err.message)}</span>`;
+          updateOrderTotal();
+        }
+      });
     });
     $("#clearOrderPromo")?.addEventListener("click", () => {
       state.orderPromo = null;
@@ -1007,7 +1042,7 @@
     $("#walletForm").addEventListener("submit", event => {
       event.preventDefault();
       const amount = Number(new FormData(event.currentTarget).get("amount"));
-      startWalletPayment(amount);
+      withBusyButton($("#payButton"), "Opening checkout…", () => startWalletPayment(amount));
     });
     $("#walletAmount")?.addEventListener("input", updateWalletBonusPreview);
     $$("[data-amount]").forEach(button => button.addEventListener("click", () => {
@@ -1015,23 +1050,25 @@
       $$(".quick-amounts button").forEach(item => item.classList.toggle("active", item === button));
       updateWalletBonusPreview();
     }));
-    $("#applyWalletPromo")?.addEventListener("click", async () => {
-      const codeVal = String($("#walletPromoInput")?.value || "").trim().toUpperCase();
-      const statusEl = $("#walletPromoStatus");
-      const amount = Number($("#walletAmount")?.value || 0);
-      if (!codeVal) { statusEl.innerHTML = `<span class="promo-err">Enter a promo code.</span>`; return; }
-      statusEl.innerHTML = `<span>Checking…</span>`;
-      try {
-        const res = await api("/api/promos/validate", { method: "POST", body: JSON.stringify({ code: codeVal, context: "deposit", amount }) });
-        state.walletPromo = res.promo;
-        statusEl.innerHTML = `<span class="promo-applied">Applied ${esc(res.promo.code)} (+${money(res.promo.effectAmount)} bonus)</span>`;
-        updateWalletBonusPreview();
-        toast(`Promo ${res.promo.code} applied!`, "success");
-      } catch (err) {
-        state.walletPromo = null;
-        statusEl.innerHTML = `<span class="promo-err">${esc(err.message)}</span>`;
-        updateWalletBonusPreview();
-      }
+    $("#applyWalletPromo")?.addEventListener("click", e => {
+      withBusyButton(e.currentTarget, "Checking…", async () => {
+        const codeVal = String($("#walletPromoInput")?.value || "").trim().toUpperCase();
+        const statusEl = $("#walletPromoStatus");
+        const amount = Number($("#walletAmount")?.value || 0);
+        if (!codeVal) { statusEl.innerHTML = `<span class="promo-err">Enter a promo code.</span>`; return; }
+        statusEl.innerHTML = `<span>Checking…</span>`;
+        try {
+          const res = await api("/api/promos/validate", { method: "POST", body: JSON.stringify({ code: codeVal, context: "deposit", amount }) });
+          state.walletPromo = res.promo;
+          statusEl.innerHTML = `<span class="promo-applied">Applied ${esc(res.promo.code)} (+${money(res.promo.effectAmount)} bonus)</span>`;
+          updateWalletBonusPreview();
+          toast(`Promo ${res.promo.code} applied!`, "success");
+        } catch (err) {
+          state.walletPromo = null;
+          statusEl.innerHTML = `<span class="promo-err">${esc(err.message)}</span>`;
+          updateWalletBonusPreview();
+        }
+      });
     });
     $("#clearWalletPromo")?.addEventListener("click", () => {
       state.walletPromo = null;
@@ -1073,7 +1110,10 @@
       event.preventDefault();
       const form = event.currentTarget;
       const button = $("#replySubmit");
+      if (button.disabled) return;
       button.disabled = true;
+      button.classList.add("is-loading");
+      button.innerHTML = `<span class="inline-spinner"></span>`;
       $("#replyError").textContent = "";
       try {
         await api(`/api/tickets/${encodeURIComponent(form.dataset.ticketId)}/reply`, {
@@ -1085,6 +1125,8 @@
       } catch (error) {
         $("#replyError").textContent = error.message;
         button.disabled = false;
+        button.classList.remove("is-loading");
+        button.innerHTML = `${icon("arrow")}`;
       }
     });
     $("#refreshTickets")?.addEventListener("click", async event => {
@@ -1223,7 +1265,16 @@
     const root = $("#appRoot");
     root.innerHTML = shellMarkup();
     bindGlobalEvents(root);
+    const cached = readCache();
+    if (cached) {
+      if (cached.config) state.config = cached.config;
+      if (Array.isArray(cached.services)) state.services = cached.services;
+      if (Array.isArray(cached.categories)) state.categories = cached.categories;
+      if (cached.user) state.user = cached.user;
+      renderRoute();
+    }
     await Promise.all([loadConfig(), loadServices(), loadAccount()]);
+    writeCache();
     renderRoute();
     startTicketPolling();
     const params = new URLSearchParams(location.search);

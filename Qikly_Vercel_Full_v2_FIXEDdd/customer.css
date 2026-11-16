@@ -1800,3 +1800,17 @@ html, body {
 }
 
 .home-order-section { margin-top: 22px; }
+
+/* Submit loading state & double-click prevention */
+.btn.is-loading {
+  opacity: .85;
+  pointer-events: none;
+  cursor: wait;
+}
+.btn.is-loading .inline-spinner {
+  width: 15px;
+  height: 15px;
+  border-width: 2px;
+  border-color: currentColor;
+  border-top-color: transparent;
+}
