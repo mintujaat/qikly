@@ -143,7 +143,7 @@
     const initial = String(u.name || "C").trim().charAt(0).toUpperCase() || "C";
     const avatar = u.avatarUrl ? `<img src="${esc(u.avatarUrl)}" alt="" referrerpolicy="no-referrer" loading="lazy">` : esc(initial);
     const provider = u.authProvider === "google" ? `<span class="provider-tag google-provider">Google</span>` : `<span class="provider-tag manual">Email</span>`;
-    return `<tr data-user-row data-search="${esc(`${u.name} ${u.email} ${u.id} ${u.authProvider || "email"}`.toLowerCase())}"><td><div class="customer-cell"><span class="customer-avatar">${avatar}</span><span class="customer-identity"><b>${esc(u.name)}</b><small>${esc(u.email)}</small></span></div></td><td class="mono">${esc(u.id.slice(0, 14))}</td><td>${provider}</td><td><b>${money(u.balance)}</b></td><td>${date(u.createdAt)}</td><td>${u.disabled ? status("Disabled") : status("Active")}</td>${showAction ? `<td><button class="table-action" data-adjust-wallet="${esc(u.id)}" data-user-name="${esc(u.name)}">Adjust wallet</button></td>` : ""}</tr>`;
+    return `<tr data-user-row data-search="${esc(`${u.name} ${u.email} ${u.id} ${u.authProvider || "email"}`.toLowerCase())}"><td><div class="customer-cell"><span class="customer-avatar">${avatar}</span><span class="customer-identity"><b>${esc(u.name)} ${u.duplicateFlag ? `<span class="pill warn" title="Shared device/IP detected">Multi-account</span>` : ""}</b><small>${esc(u.email)}</small></span></div></td><td class="mono">${esc(u.id.slice(0, 14))}</td><td>${provider}</td><td><b>${money(u.balance)}</b></td><td>${date(u.createdAt)}</td><td>${u.disabled ? status("Disabled") : status("Active")}</td>${showAction ? `<td><div class="service-actions"><button class="table-action" data-adjust-wallet="${esc(u.id)}" data-user-name="${esc(u.name)}">Adjust wallet</button><button class="table-action ${u.disabled ? "approve" : "refund"}" data-toggle-user="${esc(u.id)}" data-disabled="${u.disabled ? "1" : "0"}">${u.disabled ? "Enable" : "Disable"}</button></div></td>` : ""}</tr>`;
   }
   function usersHtml() {
     const users = S.users || [];
@@ -236,6 +236,16 @@
     $("#transactionSearch")?.addEventListener("input", e => filterRows("transactionRows", "data-transaction-row", e.target.value));
     $$('[data-review-service]').forEach(b => b.addEventListener("click", () => openServiceReview(b.dataset.reviewService)));
     $$('[data-adjust-wallet]').forEach(b => b.addEventListener("click", () => walletAdjustmentModal(b.dataset.adjustWallet, b.dataset.userName)));
+    $$('[data-toggle-user]').forEach(b => b.addEventListener("click", async () => {
+      const nextDisabled = b.dataset.disabled !== "1";
+      if (!confirm(nextDisabled ? "Disable this customer account? They will not be able to log in or place orders." : "Re-enable this customer account?")) return;
+      b.disabled = true;
+      try {
+        await api(`/api/admin/users/${encodeURIComponent(b.dataset.toggleUser)}/status`, { method: "PATCH", body: JSON.stringify({ disabled: nextDisabled }) });
+        await refreshData(); renderTab();
+        toast(nextDisabled ? "Customer account disabled." : "Customer account enabled.", "success");
+      } catch (err) { toast(err.message, "error"); b.disabled = false; }
+    }));
     $("#categoryForm")?.addEventListener("submit", async e => {
       e.preventDefault(); const form = Object.fromEntries(new FormData(e.currentTarget).entries());
       const b = $("#categoryForm button[type=submit]"); b.disabled = true;
@@ -377,7 +387,7 @@
     $("#walletAdjustmentForm", overlay).addEventListener("submit", async e => {
       e.preventDefault(); const form = new FormData(e.currentTarget); const button = $("button[type=submit]", e.currentTarget); button.disabled = true;
       const amount = Number(form.get("amount")) * (form.get("direction") === "deduct" ? -1 : 1);
-      try { await api(`/api/admin/users/${encodeURIComponent(userId)}/wallet-adjustment`, { method: "POST", body: JSON.stringify({ amount, reason: form.get("reason") }) }); overlay.remove(); await refreshData(); renderTab(); toast("Wallet updated and recorded in the ledger.", "success"); }
+      try { await api(`/api/admin/users/${encodeURIComponent(userId)}/wallet`, { method: "POST", body: JSON.stringify({ amount, note: form.get("reason"), reason: form.get("reason") }) }); overlay.remove(); await refreshData(); renderTab(); toast("Wallet updated and recorded in the ledger.", "success"); }
       catch (err) { $("#adjustmentError", overlay).textContent = err.message; button.disabled = false; }
     });
   }

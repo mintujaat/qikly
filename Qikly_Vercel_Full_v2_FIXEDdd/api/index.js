@@ -724,8 +724,34 @@ app.get("/api/admin/overview", requireAdmin, async (_req, res) => {
 });
 app.get("/api/admin/users", requireAdmin, async (_req, res) => {
   try {
-    const { data } = await supa(db.from("smm_users").select("id,name,email,balance,disabled,avatar_url,google_sub,created_at").order("created_at", { ascending: false }).limit(100));
-    res.json({ users: (data || []).map(row => safeUser({ ...row, createdAt: row.created_at }, row.id)) });
+    const [{ data }, claimsRes] = await Promise.all([
+      supa(db.from("smm_users").select("id,name,email,balance,disabled,avatar_url,google_sub,created_at").order("created_at", { ascending: false }).limit(100)),
+      db.from("smm_welcome_claims").select("user_id,device_id,device_fp,ip_hash").limit(1000)
+    ]);
+    const claims = claimsRes?.data || [];
+    const byKey = new Map();
+    for (const c of claims) {
+      for (const k of [c.device_id && `d:${c.device_id}`, c.device_fp && `f:${c.device_fp}`, c.ip_hash && `i:${c.ip_hash}`]) {
+        if (!k) continue;
+        if (!byKey.has(k)) byKey.set(k, new Set());
+        byKey.get(k).add(c.user_id);
+      }
+    }
+    const flaggedUsers = new Set();
+    for (const c of claims) {
+      const shared = [c.device_id && `d:${c.device_id}`, c.device_fp && `f:${c.device_fp}`, c.ip_hash && `i:${c.ip_hash}`]
+        .some(k => k && (byKey.get(k)?.size || 0) > 1);
+      if (shared) flaggedUsers.add(c.user_id);
+    }
+    res.json({ users: (data || []).map(row => ({ ...safeUser({ ...row, createdAt: row.created_at }, row.id), duplicateFlag: flaggedUsers.has(row.id) })) });
+  } catch (e) { res.status(500).json({ error: errorText(e) }); }
+});
+
+app.patch("/api/admin/users/:id/status", requireAdmin, async (req, res) => {
+  try {
+    const disabled = req.body?.disabled === true;
+    await supa(db.from("smm_users").update({ disabled, updated_at: new Date().toISOString() }).eq("id", req.params.id));
+    res.json({ ok: true, disabled });
   } catch (e) { res.status(500).json({ error: errorText(e) }); }
 });
 app.get("/api/admin/categories", requireAdmin, async (_req, res) => {
@@ -769,15 +795,17 @@ app.delete("/api/admin/categories/:id", requireAdmin, async (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: errorText(e) }); }
 });
-app.post("/api/admin/users/:id/wallet", requireAdmin, async (req, res) => {
+async function handleAdminWalletAdjust(req, res) {
   try {
     const amount = money(asNum(req.body?.amount, 0));
-    const note = String(req.body?.note || "Admin wallet adjustment").trim().slice(0,300);
+    const note = String(req.body?.note || req.body?.reason || "Admin wallet adjustment").trim().slice(0,300);
     if (!amount || Math.abs(amount) > 1000000) return res.status(400).json({ error: "Enter a valid non-zero amount. Use a negative value to deduct." });
     const { data } = await supa(db.rpc("smm_admin_adjust_wallet", { p_user_id: req.params.id, p_amount: amount, p_note: note }));
     res.json(data || { ok: true });
   } catch (e) { res.status(400).json({ error: errorText(e) }); }
-});
+}
+app.post("/api/admin/users/:id/wallet", requireAdmin, handleAdminWalletAdjust);
+app.post("/api/admin/users/:id/wallet-adjustment", requireAdmin, handleAdminWalletAdjust);
 app.get("/api/admin/tickets", requireAdmin, async (_req, res) => {
   try {
     const { data } = await supa(db.from("smm_tickets").select("*").order("updated_at", { ascending: false }).limit(200));
