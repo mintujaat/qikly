@@ -351,6 +351,10 @@
       <article class="stat-card"><span class="stat-icon">${icon("clock")}</span><small>IN PROGRESS</small><b data-counter="${pending}">0</b><span class="stat-note">Being worked on</span></article>
     </section>
 
+    <section class="home-order-section">
+      <div class="section-title"><div><span class="eyebrow">QUICK ORDER</span><h2>New order</h2></div><a class="text-link" href="/services" data-route="/services">Browse all services ${icon("arrow")}</a></div>
+      ${orderWorkspaceMarkup()}
+    </section>
     <section class="home-bottom-grid">
       <div class="section-panel">
         <div class="section-title compact"><div><span class="eyebrow">LATEST ACTIVITY</span><h2>Recent orders</h2></div><a class="text-link" href="/orders" data-route="/orders">See all ${icon("arrow")}</a></div>
@@ -380,7 +384,7 @@
       <p class="catalog-note">${icon("lock")} Prices are shown in INR. Final order cost is calculated and validated by the server before wallet deduction.</p>`;
   }
 
-  function renderOrderPage() {
+  function orderWorkspaceMarkup() {
     const categories = state.categories.filter(category => state.services.some(service => service.category === category.name));
     const queryService = new URLSearchParams(location.search).get("service");
     const candidate = state.services.find(service => service.id === (queryService || state.orderServiceId));
@@ -392,9 +396,7 @@
     const available = state.services.filter(service => service.category === state.orderCategory);
     if (!available.some(service => service.id === state.orderServiceId)) state.orderServiceId = available[0]?.id || "";
     const selected = state.services.find(service => service.id === state.orderServiceId) || null;
-    return `<section class="order-heading"><div><span class="eyebrow">ORDER DESK / STEP-BY-STEP</span><h1>Build your <em>new order.</em></h1><p>Choose a platform, review a service and see your total before you confirm.</p></div><a class="text-link" href="/services" data-route="/services">${icon("search")} Browse full catalogue</a></section>
-      ${state.serviceError ? `<div class="notice notice-error">${esc(state.serviceError)} <button type="button" data-retry-services>Try again</button></div>` : ""}
-      <div class="order-workspace">
+    return `<div class="order-workspace">
         <section class="order-main">
           <div class="order-progress"><span class="progress-node current"><i>1</i><b>Platform</b></span><span class="progress-line"></span><span class="progress-node ${selected ? "current" : ""}"><i>2</i><b>Service</b></span><span class="progress-line"></span><span class="progress-node"><i>3</i><b>Details</b></span></div>
           <section class="order-step-card">
@@ -443,6 +445,12 @@
           <a class="support-nudge" href="${state.user ? "/support?new=1" : "/login"}" data-route="${state.user ? "/support?new=1" : "/login"}"><span>${icon("support")}</span><span><b>Need help choosing?</b><small>Our support team can help.</small></span>${icon("arrow")}</a>
         </aside>
       </div>`;
+  }
+
+  function renderOrderPage() {
+    return `<section class="order-heading"><div><span class="eyebrow">ORDER DESK / STEP-BY-STEP</span><h1>Build your <em>new order.</em></h1><p>Choose a platform, review a service and see your total before you confirm.</p></div><a class="text-link" href="/services" data-route="/services">${icon("search")} Browse full catalogue</a></section>
+      ${state.serviceError ? `<div class="notice notice-error">${esc(state.serviceError)} <button type="button" data-retry-services>Try again</button></div>` : ""}
+      ${orderWorkspaceMarkup()}`;
   }
 
   function quantityPresets(service) {
@@ -757,7 +765,7 @@
 
   function bindPage(route) {
     if (route === "/services") bindServicesPage();
-    if (route === "/new-order") bindOrderPage();
+    if (route === "/" || route === "/new-order") bindOrderPage();
     if (route === "/orders") bindOrdersPage();
     if (route === "/wallet") bindWalletPage();
     if (route === "/support") bindSupportPage();
@@ -767,6 +775,10 @@
   }
 
   function bindServicesPage() {
+    $$("[data-service-cat]").forEach(btn => btn.addEventListener("click", () => {
+      state.serviceCat = btn.dataset.serviceCat;
+      renderRoute();
+    }));
     const search = $("#catalogSearch");
     const apply = () => {
       const query = search.value.trim().toLowerCase();
@@ -1194,5 +1206,6 @@
     }
   }
 
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
   start();
 })();
