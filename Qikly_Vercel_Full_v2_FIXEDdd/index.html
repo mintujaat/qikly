@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#0b0f19" id="themeColorMeta">
+  <meta name="theme-color" content="#f4f6fb" id="themeColorMeta">
   <meta name="description" content="Manage social media services, orders, wallet payments and support in one clear workspace.">
   <title>Mintu SMM — Growth Workspace</title>
   <script>
     (function(){
       try {
         var t = localStorage.getItem("mintu_theme");
-        if (!t) t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        if (!t) t = "light";
         document.documentElement.setAttribute("data-theme", t);
       } catch (e) {}
     })();
