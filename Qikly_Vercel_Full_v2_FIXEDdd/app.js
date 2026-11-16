@@ -6,7 +6,7 @@
     orders: [], tickets: [], dataErrors: { wallet: "", orders: "", tickets: "" },
     route: "/", orderCategory: "", orderServiceId: "",
     orderBusy: false, orderPage: 1,
-    walletPromo: null, orderPromo: null, announcementDismissed: false
+    walletPromo: null, orderPromo: null, announcementDismissed: false, serviceCat: "all", theme: document.documentElement.getAttribute("data-theme") || "light"
   };
   const icons = {
     home: '<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
@@ -21,7 +21,9 @@
     check: '<path d="m5 12 4 4L19 6"/>',
     lock: '<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
-    refresh: '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.5 9A7 7 0 0 1 18 6l2 2M4 16l2 2a7 7 0 0 0 12.5-3"/>'
+    refresh: '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.5 9A7 7 0 0 1 18 6l2 2M4 16l2 2a7 7 0 0 0 12.5-3"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
+    moon: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>'
   };
   const icon = (name, cls = "") => `<svg class="icon ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] || icons.home}</svg>`;
   function categoryGlyph(category) {
@@ -91,6 +93,7 @@
           <button class="mobile-menu icon-button" id="mobileMenu" type="button" aria-label="Open navigation" aria-expanded="false">☰</button>
           <div class="crumb"><span id="pageEyebrow">YOUR WORKSPACE</span><b id="pageTitle">Home</b></div>
           <div class="topbar-actions">
+            <button class="theme-toggle" type="button" id="themeToggle" aria-label="Toggle dark or light mode" title="Switch theme">${icon(state.theme === "dark" ? "sun" : "moon")}</button>
             <a class="top-balance" href="/wallet" data-route="/wallet">${icon("wallet")}<span id="topBalance">₹0.00</span></a>
             <a class="btn btn-quiet top-login" href="/login" data-route="/login" id="topLogin">Log in</a>
             <a class="btn btn-primary top-signup" href="/signup" data-route="/signup" id="topSignup">Create account</a>
@@ -322,17 +325,16 @@
   function renderHome() {
     const completed = state.orders.filter(order => String(order.status).toLowerCase() === "completed").length;
     const pending = state.orders.filter(order => !["completed", "canceled", "refunded", "partially refunded"].includes(String(order.status).toLowerCase())).length;
-    const popular = state.services.slice(0, 4);
     const recent = state.orders.slice(0, 4);
     return `<section class="welcome-hero">
       <div class="welcome-copy">
         <span class="eyebrow"><i></i> MINTU SMM WORKSPACE</span>
-        <h1>${state.user ? `Welcome back, <em>${esc((state.user.name || "there").split(" ")[0])}.</em>` : `Your next move<br><em>starts here.</em>`}</h1>
-        <p>Browse services, place an order and track every update from one clear, secure workspace.</p>
-        <div class="welcome-actions"><a class="btn btn-primary btn-large" href="/new-order" data-route="/new-order">Create an order ${icon("arrow")}</a><a class="btn btn-outline btn-large" href="/services" data-route="/services">Browse services</a></div>
+        <h1>${state.user ? `Welcome back, <em>${esc((state.user.name || "there").split(" ")[0])}.</em>` : `Grow faster,<br><em>all in one panel.</em>`}</h1>
+        <p>Place instant social media orders, manage your wallet with bonus offers, and track every order live.</p>
+        <div class="welcome-actions"><a class="btn btn-primary btn-large" href="/new-order" data-route="/new-order">Create an order ${icon("arrow")}</a><a class="btn btn-outline btn-large" href="${state.user ? "/wallet" : "/services"}" data-route="${state.user ? "/wallet" : "/services"}">${state.user ? "Add funds" : "Browse services"}</a></div>
+        <div class="hero-badges"><span>${icon("lock")} Secure wallet</span><span>${icon("clock")} Live tracking</span><span>${icon("check")} Instant processing</span></div>
       </div>
-      <div class="hero-orbit" aria-hidden="true"><div class="orbit-ring"></div><div class="orbit-ring ring-two"></div><div class="orbit-core"><span>M</span><small>GROW WITH<br>CLARITY</small></div><i class="orbit-dot dot-one"></i><i class="orbit-dot dot-two"></i></div>
-      <div class="hero-foot"><span>${icon("lock")} Secure wallet</span><span>${icon("clock")} Trackable orders</span><span>${icon("check")} Clear service details</span></div>
+      <div class="hero-orbit" aria-hidden="true"><div class="orbit-ring"></div><div class="orbit-ring ring-two"></div><div class="orbit-core"><span>M</span><small>SMM<br>PANEL</small></div></div>
     </section>
     ${state.serviceError ? `<div class="notice notice-error">${esc(state.serviceError)} <button type="button" data-retry-services>Try again</button></div>` : ""}
     ${state.accountError && state.user ? `<div class="notice notice-warning">${esc(state.accountError)} <button type="button" data-refresh-account>Refresh account</button></div>` : ""}
@@ -348,10 +350,7 @@
       <article class="stat-card"><span class="stat-icon">${icon("check")}</span><small>COMPLETED</small><b data-counter="${completed}">0</b><span class="stat-note">Successfully delivered</span></article>
       <article class="stat-card"><span class="stat-icon">${icon("clock")}</span><small>IN PROGRESS</small><b data-counter="${pending}">0</b><span class="stat-note">Being worked on</span></article>
     </section>
-    <section class="section-block">
-      <div class="section-title"><div><span class="eyebrow">POPULAR RIGHT NOW</span><h2>Featured services</h2><p>See the details and choose the option that fits your needs.</p></div><a class="text-link" href="/services" data-route="/services">Browse all services ${icon("arrow")}</a></div>
-      ${popular.length ? `<div class="featured-grid">${popular.map((service, index) => serviceCard(service, index)).join("")}</div>` : `<div class="empty-panel">${state.serviceError ? "Services couldn't be loaded. Please try again." : "Approved services will appear here once they are available."}</div>`}
-    </section>
+
     <section class="home-bottom-grid">
       <div class="section-panel">
         <div class="section-title compact"><div><span class="eyebrow">LATEST ACTIVITY</span><h2>Recent orders</h2></div><a class="text-link" href="/orders" data-route="/orders">See all ${icon("arrow")}</a></div>
@@ -371,10 +370,12 @@
   }
 
   function renderServicesPage() {
-    const filtered = state.services;
-    return `<section class="page-intro services-intro"><div><span class="eyebrow">SERVICE CATALOGUE</span><h1>Find the right<br><em>service for you.</em></h1><p>Search approved services, compare the details and continue to a guided order form.</p></div><div class="intro-art">${icon("search")}<span>Explore<br>with ease</span></div></section>
+    const cats = [...new Set(state.services.map(s => s.category || "Other"))];
+    const filtered = state.serviceCat === "all" ? state.services : state.services.filter(s => (s.category || "Other") === state.serviceCat);
+    return `<section class="page-intro services-intro"><div><span class="eyebrow">SERVICE CATALOGUE</span><h1>Find the right<br><em>service for you.</em></h1><p>Filter by platform, compare rates and start your order in one tap.</p></div><div class="intro-art">${icon("search")}<span>Explore<br>with ease</span></div></section>
       ${state.serviceError ? `<div class="notice notice-error">${esc(state.serviceError)} <button type="button" data-retry-services>Retry</button></div>` : ""}
       <section class="catalog-toolbar"><label class="search-field">${icon("search")}<input type="search" id="catalogSearch" placeholder="Search service name, category or description" autocomplete="off"></label><span class="result-count" id="catalogCount">${filtered.length} services</span></section>
+      ${cats.length ? `<div class="category-filter-bar" id="serviceCatBar"><button type="button" class="cat-chip ${state.serviceCat === "all" ? "active" : ""}" data-service-cat="all">All platforms</button>${cats.map(c => `<button type="button" class="cat-chip ${state.serviceCat === c ? "active" : ""}" data-service-cat="${esc(c)}">${esc(c)}</button>`).join("")}</div>` : ""}
       <section class="catalog-grid" id="catalogGrid">${filtered.length ? filtered.map(serviceCard).join("") : `<div class="empty-panel">${state.serviceError ? "The service list is unavailable. Try again shortly." : "No services are available yet."}</div>`}</section>
       <p class="catalog-note">${icon("lock")} Prices are shown in INR. Final order cost is calculated and validated by the server before wallet deduction.</p>`;
   }
@@ -597,7 +598,7 @@
     const next = new URLSearchParams(location.search).get("next");
     $("#authRoot").innerHTML = `<div class="auth-layout">
       <section class="auth-brand-panel"><a class="brand auth-brand" href="/" data-route="/"><span class="brand-mark">M</span><span class="brand-copy"><b>${esc(state.config?.siteName || "Mintu SMM")}</b><small>GROWTH WORKSPACE</small></span></a><div class="auth-brand-copy"><span class="eyebrow"><i></i> YOUR WORK, IN ONE PLACE</span><h1>${isSignup ? "Start with a<br><em>clear plan.</em>" : "Welcome back<br><em>to your desk.</em>"}</h1><p>Manage services, wallet activity and customer support in a workspace built to keep everything simple.</p><div class="auth-points"><span>${icon("check")} Order tracking</span><span>${icon("lock")} Secure wallet</span><span>${icon("support")} Helpful support</span></div></div><div class="auth-brand-bottom">MINTU SMM <span>·</span> DIGITAL SERVICES</div></section>
-      <section class="auth-form-panel"><a class="auth-mobile-brand brand" href="/" data-route="/"><span class="brand-mark">M</span><span class="brand-copy"><b>${esc(state.config?.siteName || "Mintu SMM")}</b><small>GROWTH WORKSPACE</small></span></a><div class="auth-card"><span class="eyebrow">${isSignup ? "CREATE YOUR ACCOUNT" : "ACCOUNT SIGN IN"}</span><h2>${isSignup ? "Create your account" : "Good to see you again."}</h2><p>${isSignup ? (Number(state.config?.welcomeBonus || 0) > 0 ? `A few details and your workspace is ready. Get ${money(state.config.welcomeBonus)} welcome bonus on signup.` : "A few details and your workspace is ready.") : "Sign in to manage your orders, wallet and support."}</p>
+      <section class="auth-form-panel"><div class="auth-theme-bar"><button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle dark or light mode" title="Switch theme">${icon(state.theme === "dark" ? "sun" : "moon")}</button></div><a class="auth-mobile-brand brand" href="/" data-route="/"><span class="brand-mark">M</span><span class="brand-copy"><b>${esc(state.config?.siteName || "Mintu SMM")}</b><small>GROWTH WORKSPACE</small></span></a><div class="auth-card">${isSignup && Number(state.config?.welcomeBonus || 0) > 0 ? `<div class="auth-bonus-pill">🎁 Get ${money(state.config.welcomeBonus)} Welcome Bonus</div>` : ""}<span class="eyebrow">${isSignup ? "CREATE YOUR ACCOUNT" : "ACCOUNT SIGN IN"}</span><h2>${isSignup ? "Create your account" : "Good to see you again."}</h2><p>${isSignup ? (Number(state.config?.welcomeBonus || 0) > 0 ? `A few details and your workspace is ready. Get ${money(state.config.welcomeBonus)} welcome bonus on signup.` : "A few details and your workspace is ready.") : "Sign in to manage your orders, wallet and support."}</p>
         <div class="auth-switch"><a class="${!isSignup ? "active" : ""}" href="/login${next ? `?next=${encodeURIComponent(next)}` : ""}" data-route="/login${next ? `?next=${encodeURIComponent(next)}` : ""}">Log in</a><a class="${isSignup ? "active" : ""}" href="/signup${next ? `?next=${encodeURIComponent(next)}` : ""}" data-route="/signup${next ? `?next=${encodeURIComponent(next)}` : ""}">Create account</a></div>
         ${state.config?.googleClientId ? `<div class="google-signin-wrap"><div id="googleSignInButton" aria-label="Continue with Google"></div><div class="form-error" id="googleAuthError" role="alert"></div></div><div class="auth-divider"><span>or continue with email</span></div>` : ""}
         <form id="authForm" class="auth-form" data-mode="${mode}" data-next="${esc(next || "/")}">
@@ -1133,6 +1134,17 @@
     }
   }
 
+  function toggleTheme() {
+    state.theme = state.theme === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", state.theme);
+    try { localStorage.setItem("mintu_theme", state.theme); } catch {}
+    const meta = $("#themeColorMeta");
+    if (meta) meta.setAttribute("content", state.theme === "dark" ? "#080c14" : "#f4f6fb");
+    $$("#themeToggle, [data-theme-toggle]").forEach(btn => {
+      btn.innerHTML = icon(state.theme === "dark" ? "sun" : "moon");
+    });
+  }
+
   function bindGlobalEvents(root) {
     root.addEventListener("click", event => {
       const routeLink = event.target.closest("[data-route]");
@@ -1153,6 +1165,7 @@
       if (event.target.closest("#dismissAnnouncement")) { state.announcementDismissed = true; event.target.closest(".announcement-bar")?.remove(); return; }
       if (event.target.closest("#sidebarLogout")) logout();
       if (event.target.closest("#topAvatar")) navPath("/profile");
+      if (event.target.closest("#themeToggle") || event.target.closest("[data-theme-toggle]")) { toggleTheme(); return; }
       const retry = event.target.closest("[data-retry-services]");
       if (retry) { loadServices().then(renderRoute); return; }
     });
