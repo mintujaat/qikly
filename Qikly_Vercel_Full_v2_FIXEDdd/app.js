@@ -630,6 +630,19 @@
         <aside class="profile-security-panel"><span class="security-illustration">${icon("lock")}</span><span class="eyebrow">ACCOUNT SECURITY</span><h2>Your account, protected.</h2><p>Never share your password or payment details with anyone. Sign out when using a shared device.</p><button class="btn btn-outline full-width" type="button" id="profileLogout">Log out of Mintu SMM ${icon("arrow")}</button><a class="profile-help-link" href="/support?new=1" data-route="/support?new=1">Need account help? Contact support</a></aside>
       </div>
       ${state.dataErrors.wallet ? `<div class="notice notice-error">${esc(state.dataErrors.wallet)} <button type="button" data-refresh-account>Retry wallet history</button></div>` : ""}
+      <section class="profile-details-panel" id="referEarnCard" style="margin-bottom:18px">
+        <div class="section-title compact"><div><span class="eyebrow">REFER &amp; EARN</span><h2>Invite friends &amp; earn wallet cash</h2></div></div>
+        <div class="profile-detail-list">
+          <div><span>Your Invite Link</span><b class="mono break-anywhere">${state.user?.referralCode ? `${esc(location.origin)}/signup?ref=${esc(state.user.referralCode)}` : "Loading…"}</b></div>
+          <div><span>Reward Rate</span><b>${state.config?.referral?.bonusType === "fixed" ? money(state.config?.referral?.bonusValue || 0) : `${Number(state.config?.referral?.bonusValue ?? 5)}%`} on friend's 1st deposit</b></div>
+          <div><span>Friends Invited</span><b>${Number(state.user?.invitedCount || 0)}</b></div>
+          <div><span>Total Referral Earnings</span><b class="positive">${money(state.user?.referralEarnings || 0)}</b></div>
+        </div>
+        <div class="welcome-actions" style="margin-top:14px">
+          <button type="button" class="btn btn-primary btn-small" id="copyReferralLink">Copy Invite Link</button>
+          <a class="btn btn-outline btn-small" target="_blank" rel="noopener noreferrer" href="https://wa.me/?text=${encodeURIComponent(`Join Mintu SMM using my link & get started: ${location.origin}/signup?ref=${state.user?.referralCode || ""}`)}">Share on WhatsApp</a>
+        </div>
+      </section>
       <section class="profile-details-panel" style="margin-bottom:18px">
         <div class="section-title compact"><div><span class="eyebrow">RESELLER API v2</span><h2>Developer & Panel API</h2></div></div>
         <div class="profile-detail-list">
@@ -651,7 +664,7 @@
     const next = new URLSearchParams(location.search).get("next");
     $("#authRoot").innerHTML = `<div class="auth-layout">
       <section class="auth-brand-panel"><a class="brand auth-brand" href="/" data-route="/"><span class="brand-mark">M</span><span class="brand-copy"><b>${esc(state.config?.siteName || "Mintu SMM")}</b><small>GROWTH WORKSPACE</small></span></a><div class="auth-brand-copy"><span class="eyebrow"><i></i> YOUR WORK, IN ONE PLACE</span><h1>${isSignup ? "Start with a<br><em>clear plan.</em>" : "Welcome back<br><em>to your desk.</em>"}</h1><p>Manage services, wallet activity and customer support in a workspace built to keep everything simple.</p><div class="auth-points"><span>${icon("check")} Order tracking</span><span>${icon("lock")} Secure wallet</span><span>${icon("support")} Helpful support</span></div></div><div class="auth-brand-bottom">MINTU SMM <span>·</span> DIGITAL SERVICES</div></section>
-      <section class="auth-form-panel"><div class="auth-theme-bar"><button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle dark or light mode" title="Switch theme">${icon(state.theme === "dark" ? "sun" : "moon")}</button></div><a class="auth-mobile-brand brand" href="/" data-route="/"><span class="brand-mark">M</span><span class="brand-copy"><b>${esc(state.config?.siteName || "Mintu SMM")}</b><small>GROWTH WORKSPACE</small></span></a><div class="auth-card">${isSignup && Number(state.config?.welcomeBonus || 0) > 0 && !getDeviceMeta().deviceClaimed ? `<div class="auth-bonus-pill">🎁 Get ${money(state.config.welcomeBonus)} Welcome Bonus</div>` : ""}<span class="eyebrow">${isSignup ? "CREATE YOUR ACCOUNT" : "ACCOUNT SIGN IN"}</span><h2>${isSignup ? "Create your account" : "Good to see you again."}</h2><p>${isSignup ? (Number(state.config?.welcomeBonus || 0) > 0 ? `A few details and your workspace is ready. Get ${money(state.config.welcomeBonus)} welcome bonus on signup.` : "A few details and your workspace is ready.") : "Sign in to manage your orders, wallet and support."}</p>
+      <section class="auth-form-panel"><div class="auth-theme-bar"><button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle dark or light mode" title="Switch theme">${icon(state.theme === "dark" ? "sun" : "moon")}</button></div><a class="auth-mobile-brand brand" href="/" data-route="/"><span class="brand-mark">M</span><span class="brand-copy"><b>${esc(state.config?.siteName || "Mintu SMM")}</b><small>GROWTH WORKSPACE</small></span></a><div class="auth-card">${isSignup && Number(state.config?.welcomeBonus || 0) > 0 && !getDeviceMeta().deviceClaimed ? `<div class="auth-bonus-pill">🎁 Get ${money(state.config.welcomeBonus)} Welcome Bonus</div>` : ""}${isSignup && getStoredReferralCode() ? `<div class="auth-bonus-pill">🤝 Referral code: ${esc(getStoredReferralCode())}</div>` : ""}<span class="eyebrow">${isSignup ? "CREATE YOUR ACCOUNT" : "ACCOUNT SIGN IN"}</span><h2>${isSignup ? "Create your account" : "Good to see you again."}</h2><p>${isSignup ? (Number(state.config?.welcomeBonus || 0) > 0 ? `A few details and your workspace is ready. Get ${money(state.config.welcomeBonus)} welcome bonus on signup.` : "A few details and your workspace is ready.") : "Sign in to manage your orders, wallet and support."}</p>
         <div class="auth-switch"><a class="${!isSignup ? "active" : ""}" href="/login${next ? `?next=${encodeURIComponent(next)}` : ""}" data-route="/login${next ? `?next=${encodeURIComponent(next)}` : ""}">Log in</a><a class="${isSignup ? "active" : ""}" href="/signup${next ? `?next=${encodeURIComponent(next)}` : ""}" data-route="/signup${next ? `?next=${encodeURIComponent(next)}` : ""}">Create account</a></div>
         ${state.config?.googleClientId ? `<div class="google-signin-wrap"><div id="googleSignInButton" aria-label="Continue with Google"></div><div class="form-error" id="googleAuthError" role="alert"></div></div><div class="auth-divider"><span>or continue with email</span></div>` : ""}
         <form id="authForm" class="auth-form" data-mode="${mode}" data-next="${esc(next || "/")}">
@@ -678,7 +691,7 @@
             }
             googleError.textContent = "";
             try {
-              const authResult = await api("/api/auth/google", { method: "POST", body: JSON.stringify({ credential: response.credential, ...getDeviceMeta() }) });
+              const authResult = await api("/api/auth/google", { method: "POST", body: JSON.stringify({ credential: response.credential, referralCode: getStoredReferralCode(), ...getDeviceMeta() }) });
               if (Number(authResult?.welcomeBonus || 0) > 0) markDeviceWelcomeClaimed();
               await loadAccount();
               if (authResult?.isNewUser && Number(authResult?.welcomeBonus || 0) > 0) {
@@ -742,7 +755,7 @@
     try {
       const authResult = await api(mode === "signup" ? "/api/auth/signup" : "/api/auth/login", {
         method: "POST",
-        body: JSON.stringify({ name: formData.get("name"), email: formData.get("email"), password: formData.get("password"), ...(mode === "signup" ? getDeviceMeta() : {}) })
+        body: JSON.stringify({ name: formData.get("name"), email: formData.get("email"), password: formData.get("password"), ...(mode === "signup" ? { ...getDeviceMeta(), referralCode: getStoredReferralCode() } : {}) })
       });
       await loadAccount();
       if (mode === "signup" && Number(authResult?.welcomeBonus || 0) > 0) {
@@ -818,6 +831,12 @@
     if (route === "/support") bindSupportPage();
     if (route === "/profile") {
       $("#profileLogout")?.addEventListener("click", logout);
+      $("#copyReferralLink")?.addEventListener("click", async () => {
+        if (!state.user?.referralCode) return;
+        const link = `${location.origin}/signup?ref=${state.user.referralCode}`;
+        try { await navigator.clipboard.writeText(link); toast("Invite link copied!", "success"); }
+        catch { toast("Copy failed; select the link manually.", "error"); }
+      });
       $("#generateApiKey")?.addEventListener("click", e => {
         withBusyButton(e.currentTarget, "Generating…", async () => {
           const res = await api("/api/account/api-key", { method: "POST", body: "{}" });
@@ -1246,6 +1265,62 @@
     try { localStorage.setItem("mintu_welcome_claimed", "1"); } catch {}
   }
 
+  function captureReferralCode() {
+    try {
+      const ref = new URLSearchParams(location.search).get("ref");
+      if (ref && /^[A-Za-z0-9_-]{3,30}$/.test(ref.trim())) {
+        localStorage.setItem("mintu_ref_code", ref.trim().toUpperCase());
+      }
+    } catch {}
+  }
+  function getStoredReferralCode() {
+    try { return localStorage.getItem("mintu_ref_code") || ""; } catch { return ""; }
+  }
+  function showReferralPosterIfEligible() {
+    const refCfg = state.config?.referral;
+    if (!refCfg?.enabled || Number(refCfg?.bonusValue || 0) <= 0) return;
+    try {
+      if (sessionStorage.getItem("mintu_ref_poster_seen") === "1") return;
+      if (localStorage.getItem("mintu_ref_poster_hide") === "1") return;
+      sessionStorage.setItem("mintu_ref_poster_seen", "1");
+    } catch {}
+    const rewardText = refCfg.bonusType === "fixed" ? money(refCfg.bonusValue) : `${Number(refCfg.bonusValue)}%`;
+    const inviteUrl = state.user?.referralCode ? `${location.origin}/signup?ref=${encodeURIComponent(state.user.referralCode)}` : "";
+    const modalRoot = $("#modalRoot");
+    if (!modalRoot || modalRoot.innerHTML.trim()) return;
+    modalRoot.innerHTML = `<div class="modal-backdrop" data-modal-backdrop>
+      <section class="poster-modal" role="dialog" aria-modal="true" aria-labelledby="posterTitle">
+        <button class="poster-close" type="button" data-modal-close aria-label="Close">×</button>
+        <div class="poster-hero">
+          <span class="poster-badge">🎁 REFER &amp; EARN</span>
+          <h2 id="posterTitle">Get ${esc(rewardText)} Bonus on Your Friend's First Deposit!</h2>
+          <p>Invite friends to ${esc(state.config?.siteName || "Mintu SMM")} and earn instant wallet cash automatically.</p>
+        </div>
+        <div class="poster-steps">
+          <div><b>1</b><span>Share your invite link</span></div>
+          <div><b>2</b><span>Friend signs up &amp; adds ${money(refCfg.minDeposit || 50)}+</span></div>
+          <div><b>3</b><span>You get ${esc(rewardText)} credited!</span></div>
+        </div>
+        ${inviteUrl ? `<div class="poster-link-box"><input class="form-control mono" id="posterRefLink" readonly value="${esc(inviteUrl)}"><button type="button" class="btn btn-primary" id="posterCopyBtn">Copy Link</button></div>` : `<button type="button" class="btn btn-primary btn-large full-width" id="posterCtaBtn">${state.user ? "Open Refer & Earn" : "Create Account &amp; Start Earning"} ${icon("arrow")}</button>`}
+        <button type="button" class="poster-dismiss" id="posterDontShow">Don't show this again</button>
+      </section>
+    </div>`;
+    modalRoot.querySelector("[data-modal-backdrop]").addEventListener("click", e => { if (e.target === e.currentTarget) closeModal(); });
+    modalRoot.querySelectorAll("[data-modal-close]").forEach(b => b.addEventListener("click", closeModal));
+    $("#posterCopyBtn")?.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(inviteUrl); toast("Invite link copied!", "success"); closeModal(); }
+      catch { toast("Copy failed; select link manually.", "error"); }
+    });
+    $("#posterCtaBtn")?.addEventListener("click", () => {
+      closeModal();
+      navPath(state.user ? "/profile" : "/signup");
+    });
+    $("#posterDontShow")?.addEventListener("click", () => {
+      try { localStorage.setItem("mintu_ref_poster_hide", "1"); } catch {}
+      closeModal();
+    });
+  }
+
   function toggleTheme() {
     state.theme = state.theme === "dark" ? "light" : "dark";
     document.documentElement.setAttribute("data-theme", state.theme);
@@ -1290,6 +1365,7 @@
   }
 
   async function start() {
+    captureReferralCode();
     const root = $("#appRoot");
     root.innerHTML = shellMarkup();
     bindGlobalEvents(root);
@@ -1304,6 +1380,7 @@
     await Promise.all([loadConfig(), loadServices(), loadAccount()]);
     writeCache();
     renderRoute();
+    setTimeout(showReferralPosterIfEligible, 650);
     startTicketPolling();
     try {
       if (!sessionStorage.getItem("mintu_visited")) {

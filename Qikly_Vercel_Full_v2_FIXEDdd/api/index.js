@@ -216,6 +216,18 @@ async function recordWelcomeClaim(res, userId, wbInfo) {
   }
 }
 
+
+function makeReferralCode(name = "") {
+  const prefix = String(name || "MINTU").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4) || "MINT";
+  return `${prefix}${crypto.randomBytes(2).toString("hex").toUpperCase()}`;
+}
+async function resolveReferrerId(rawCode) {
+  const clean = String(rawCode || "").trim().toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 30);
+  if (!clean) return null;
+  const { data } = await supa(db.from("smm_users").select("id,disabled").ilike("referral_code", clean).maybeSingle());
+  return data && !data.disabled ? data.id : null;
+}
+
 async function getAdminSettings() {
   const { data } = await supa(db.from("smm_settings").select("*").eq("id", "main").maybeSingle());
   const markupPercent = Number(data?.markup_percent ?? DEFAULT_MARKUP);
@@ -232,6 +244,10 @@ async function getAdminSettings() {
     announcementText: String(data?.announcement_text || ""),
     announcementType: ["info", "offer", "warning"].includes(data?.announcement_type) ? data.announcement_type : "info",
     announcementLink: String(data?.announcement_link || ""),
+    referralEnabled: data?.referral_enabled !== false,
+    referralBonusType: data?.referral_bonus_type === "fixed" ? "fixed" : "percent",
+    referralBonusValue: Math.max(0, Number(data?.referral_bonus_value ?? 5)),
+    referralMinDeposit: Math.max(0, Number(data?.referral_min_deposit ?? 50)),
     supportEmail: data?.support_email || ""
   };
 }
@@ -429,6 +445,7 @@ app.get("/api/public/config", async (_req, res) => {
       razorpayKeyId: process.env.RAZORPAY_KEY_ID || "", googleClientId: process.env.GOOGLE_CLIENT_ID || "",
       minDeposit: settings.minDeposit, maxDeposit: settings.maxDeposit, welcomeBonus: settings.welcomeBonus || 0,
       announcement: { enabled: settings.announcementEnabled, text: settings.announcementText, type: settings.announcementType, link: settings.announcementLink },
+      referral: { enabled: settings.referralEnabled, bonusType: settings.referralBonusType, bonusValue: settings.referralBonusValue, minDeposit: settings.referralMinDeposit },
       depositBonuses, currency: "INR", signupEnabled: true
     });
   } catch {
@@ -450,7 +467,9 @@ app.post("/api/auth/signup", async (req, res) => {
     const welcomeBonus = wbInfo.bonus;
     const salt = crypto.randomBytes(16).toString("hex");
     const hash = await new Promise((resolve, reject) => crypto.scrypt(password, salt, 64, (err, key) => err ? reject(err) : resolve(key.toString("hex"))));
-    const { data } = await supa(db.from("smm_users").insert({ name, email, password_hash: hash, password_salt: salt, balance: welcomeBonus, disabled: false }).select("id,name,email,balance,disabled,created_at").single());
+    const referredBy = await resolveReferrerId(req.body?.referralCode);
+    const referralCode = makeReferralCode(name);
+    const { data } = await supa(db.from("smm_users").insert({ name, email, password_hash: hash, password_salt: salt, balance: welcomeBonus, disabled: false, referral_code: referralCode, referred_by: referredBy }).select("id,name,email,balance,disabled,referral_code,created_at").single());
     if (welcomeBonus > 0) {
       await supa(db.from("smm_transactions").insert({
         id: `welcome_${data.id}`, user_id: data.id, type: "adjustment",
@@ -518,7 +537,9 @@ app.post("/api/auth/google", async (req, res) => {
         const settings = await getAdminSettings();
         const wbInfo = await resolveEligibleWelcomeBonus(req, settings.welcomeBonus);
         welcomeBonus = wbInfo.bonus;
-        const created = await supa(db.from("smm_users").insert({ name, email, google_sub: String(profile.sub), avatar_url: avatarUrl, password_hash: null, password_salt: null, balance: welcomeBonus, disabled: false }).select("*").single());
+        const referredBy = await resolveReferrerId(req.body?.referralCode);
+        const referralCode = makeReferralCode(name);
+        const created = await supa(db.from("smm_users").insert({ name, email, google_sub: String(profile.sub), avatar_url: avatarUrl, password_hash: null, password_salt: null, balance: welcomeBonus, disabled: false, referral_code: referralCode, referred_by: referredBy }).select("*").single());
         user = created.data;
         isNewUser = true;
         user._wbInfo = wbInfo;
@@ -550,9 +571,19 @@ app.get("/api/auth/me", async (req, res) => {
   const user = userFromReq(req);
   if (!user) return res.json({ authenticated: false, user: null });
   try {
-    const { data } = await supa(db.from("smm_users").select("id,name,email,balance,disabled,avatar_url,google_sub,api_key,created_at").eq("id", user.uid).maybeSingle());
+    const { data } = await supa(db.from("smm_users").select("id,name,email,balance,disabled,avatar_url,google_sub,api_key,referral_code,created_at").eq("id", user.uid).maybeSingle());
     if (!data || data.disabled) { clearCookie(res, SESSION_COOKIE); return res.json({ authenticated: false, user: null }); }
-    res.json({ authenticated: true, user: { ...safeUser(data, data.id), apiKey: data.api_key || "" } });
+    let refCode = data.referral_code || "";
+    if (!refCode) {
+      refCode = makeReferralCode(data.name);
+      await supa(db.from("smm_users").update({ referral_code: refCode }).eq("id", data.id));
+    }
+    const [{ count: invitedCount }, { data: refTxs }] = await Promise.all([
+      db.from("smm_users").select("id", { count: "exact", head: true }).eq("referred_by", data.id),
+      supa(db.from("smm_transactions").select("amount").eq("user_id", data.id).eq("reference", "referral_bonus"))
+    ]);
+    const referralEarnings = money((refTxs || []).reduce((sum, r) => sum + Number(r.amount || 0), 0));
+    res.json({ authenticated: true, user: { ...safeUser(data, data.id), apiKey: data.api_key || "", referralCode: refCode, invitedCount: Number(invitedCount || 0), referralEarnings } });
   } catch (e) { res.status(500).json({ error: errorText(e) }); }
 });
 app.post("/api/auth/logout", (_req, res) => { clearCookie(res, SESSION_COOKIE); res.json({ ok: true }); });
@@ -680,7 +711,7 @@ async function creditWalletFromPayment({ razorpayOrderId, paymentId, userId, amo
       `👤 User: <b>${escTg(u?.name || "Customer")}</b> (<code>${escTg(u?.email || userId)}</code>)\n` +
       `💵 Paid: <b>₹${paidInr.toFixed(2)}</b>` +
       (slabBonus > 0 ? ` + Slab Bonus: <b>₹${slabBonus.toFixed(2)}</b>` : "") +
-      (promoBonus > 0 ? ` + Promo Bonus: <b>₹${promoBonus.toFixed(2)}</b>` : "") + `\n` +
+      (promoBonus > 0 ? ` + Promo Bonus: <b>₹${promoBonus.toFixed(2)}</b>` : "") + (Number(data.referralBonus || 0) > 0 ? `\n🤝 Referrer Bonus Paid: <b>₹${Number(data.referralBonus).toFixed(2)}</b>` : "") + `\n` +
       `💼 New Balance: <b>₹${Number(data.balance || 0).toFixed(2)}</b>\n` +
       `🧾 Payment ID: <code>${escTg(paymentId)}</code>\n` +
       `🕒 ${escTg(istNow())}`
@@ -1263,6 +1294,22 @@ app.put("/api/admin/settings", requireAdmin, async (req, res) => {
 
 
 // Admin: Announcement, Deposit Bonus Slabs & Promo Codes -----------------------
+app.put("/api/admin/referral", requireAdmin, async (req, res) => {
+  try {
+    const enabled = req.body?.enabled === true;
+    const bonusType = req.body?.bonusType === "fixed" ? "fixed" : "percent";
+    const bonusValue = money(Math.max(0, Math.min(bonusType === "percent" ? 100 : 10000, asNum(req.body?.bonusValue, 0))));
+    const minDeposit = money(Math.max(0, Math.min(100000, asNum(req.body?.minDeposit, 50))));
+    await supa(db.from("smm_settings").upsert({
+      id: "main", site_name: SITE_NAME,
+      referral_enabled: enabled, referral_bonus_type: bonusType,
+      referral_bonus_value: bonusValue, referral_min_deposit: minDeposit,
+      updated_at: new Date().toISOString()
+    }, { onConflict: "id" }));
+    res.json({ ok: true, settings: await getAdminSettings() });
+  } catch (e) { res.status(500).json({ error: errorText(e) }); }
+});
+
 app.put("/api/admin/announcement", requireAdmin, async (req, res) => {
   try {
     const enabled = req.body?.enabled === true;

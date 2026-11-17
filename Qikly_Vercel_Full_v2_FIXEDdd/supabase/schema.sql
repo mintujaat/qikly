@@ -747,3 +747,162 @@ revoke all on function public.smm_increment_visitor() from public, anon, authent
 grant execute on function public.smm_increment_visitor() to service_role;
 
 notify pgrst, 'reload schema';
+
+-- ---------------------------------------------------------------------------
+-- Referral & Earn Program
+-- ---------------------------------------------------------------------------
+alter table public.smm_users add column if not exists referral_code text;
+alter table public.smm_users add column if not exists referred_by uuid references public.smm_users(id) on delete set null;
+alter table public.smm_users add column if not exists referral_rewarded boolean not null default false;
+create unique index if not exists smm_users_referral_code_uidx on public.smm_users (upper(referral_code)) where referral_code is not null;
+
+alter table public.smm_settings add column if not exists referral_enabled boolean not null default true;
+alter table public.smm_settings add column if not exists referral_bonus_type text not null default 'percent' check (referral_bonus_type in ('percent','fixed'));
+alter table public.smm_settings add column if not exists referral_bonus_value numeric(14,2) not null default 5 check (referral_bonus_value >= 0);
+alter table public.smm_settings add column if not exists referral_min_deposit numeric(14,2) not null default 50 check (referral_min_deposit >= 0);
+
+-- Update smm_credit_wallet_payment to also credit referrer on friend's first paid deposit.
+create or replace function public.smm_credit_wallet_payment(
+  p_razorpay_order_id text,
+  p_payment_id text,
+  p_user_id uuid,
+  p_amount_paise bigint,
+  p_currency text default 'INR'
+) returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_payment public.smm_wallet_payments%rowtype;
+  v_balance numeric(14,2);
+  v_prior_paid integer := 0;
+  v_slab_bonus numeric(14,2) := 0;
+  v_slab_title text := '';
+  v_promo public.smm_promo_codes%rowtype;
+  v_promo_bonus numeric(14,2) := 0;
+  v_user_redemptions integer := 0;
+  v_total_credit numeric(14,2);
+  v_user public.smm_users%rowtype;
+  v_settings public.smm_settings%rowtype;
+  v_ref_bonus numeric(14,2) := 0;
+  v_referrer_id uuid := null;
+begin
+  select * into v_payment from public.smm_wallet_payments
+  where razorpay_order_id = p_razorpay_order_id for update;
+  if not found then raise exception 'Payment record not found.'; end if;
+  if v_payment.user_id <> p_user_id then raise exception 'Payment belongs to another account.'; end if;
+  if v_payment.status = 'paid' then
+    select balance into v_balance from public.smm_users where id = p_user_id;
+    return jsonb_build_object('ok', true, 'alreadyCredited', true, 'balance', v_balance);
+  end if;
+  if v_payment.status <> 'created' then raise exception 'This payment is no longer active.'; end if;
+  if upper(coalesce(p_currency, '')) <> 'INR' or p_amount_paise <> round(v_payment.amount * 100)::bigint then
+    raise exception 'Payment amount or currency mismatch.';
+  end if;
+
+  select count(*) into v_prior_paid from public.smm_wallet_payments
+  where user_id = p_user_id and status = 'paid' and razorpay_order_id <> p_razorpay_order_id;
+
+  select
+    round((case when bonus_type = 'percent' then v_payment.amount * bonus_value / 100.0 else bonus_value end)::numeric, 2),
+    coalesce(nullif(title, ''), 'Deposit bonus')
+  into v_slab_bonus, v_slab_title
+  from public.smm_deposit_bonuses
+  where active = true
+    and v_payment.amount >= min_amount
+    and (first_deposit_only = false or v_prior_paid = 0)
+  order by round((case when bonus_type = 'percent' then v_payment.amount * bonus_value / 100.0 else bonus_value end)::numeric, 2) desc
+  limit 1;
+  v_slab_bonus := greatest(0, coalesce(v_slab_bonus, 0));
+
+  if coalesce(trim(v_payment.promo_code), '') <> '' then
+    select * into v_promo from public.smm_promo_codes
+    where upper(code) = upper(trim(v_payment.promo_code))
+      and applies_to = 'deposit'
+      and active = true
+      and (expires_at is null or expires_at > now())
+      and (max_uses = 0 or used_count < max_uses)
+      and v_payment.amount >= min_amount
+    for update;
+    if found then
+      if v_promo.per_user_limit > 0 then
+        select count(*) into v_user_redemptions from public.smm_promo_redemptions
+        where promo_id = v_promo.id and user_id = p_user_id;
+      end if;
+      if v_promo.per_user_limit = 0 or v_user_redemptions < v_promo.per_user_limit then
+        if v_promo.discount_type = 'percent' then
+          v_promo_bonus := round((v_payment.amount * v_promo.discount_value / 100.0)::numeric, 2);
+        else
+          v_promo_bonus := round(v_promo.discount_value::numeric, 2);
+        end if;
+        if v_promo.max_discount > 0 then
+          v_promo_bonus := least(v_promo_bonus, v_promo.max_discount);
+        end if;
+        v_promo_bonus := greatest(0, v_promo_bonus);
+        if v_promo_bonus > 0 then
+          update public.smm_promo_codes set used_count = used_count + 1, updated_at = now() where id = v_promo.id;
+          insert into public.smm_promo_redemptions (promo_id, user_id, context, reference_id, bonus_amount)
+          values (v_promo.id, p_user_id, 'deposit', p_razorpay_order_id, v_promo_bonus);
+        end if;
+      end if;
+    end if;
+  end if;
+
+  v_total_credit := v_payment.amount + v_slab_bonus + v_promo_bonus;
+
+  update public.smm_users
+    set balance = balance + v_total_credit, updated_at = now()
+    where id = p_user_id and disabled = false
+    returning * into v_user;
+  if not found then raise exception 'User account is unavailable.'; end if;
+  v_balance := v_user.balance;
+
+  update public.smm_wallet_payments
+    set status = 'paid', payment_id = p_payment_id, paid_at = now()
+    where razorpay_order_id = p_razorpay_order_id;
+
+  insert into public.smm_transactions (id, user_id, type, amount, currency, reference, razorpay_order_id, note)
+  values ('deposit_' || p_razorpay_order_id, p_user_id, 'deposit', v_payment.amount, 'INR', p_payment_id, p_razorpay_order_id, 'Wallet recharge')
+  on conflict (id) do nothing;
+
+  if v_slab_bonus > 0 then
+    insert into public.smm_transactions (id, user_id, type, amount, currency, reference, razorpay_order_id, note)
+    values ('deposit_bonus_' || p_razorpay_order_id, p_user_id, 'adjustment', v_slab_bonus, 'INR', 'deposit_bonus', p_razorpay_order_id, left(v_slab_title, 200))
+    on conflict (id) do nothing;
+  end if;
+
+  if v_promo_bonus > 0 then
+    insert into public.smm_transactions (id, user_id, type, amount, currency, reference, razorpay_order_id, note)
+    values ('promo_bonus_' || p_razorpay_order_id, p_user_id, 'adjustment', v_promo_bonus, 'INR', upper(trim(v_payment.promo_code)), p_razorpay_order_id, 'Promo code bonus: ' || upper(trim(v_payment.promo_code)))
+    on conflict (id) do nothing;
+  end if;
+
+  -- Referral reward on first paid deposit
+  if v_prior_paid = 0 and v_user.referred_by is not null and v_user.referral_rewarded = false and v_user.referred_by <> p_user_id then
+    select * into v_settings from public.smm_settings where id = 'main';
+    if v_settings.referral_enabled = true and v_payment.amount >= coalesce(v_settings.referral_min_deposit, 0) and coalesce(v_settings.referral_bonus_value, 0) > 0 then
+      if v_settings.referral_bonus_type = 'percent' then
+        v_ref_bonus := round((v_payment.amount * v_settings.referral_bonus_value / 100.0)::numeric, 2);
+      else
+        v_ref_bonus := round(v_settings.referral_bonus_value::numeric, 2);
+      end if;
+      if v_ref_bonus > 0 then
+        update public.smm_users set balance = balance + v_ref_bonus, updated_at = now()
+        where id = v_user.referred_by and disabled = false
+        returning id into v_referrer_id;
+        if v_referrer_id is not null then
+          update public.smm_users set referral_rewarded = true, updated_at = now() where id = p_user_id;
+          insert into public.smm_transactions (id, user_id, type, amount, currency, reference, razorpay_order_id, note)
+          values ('ref_bonus_' || p_razorpay_order_id, v_referrer_id, 'adjustment', v_ref_bonus, 'INR', 'referral_bonus', p_razorpay_order_id, 'Referral bonus from friend first deposit')
+          on conflict (id) do nothing;
+        else
+          v_ref_bonus := 0;
+        end if;
+      end if;
+    end if;
+  end if;
+
+  return jsonb_build_object('ok', true, 'balance', v_balance, 'slabBonus', v_slab_bonus, 'promoBonus', v_promo_bonus, 'referralBonus', v_ref_bonus, 'referrerId', v_referrer_id);
+end;
+$$;
+
+notify pgrst, 'reload schema';

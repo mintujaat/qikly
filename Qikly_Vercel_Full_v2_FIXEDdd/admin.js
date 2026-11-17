@@ -218,7 +218,19 @@
     <div class="admin-panel" style="margin-top:14px">
       <div class="panel-head"><div><span class="admin-kicker">COUPON DIRECTORY</span><h3>Promo codes (${promos.length})</h3></div></div>
       <div class="table-wrap"><table><thead><tr><th>Code</th><th>Applies to</th><th>Reward</th><th>Min / Cap</th><th>Usage</th><th>Expires</th><th>Status</th><th>Actions</th></tr></thead><tbody>${promos.map(p => `<tr><td><b class="mono">${esc(p.code)}</b></td><td>${p.applies_to === "order" ? "Order discount" : "Wallet bonus"}</td><td><b>${p.discount_type === "percent" ? `${Number(p.discount_value)}%` : money(p.discount_value)}</b></td><td>Min ${money(p.min_amount)}${Number(p.max_discount) > 0 ? ` · Cap ${money(p.max_discount)}` : ""}</td><td>${Number(p.used_count || 0)} / ${Number(p.max_uses || 0) > 0 ? p.max_uses : "∞"}</td><td>${p.expires_at ? date(p.expires_at) : "Never"}</td><td>${status(p.active ? "Active" : "Paused")}</td><td><button class="table-action" data-toggle-promo="${esc(p.id)}" data-active="${p.active ? "1" : "0"}">${p.active ? "Pause" : "Activate"}</button> <button class="table-action refund" data-delete-promo="${esc(p.id)}">Delete</button></td></tr>`).join("") || `<tr><td colspan="8" class="empty-cell">No promo codes created yet.</td></tr>`}</tbody></table></div>
-    </div>`;
+    </div>
+    <section class="admin-panel settings-card" style="margin-top:14px">
+      <div class="panel-head"><div><span class="admin-kicker">INVITE & EARN</span><h3>Referral &amp; Earn settings</h3></div></div>
+      <form id="referralSettingsForm" class="admin-form">
+        <label class="review-confirm"><input type="checkbox" name="enabled" ${s.referralEnabled !== false ? "checked" : ""}><span>Enable Referral &amp; Earn program (and show referral promo poster to visitors)</span></label>
+        <div class="two-fields">
+          <label>Reward type<select name="bonusType" class="admin-select"><option value="percent" ${s.referralBonusType !== "fixed" ? "selected" : ""}>Percentage (%) of friend's 1st deposit</option><option value="fixed" ${s.referralBonusType === "fixed" ? "selected" : ""}>Flat amount (₹) per friend's 1st deposit</option></select></label>
+          <label>Reward value (% or ₹)<input type="number" name="bonusValue" min="0" step="0.01" value="${Number(s.referralBonusValue ?? 5)}" required></label>
+        </div>
+        <label>Minimum first deposit required (₹)<input type="number" name="minDeposit" min="0" step="1" value="${Number(s.referralMinDeposit ?? 50)}" required></label>
+        <button class="admin-primary" type="submit">Save referral settings <span>↗</span></button>
+      </form>
+    </section>`;
   }
 
   function settingsHtml() {
@@ -289,7 +301,14 @@
     $("#syncOrders")?.addEventListener("click", async () => { const b = $("#syncOrders"); b.disabled = true; b.textContent = "Checking supplier…"; try { const r = await api("/api/admin/orders/sync", { method: "POST", body: "{}" }); await refreshData(); renderTab(); toast(`Checked ${r.checked} orders; updated ${r.updated}.`, "success"); } catch (e) { toast(e.message, "error"); b.disabled = false; b.textContent = "↻ Sync supplier statuses"; } });
     $$('[data-save-order]').forEach(b => b.addEventListener("click", async () => { const select = $(`[data-order-status="${CSS.escape(b.dataset.saveOrder)}"]`); const reconciled = $(`[data-supplier-reconciled="${CSS.escape(b.dataset.saveOrder)}"]`); b.disabled = true; try { await api(`/api/admin/orders/${encodeURIComponent(b.dataset.saveOrder)}`, { method: "PATCH", body: JSON.stringify({ status: select.value, supplierReconciled: Boolean(reconciled?.checked) }) }); await refreshData(); renderTab(); toast("Order status updated.", "success"); } catch (e) { toast(e.message, "error"); b.disabled = false; } }));
     $$('[data-refund-order]').forEach(b => b.addEventListener("click", async () => { if (!confirm("Refund this order amount to the customer's internal wallet? Ensure the supplier side has already been cancelled/reconciled.")) return; b.disabled = true; try { await api(`/api/admin/orders/${encodeURIComponent(b.dataset.refundOrder)}/refund`, { method: "POST", body: JSON.stringify({ note: "Refunded by admin" }) }); await refreshData(); renderTab(); toast("Wallet refund completed.", "success"); } catch (e) { toast(e.message, "error"); b.disabled = false; } }));
-        $("#announcementForm")?.addEventListener("submit", async e => {
+        $("#referralSettingsForm")?.addEventListener("submit", async e => {
+      e.preventDefault(); const form = new FormData(e.currentTarget); const b = $("#referralSettingsForm button"); b.disabled = true;
+      try {
+        await api("/api/admin/referral", { method: "PUT", body: JSON.stringify({ enabled: form.get("enabled") === "on", bonusType: form.get("bonusType"), bonusValue: Number(form.get("bonusValue")), minDeposit: Number(form.get("minDeposit")) }) });
+        await refreshData(); renderTab(); toast("Referral settings saved.", "success");
+      } catch (err) { toast(err.message, "error"); b.disabled = false; }
+    });
+    $("#announcementForm")?.addEventListener("submit", async e => {
       e.preventDefault(); const form = new FormData(e.currentTarget); const b = $("#announcementForm button"); b.disabled = true;
       try {
         await api("/api/admin/announcement", { method: "PUT", body: JSON.stringify({ enabled: form.get("enabled") === "on", type: form.get("type"), text: form.get("text"), link: form.get("link") }) });
