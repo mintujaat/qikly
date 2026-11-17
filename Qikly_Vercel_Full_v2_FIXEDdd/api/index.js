@@ -661,10 +661,23 @@ app.post("/api/orders/create", requireUser, async (req, res) => {
 });
 
 // Customer support tickets and threaded replies.
+function formatTicketMessage(m) {
+  return { ...m, author_role: m.sender_type, message: m.body };
+}
 app.get("/api/tickets", requireUser, async (req, res) => {
   try {
     const { data } = await supa(db.from("smm_tickets").select("*").eq("user_id", req.user.uid).order("updated_at", { ascending: false }).limit(50));
-    res.json({ tickets: data || [] });
+    const tickets = data || [];
+    if (tickets.length) {
+      const { data: messages } = await supa(db.from("smm_ticket_messages").select("*").in("ticket_id", tickets.map(t => t.id)).order("created_at", { ascending: true }).limit(1000));
+      const byTicket = new Map();
+      for (const m of messages || []) {
+        if (!byTicket.has(m.ticket_id)) byTicket.set(m.ticket_id, []);
+        byTicket.get(m.ticket_id).push(formatTicketMessage(m));
+      }
+      for (const t of tickets) t.messages = byTicket.get(t.id) || [];
+    }
+    res.json({ tickets });
   } catch (e) { res.status(500).json({ error: errorText(e) }); }
 });
 app.post("/api/tickets", requireUser, async (req, res) => {
@@ -682,10 +695,10 @@ app.get("/api/tickets/:id", requireUser, async (req, res) => {
     const ticket = await getRow("smm_tickets", req.params.id);
     if (!ticket || ticket.user_id !== req.user.uid) return res.status(404).json({ error: "Complaint not found." });
     const { data } = await supa(db.from("smm_ticket_messages").select("*").eq("ticket_id", ticket.id).order("created_at"));
-    res.json({ ticket, messages: data || [] });
+    res.json({ ticket, messages: (data || []).map(formatTicketMessage) });
   } catch (e) { res.status(500).json({ error: errorText(e) }); }
 });
-app.post("/api/tickets/:id/messages", requireUser, async (req, res) => {
+async function handleCustomerTicketReply(req, res) {
   try {
     const ticket = await getRow("smm_tickets", req.params.id);
     if (!ticket || ticket.user_id !== req.user.uid) return res.status(404).json({ error: "Complaint not found." });
@@ -695,7 +708,9 @@ app.post("/api/tickets/:id/messages", requireUser, async (req, res) => {
     await supa(db.from("smm_tickets").update({ status: "Open", updated_at: new Date().toISOString() }).eq("id", ticket.id));
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: errorText(e) }); }
-});
+}
+app.post("/api/tickets/:id/messages", requireUser, handleCustomerTicketReply);
+app.post("/api/tickets/:id/reply", requireUser, handleCustomerTicketReply);
 
 // Admin ----------------------------------------------------------------------
 app.get("/api/admin/me", (req, res) => res.json({ authenticated: !!unsign(cookie(req, ADMIN_COOKIE))?.admin }));
@@ -812,10 +827,24 @@ app.get("/api/admin/tickets", requireAdmin, async (_req, res) => {
     const { data } = await supa(db.from("smm_tickets").select("*").order("updated_at", { ascending: false }).limit(200));
     const tickets = data || [];
     if (tickets.length) {
-      const { data: messages } = await supa(db.from("smm_ticket_messages").select("ticket_id,body,sender_type,created_at").in("ticket_id", tickets.map(t => t.id)).order("created_at", { ascending: false }).limit(1000));
-      const latestByTicket = new Map();
-      for (const message of messages || []) if (!latestByTicket.has(message.ticket_id)) latestByTicket.set(message.ticket_id, message);
-      for (const t of tickets) t.latestMessage = latestByTicket.get(t.id) || null;
+      const userIds = [...new Set(tickets.map(t => t.user_id).filter(Boolean))];
+      const [{ data: messages }, { data: users }] = await Promise.all([
+        supa(db.from("smm_ticket_messages").select("*").in("ticket_id", tickets.map(t => t.id)).order("created_at", { ascending: true }).limit(2000)),
+        userIds.length ? supa(db.from("smm_users").select("id,name,email").in("id", userIds)) : Promise.resolve({ data: [] })
+      ]);
+      const userById = new Map((users || []).map(u => [u.id, u]));
+      const byTicket = new Map();
+      for (const m of messages || []) {
+        if (!byTicket.has(m.ticket_id)) byTicket.set(m.ticket_id, []);
+        byTicket.get(m.ticket_id).push(formatTicketMessage(m));
+      }
+      for (const t of tickets) {
+        const list = byTicket.get(t.id) || [];
+        t.messages = list;
+        t.latestMessage = list[list.length - 1] || null;
+        const u = userById.get(t.user_id);
+        t.user = { name: u?.name || "Customer", email: u?.email || t.user_email || "Customer" };
+      }
     }
     res.json({ tickets });
   } catch (e) { res.status(500).json({ error: errorText(e) }); }
