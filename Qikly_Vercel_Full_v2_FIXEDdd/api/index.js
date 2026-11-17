@@ -687,6 +687,14 @@ app.post("/api/tickets", requireUser, async (req, res) => {
     if (subject.length < 3 || message.length < 3) return res.status(400).json({ error: "Enter a subject and a message." });
     const created = await supa(db.from("smm_tickets").insert({ user_id: req.user.uid, user_email: req.user.email || "", subject }).select("*").single());
     await supa(db.from("smm_ticket_messages").insert({ ticket_id: created.data.id, sender_type: "customer", sender_id: req.user.uid, body: message }));
+    await notifyTelegramAdmin(
+      `📩 <b>New Support Complaint</b>\n` +
+      `👤 User: <b>${escTg(req.user.name || "Customer")}</b> (<code>${escTg(req.user.email || "")}</code>)\n` +
+      `📝 Subject: <b>${escTg(subject)}</b>\n` +
+      `💬 Message: ${escTg(message.slice(0, 500))}\n` +
+      `🆔 Ticket: <code>${escTg(created.data.id)}</code>\n` +
+      `🕒 ${escTg(istNow())}`
+    );
     res.json({ ok: true, ticket: created.data });
   } catch (e) { res.status(500).json({ error: errorText(e) }); }
 });
@@ -706,6 +714,14 @@ async function handleCustomerTicketReply(req, res) {
     if (body.length < 2) return res.status(400).json({ error: "Enter a reply." });
     await supa(db.from("smm_ticket_messages").insert({ ticket_id: ticket.id, sender_type: "customer", sender_id: req.user.uid, body }));
     await supa(db.from("smm_tickets").update({ status: "Open", updated_at: new Date().toISOString() }).eq("id", ticket.id));
+    await notifyTelegramAdmin(
+      `💬 <b>Customer Replied on Complaint</b>\n` +
+      `👤 User: <b>${escTg(req.user.name || "Customer")}</b> (<code>${escTg(req.user.email || "")}</code>)\n` +
+      `📝 Subject: <b>${escTg(ticket.subject || "Support Ticket")}</b>\n` +
+      `💬 Reply: ${escTg(body.slice(0, 500))}\n` +
+      `🆔 Ticket: <code>${escTg(ticket.id)}</code>\n` +
+      `🕒 ${escTg(istNow())}`
+    );
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: errorText(e) }); }
 }
