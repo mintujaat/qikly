@@ -585,18 +585,6 @@
         </section>
         <aside class="wallet-side"><div class="wallet-side-title"><span class="eyebrow">YOUR WALLET</span><h2>Simple and transparent</h2></div><div class="wallet-benefit">${icon("check")}<span><b>Verified payments</b><small>Funds are credited only after server-side payment verification.</small></span></div><div class="wallet-benefit">${icon("order")}<span><b>Track every movement</b><small>Deposits, order deductions and refunds appear in your ledger.</small></span></div><div class="wallet-help"><b>Need help with a payment?</b><p>Raise a support ticket and include the payment reference if available.</p><a href="/support?new=1" data-route="/support?new=1">Contact support ${icon("arrow")}</a></div></aside>
       </div>
-      <section class="profile-details-panel" style="margin-bottom:18px">
-        <div class="section-title compact"><div><span class="eyebrow">RESELLER API v2</span><h2>Developer & Panel API</h2></div></div>
-        <div class="profile-detail-list">
-          <div><span>API Endpoint (POST)</span><b class="mono break-anywhere">${esc(location.origin)}/api/v2</b></div>
-          <div><span>Your API Key</span><b class="mono break-anywhere" id="profileApiKeyText">${state.user?.apiKey ? esc(state.user.apiKey) : "Not generated yet"}</b></div>
-        </div>
-        <div class="welcome-actions" style="margin-top:14px">
-          <button type="button" class="btn btn-primary btn-small" id="generateApiKey">${state.user?.apiKey ? "Regenerate API Key" : "Generate API Key"}</button>
-          ${state.user?.apiKey ? `<button type="button" class="btn btn-outline btn-small" id="copyApiKey">Copy Key</button>` : ""}
-        </div>
-        <p class="profile-note">${icon("lock")} Supports standard SMM parameters: <code>key</code>, <code>action</code> (<code>balance</code>, <code>services</code>, <code>add</code>, <code>status</code>).</p>
-      </section>
       ${state.dataErrors.wallet ? `<div class="notice notice-error">${esc(state.dataErrors.wallet)} <button type="button" data-refresh-account>Retry wallet history</button></div>` : ""}
       <section class="transactions-panel"><div class="section-title"><div><span class="eyebrow">WALLET LEDGER</span><h2>Transaction history</h2><p>A record of your deposits, order payments and refunds.</p></div><button type="button" class="btn btn-outline" id="refreshWallet">${icon("refresh")} Refresh</button></div><div class="transaction-list">${transactions.length ? transactions.map(transaction => `<article class="transaction-row"><span class="transaction-icon ${Number(transaction.amount) >= 0 ? "credit" : "debit"}">${icon(Number(transaction.amount) >= 0 ? "plus" : "bag")}</span><div class="transaction-copy"><b>${esc(transaction.note || transaction.type || "Wallet transaction")}</b><small>${date(transaction.createdAt)} · ${esc(transaction.reference || "Wallet ledger")}</small></div><span class="transaction-type">${esc(transaction.type || "entry")}</span><b class="transaction-amount ${Number(transaction.amount) >= 0 ? "positive" : ""}">${Number(transaction.amount) >= 0 ? "+" : "−"}${money(Math.abs(Number(transaction.amount)))}</b></article>`).join("") : `<div class="empty-inline"><span class="empty-icon">${icon("wallet")}</span><b>No transactions yet</b><p>Your wallet activity will show here after your first payment or order.</p></div>`}</div></section>`;
   }
@@ -642,6 +630,18 @@
         <aside class="profile-security-panel"><span class="security-illustration">${icon("lock")}</span><span class="eyebrow">ACCOUNT SECURITY</span><h2>Your account, protected.</h2><p>Never share your password or payment details with anyone. Sign out when using a shared device.</p><button class="btn btn-outline full-width" type="button" id="profileLogout">Log out of Mintu SMM ${icon("arrow")}</button><a class="profile-help-link" href="/support?new=1" data-route="/support?new=1">Need account help? Contact support</a></aside>
       </div>
       ${state.dataErrors.wallet ? `<div class="notice notice-error">${esc(state.dataErrors.wallet)} <button type="button" data-refresh-account>Retry wallet history</button></div>` : ""}
+      <section class="profile-details-panel" style="margin-bottom:18px">
+        <div class="section-title compact"><div><span class="eyebrow">RESELLER API v2</span><h2>Developer & Panel API</h2></div></div>
+        <div class="profile-detail-list">
+          <div><span>API Endpoint (POST)</span><b class="mono break-anywhere">${esc(location.origin)}/api/v2</b></div>
+          <div><span>Your API Key</span><b class="mono break-anywhere" id="profileApiKeyText">${state.user?.apiKey ? esc(state.user.apiKey) : "Not generated yet"}</b></div>
+        </div>
+        <div class="welcome-actions" style="margin-top:14px">
+          <button type="button" class="btn btn-primary btn-small" id="generateApiKey">${state.user?.apiKey ? "Regenerate API Key" : "Generate API Key"}</button>
+          ${state.user?.apiKey ? `<button type="button" class="btn btn-outline btn-small" id="copyApiKey">Copy Key</button>` : ""}
+        </div>
+        <p class="profile-note">${icon("lock")} Supports standard SMM parameters: <code>key</code>, <code>action</code> (<code>balance</code>, <code>services</code>, <code>add</code>, <code>status</code>).</p>
+      </section>
       <section class="profile-activity"><div class="section-title"><div><span class="eyebrow">RECENT WALLET ACTIVITY</span><h2>Latest transactions</h2><p>Your most recent wallet changes.</p></div><a class="text-link" href="/wallet" data-route="/wallet">Open wallet ${icon("arrow")}</a></div>${transactions.length ? `<div class="transaction-list">${transactions.slice(0, 4).map(transaction => `<article class="transaction-row"><span class="transaction-icon ${Number(transaction.amount) >= 0 ? "credit" : "debit"}">${icon(Number(transaction.amount) >= 0 ? "plus" : "bag")}</span><div class="transaction-copy"><b>${esc(transaction.note || transaction.type || "Wallet transaction")}</b><small>${date(transaction.createdAt)} · ${esc(transaction.reference || "")}</small></div><span class="transaction-type">${esc(transaction.type || "entry")}</span><b class="transaction-amount ${Number(transaction.amount) >= 0 ? "positive" : ""}">${Number(transaction.amount) >= 0 ? "+" : "−"}${money(Math.abs(Number(transaction.amount)))}</b></article>`).join("")}</div>` : `<div class="empty-inline"><b>No wallet activity yet</b><p>Transactions will appear here after you add funds or place an order.</p></div>`}</section>`;
   }
 
