@@ -224,7 +224,7 @@
     }
   }
 
-  async function loadAccount() {
+  async function loadAccount(deferSecondary = false) {
     try {
       const auth = await api("/api/auth/me");
       state.user = auth.authenticated ? auth.user : null;
@@ -241,6 +241,7 @@
       state.dataErrors = { wallet: "", orders: "", tickets: "" };
       return;
     }
+    if (deferSecondary) return;
     const requests = await Promise.allSettled([loadWallet(), loadOrders(), loadTickets()]);
     writeCache();
     const failures = requests.filter(result => result.status === "rejected");
@@ -679,42 +680,55 @@
     form.addEventListener("submit", submitAuth);
     if (state.config?.googleClientId) {
       const googleHost = $("#googleSignInButton");
-      try {
-        if (!window.google?.accounts?.id) throw new Error("Google sign-in could not load. Please refresh and try again.");
-        window.google.accounts.id.initialize({
-          client_id: state.config.googleClientId,
-          callback: async response => {
-            const googleError = $("#googleAuthError");
-            if (!response?.credential) {
-              googleError.textContent = "Google did not return a sign-in credential. Please try again.";
-              return;
-            }
-            googleError.textContent = "";
-            try {
-              const authResult = await api("/api/auth/google", { method: "POST", body: JSON.stringify({ credential: response.credential, referralCode: getStoredReferralCode(), ...getDeviceMeta() }) });
-              if (Number(authResult?.welcomeBonus || 0) > 0) markDeviceWelcomeClaimed();
-              await loadAccount();
-              if (authResult?.isNewUser && Number(authResult?.welcomeBonus || 0) > 0) {
-                toast(`Welcome! ${money(authResult.welcomeBonus)} welcome bonus credited to your wallet.`, "success");
-              } else {
-                toast("You are signed in with Google.", "success");
+      const googleError = $("#googleAuthError");
+      const mountGoogleButton = (tries = 0) => {
+        if (!googleHost.isConnected) return;
+        if (!window.google?.accounts?.id) {
+          if (tries === 0) googleHost.innerHTML = `<div class="google-loading"><span class="inline-spinner"></span><span>Loading Google sign-in…</span></div>`;
+          if (tries < 25) return setTimeout(() => mountGoogleButton(tries + 1), 200);
+          googleHost.innerHTML = "";
+          googleError.textContent = "Google sign-in could not load. Check your connection or use email.";
+          return;
+        }
+        try {
+          googleHost.innerHTML = "";
+          window.google.accounts.id.initialize({
+            client_id: state.config.googleClientId,
+            callback: async response => {
+              if (!response?.credential) {
+                googleError.textContent = "Google did not return a sign-in credential. Please try again.";
+                return;
               }
-              const destination = form.dataset.next || "/";
-              navPath(destination.startsWith("/") && !destination.startsWith("//") ? destination : "/");
-            } catch (error) {
-              googleError.textContent = error.message;
-            }
-          },
-          auto_select: false,
-          cancel_on_tap_outside: true
-        });
-        window.google.accounts.id.renderButton(googleHost, {
-          type: "standard", theme: "outline", size: "large", text: "continue_with",
-          shape: "rect", logo_alignment: "left", width: Math.min(340, Math.max(230, window.innerWidth - 76))
-        });
-      } catch (error) {
-        $("#googleAuthError").textContent = error.message;
-      }
+              googleError.textContent = "";
+              googleHost.innerHTML = `<div class="google-loading"><span class="inline-spinner"></span><span>Signing in with Google…</span></div>`;
+              try {
+                const authResult = await api("/api/auth/google", { method: "POST", body: JSON.stringify({ credential: response.credential, referralCode: getStoredReferralCode(), ...getDeviceMeta() }) });
+                if (Number(authResult?.welcomeBonus || 0) > 0) markDeviceWelcomeClaimed();
+                await loadAccount();
+                if (authResult?.isNewUser && Number(authResult?.welcomeBonus || 0) > 0) {
+                  toast(`Welcome! ${money(authResult.welcomeBonus)} welcome bonus credited to your wallet.`, "success");
+                } else {
+                  toast("You are signed in with Google.", "success");
+                }
+                const destination = form.dataset.next || "/";
+                navPath(destination.startsWith("/") && !destination.startsWith("//") ? destination : "/");
+              } catch (error) {
+                googleError.textContent = error.message;
+                mountGoogleButton(0);
+              }
+            },
+            auto_select: false,
+            cancel_on_tap_outside: true
+          });
+          window.google.accounts.id.renderButton(googleHost, {
+            type: "standard", theme: "outline", size: "large", text: "continue_with",
+            shape: "rect", logo_alignment: "left", width: Math.min(340, Math.max(230, window.innerWidth - 76))
+          });
+        } catch (error) {
+          googleError.textContent = error.message;
+        }
+      };
+      mountGoogleButton(0);
     }
     $("#authPassword").addEventListener("input", updatePasswordStrength);
     $$("[data-toggle-password]", $("#authRoot")).forEach(button => button.addEventListener("click", () => {
@@ -1377,9 +1391,15 @@
       if (cached.user) state.user = cached.user;
       renderRoute();
     }
-    await Promise.all([loadConfig(), loadServices(), loadAccount()]);
+    await Promise.all([loadConfig(), loadServices(), loadAccount(true)]);
     writeCache();
     renderRoute();
+    if (state.user) {
+      Promise.allSettled([loadWallet(), loadOrders(), loadTickets()]).then(() => {
+        writeCache();
+        if (!["/login", "/signup"].includes(currentPath())) renderRoute();
+      });
+    }
     setTimeout(showReferralPosterIfEligible, 650);
     startTicketPolling();
     try {
