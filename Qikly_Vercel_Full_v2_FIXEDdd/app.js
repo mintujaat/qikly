@@ -585,6 +585,18 @@
         </section>
         <aside class="wallet-side"><div class="wallet-side-title"><span class="eyebrow">YOUR WALLET</span><h2>Simple and transparent</h2></div><div class="wallet-benefit">${icon("check")}<span><b>Verified payments</b><small>Funds are credited only after server-side payment verification.</small></span></div><div class="wallet-benefit">${icon("order")}<span><b>Track every movement</b><small>Deposits, order deductions and refunds appear in your ledger.</small></span></div><div class="wallet-help"><b>Need help with a payment?</b><p>Raise a support ticket and include the payment reference if available.</p><a href="/support?new=1" data-route="/support?new=1">Contact support ${icon("arrow")}</a></div></aside>
       </div>
+      <section class="profile-details-panel" style="margin-bottom:18px">
+        <div class="section-title compact"><div><span class="eyebrow">RESELLER API v2</span><h2>Developer & Panel API</h2></div></div>
+        <div class="profile-detail-list">
+          <div><span>API Endpoint (POST)</span><b class="mono break-anywhere">${esc(location.origin)}/api/v2</b></div>
+          <div><span>Your API Key</span><b class="mono break-anywhere" id="profileApiKeyText">${state.user?.apiKey ? esc(state.user.apiKey) : "Not generated yet"}</b></div>
+        </div>
+        <div class="welcome-actions" style="margin-top:14px">
+          <button type="button" class="btn btn-primary btn-small" id="generateApiKey">${state.user?.apiKey ? "Regenerate API Key" : "Generate API Key"}</button>
+          ${state.user?.apiKey ? `<button type="button" class="btn btn-outline btn-small" id="copyApiKey">Copy Key</button>` : ""}
+        </div>
+        <p class="profile-note">${icon("lock")} Supports standard SMM parameters: <code>key</code>, <code>action</code> (<code>balance</code>, <code>services</code>, <code>add</code>, <code>status</code>).</p>
+      </section>
       ${state.dataErrors.wallet ? `<div class="notice notice-error">${esc(state.dataErrors.wallet)} <button type="button" data-refresh-account>Retry wallet history</button></div>` : ""}
       <section class="transactions-panel"><div class="section-title"><div><span class="eyebrow">WALLET LEDGER</span><h2>Transaction history</h2><p>A record of your deposits, order payments and refunds.</p></div><button type="button" class="btn btn-outline" id="refreshWallet">${icon("refresh")} Refresh</button></div><div class="transaction-list">${transactions.length ? transactions.map(transaction => `<article class="transaction-row"><span class="transaction-icon ${Number(transaction.amount) >= 0 ? "credit" : "debit"}">${icon(Number(transaction.amount) >= 0 ? "plus" : "bag")}</span><div class="transaction-copy"><b>${esc(transaction.note || transaction.type || "Wallet transaction")}</b><small>${date(transaction.createdAt)} · ${esc(transaction.reference || "Wallet ledger")}</small></div><span class="transaction-type">${esc(transaction.type || "entry")}</span><b class="transaction-amount ${Number(transaction.amount) >= 0 ? "positive" : ""}">${Number(transaction.amount) >= 0 ? "+" : "−"}${money(Math.abs(Number(transaction.amount)))}</b></article>`).join("") : `<div class="empty-inline"><span class="empty-icon">${icon("wallet")}</span><b>No transactions yet</b><p>Your wallet activity will show here after your first payment or order.</p></div>`}</div></section>`;
   }
@@ -804,7 +816,23 @@
     if (route === "/orders") bindOrdersPage();
     if (route === "/wallet") bindWalletPage();
     if (route === "/support") bindSupportPage();
-    if (route === "/profile") $("#profileLogout")?.addEventListener("click", logout);
+    if (route === "/profile") {
+      $("#profileLogout")?.addEventListener("click", logout);
+      $("#generateApiKey")?.addEventListener("click", e => {
+        withBusyButton(e.currentTarget, "Generating…", async () => {
+          const res = await api("/api/account/api-key", { method: "POST", body: "{}" });
+          state.user.apiKey = res.apiKey;
+          writeCache();
+          renderRoute();
+          toast("New API key generated.", "success");
+        }).catch(err => toast(err.message, "error"));
+      });
+      $("#copyApiKey")?.addEventListener("click", async () => {
+        if (!state.user?.apiKey) return;
+        try { await navigator.clipboard.writeText(state.user.apiKey); toast("API key copied!", "success"); }
+        catch { toast("Copy failed; select the key manually.", "error"); }
+      });
+    }
     $$("[data-retry-services]").forEach(button => button.addEventListener("click", async () => { await loadServices(); renderRoute(); }));
     $$("[data-refresh-account]").forEach(button => button.addEventListener("click", async () => { await loadAccount(); renderRoute(); }));
   }
@@ -1277,6 +1305,12 @@
     writeCache();
     renderRoute();
     startTicketPolling();
+    try {
+      if (!sessionStorage.getItem("mintu_visited")) {
+        sessionStorage.setItem("mintu_visited", "1");
+        fetch("/api/public/visit", { method: "POST" }).catch(() => {});
+      }
+    } catch {}
     const params = new URLSearchParams(location.search);
     if (params.get("oauth") === "success") {
       toast("Google sign-in successful.", "success");

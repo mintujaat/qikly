@@ -6,6 +6,7 @@ const { createClient } = require("@supabase/supabase-js");
 const app = express();
 app.disable("x-powered-by");
 app.use(express.json({ limit: "1mb", verify: (req, _res, buf) => { req.rawBody = Buffer.from(buf); } }));
+app.use(express.urlencoded({ extended: false, limit: "1mb" }));
 
 // Supabase is accessed only by this server process. Never expose this key to the browser.
 const SUPABASE_URL = String(process.env.SUPABASE_URL || "").trim();
@@ -278,6 +279,137 @@ function mapProviderStatus(value) {
   return String(value || "Pending").slice(0, 40);
 }
 
+
+// Visitor counter ------------------------------------------------------------
+app.post("/api/public/visit", async (_req, res) => {
+  try {
+    const { data } = await supa(db.rpc("smm_increment_visitor"));
+    res.json(data || { totalVisitors: 0, todayVisitors: 0 });
+  } catch {
+    res.json({ totalVisitors: 0, todayVisitors: 0 });
+  }
+});
+
+// Customer Reseller API key management & SMM Panel API v2 --------------------
+app.post("/api/account/api-key", requireUser, async (req, res) => {
+  try {
+    const apiKey = `msmm_${crypto.randomBytes(20).toString("hex")}`;
+    await supa(db.from("smm_users").update({ api_key: apiKey, updated_at: new Date().toISOString() }).eq("id", req.user.uid));
+    res.json({ ok: true, apiKey });
+  } catch (e) { res.status(500).json({ error: errorText(e) }); }
+});
+
+app.all("/api/v2", async (req, res) => {
+  try {
+    const params = { ...(req.query || {}), ...(req.body || {}) };
+    const key = String(params.key || "").trim();
+    const action = String(params.action || "").trim().toLowerCase();
+    if (!key) return res.status(401).json({ error: "API key is required." });
+    const { data: user } = await supa(db.from("smm_users").select("id,name,email,balance,disabled").eq("api_key", key).maybeSingle());
+    if (!user || user.disabled) return res.status(401).json({ error: "Invalid or disabled API key." });
+
+    if (action === "balance") {
+      return res.json({ balance: Number(user.balance || 0).toFixed(2), currency: "INR" });
+    }
+    if (action === "services") {
+      const { data: rows } = await supa(db.from("smm_services").select("*").eq("active", true).eq("approval_status", "approved").eq("compliance_verified", true).gt("selling_price_per_1000", 0).order("category").order("name").limit(1500));
+      return res.json((rows || []).map(r => ({
+        service: r.id,
+        name: r.name,
+        type: r.supplier_type || "Default",
+        category: r.category || "Other",
+        rate: Number(r.selling_price_per_1000 || 0).toFixed(2),
+        min: String(r.min_quantity || 1),
+        max: String(r.max_quantity || 10000),
+        refill: Boolean(r.refill),
+        cancel: Boolean(r.cancel)
+      })));
+    }
+    if (action === "add") {
+      const serviceId = String(params.service || "").trim().slice(0, 160);
+      const link = validateHttpUrl(params.link);
+      const quantity = Math.floor(asNum(params.quantity));
+      if (!serviceId || !link || !Number.isSafeInteger(quantity) || quantity < 1) {
+        return res.status(400).json({ error: "Invalid service, link, or quantity." });
+      }
+      const { data: rawOrder } = await supa(db.rpc("smm_place_order", {
+        p_user_id: user.id, p_service_id: serviceId, p_link: link,
+        p_quantity: quantity, p_user_email: user.email || "", p_user_name: user.name || "Customer",
+        p_promo_code: ""
+      }));
+      const orderData = orderFromDb(rawOrder);
+      if (orderData.source === "manual") {
+        await notifyTelegramAdmin(
+          `🛒 <b>New Order via API v2 (Manual Review)</b>\n` +
+          `👤 ${escTg(user.name || "Customer")} (<code>${escTg(user.email || "")}</code>)\n` +
+          `📦 Service: <b>${escTg(orderData.serviceName)}</b>\n` +
+          `🔢 Qty: <b>${orderData.quantity}</b> · Amount: <b>₹${Number(orderData.amount).toFixed(2)}</b>\n` +
+          `🆔 Order: <code>${escTg(orderData.id)}</code>`
+        );
+        return res.json({ order: orderData.id });
+      }
+      let upstream;
+      try {
+        upstream = await luvsmm("add", { service: orderData.supplierServiceId, link: orderData.link, quantity: orderData.quantity });
+      } catch (providerError) {
+        const msg = errorText(providerError);
+        if (/timeout|timed out|network|fetch failed|socket/i.test(msg)) {
+          await supa(db.from("smm_orders").update({ status: "Supplier confirmation needed", dispatch_note: "API v2 timeout; admin reconciliation needed.", updated_at: new Date().toISOString() }).eq("id", orderData.id));
+          return res.json({ order: orderData.id });
+        }
+        await refundReservedOrder(orderData.id, `Supplier rejected order: ${msg}`);
+        return res.status(502).json({ error: msg });
+      }
+      const supplierOrderId = String(upstream?.order || upstream?.id || "");
+      if (!supplierOrderId) {
+        await refundReservedOrder(orderData.id, "Supplier did not return an order ID.");
+        return res.status(502).json({ error: "Supplier did not return an order ID." });
+      }
+      await supa(db.from("smm_orders").update({ status: "Pending", supplier_order_id: supplierOrderId, supplier_response_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", orderData.id));
+      await notifyTelegramAdmin(
+        `🛒 <b>New Order via API v2</b>\n` +
+        `👤 ${escTg(user.name || "Customer")} (<code>${escTg(user.email || "")}</code>)\n` +
+        `📦 Service: <b>${escTg(orderData.serviceName)}</b>\n` +
+        `🔢 Qty: <b>${orderData.quantity}</b> · Amount: <b>₹${Number(orderData.amount).toFixed(2)}</b>\n` +
+        `🆔 Order: <code>${escTg(orderData.id)}</code> (Supplier #${escTg(supplierOrderId)})`
+      );
+      return res.json({ order: orderData.id });
+    }
+    if (action === "status") {
+      if (params.orders) {
+        const ids = String(params.orders).split(",").map(s => s.trim()).filter(Boolean).slice(0, 100);
+        if (!ids.length) return res.status(400).json({ error: "No order IDs provided." });
+        const { data: rows } = await supa(db.from("smm_orders").select("*").eq("user_id", user.id).in("id", ids));
+        const byId = new Map((rows || []).map(r => [r.id, r]));
+        const out = {};
+        for (const id of ids) {
+          const o = byId.get(id);
+          out[id] = o ? {
+            charge: Number(o.amount || 0).toFixed(2),
+            start_count: String(o.start_count ?? 0),
+            status: o.status,
+            remains: String(o.remains ?? 0),
+            currency: "INR"
+          } : { error: "Incorrect order ID" };
+        }
+        return res.json(out);
+      }
+      const orderId = String(params.order || "").trim();
+      if (!orderId) return res.status(400).json({ error: "Order ID is required." });
+      const { data: o } = await supa(db.from("smm_orders").select("*").eq("id", orderId).eq("user_id", user.id).maybeSingle());
+      if (!o) return res.status(404).json({ error: "Incorrect order ID" });
+      return res.json({
+        charge: Number(o.amount || 0).toFixed(2),
+        start_count: String(o.start_count ?? 0),
+        status: o.status,
+        remains: String(o.remains ?? 0),
+        currency: "INR"
+      });
+    }
+    return res.status(400).json({ error: "Invalid action. Supported: balance, services, add, status." });
+  } catch (e) { res.status(400).json({ error: errorText(e) }); }
+});
+
 // Health / public config -----------------------------------------------------
 app.get("/health", (_req, res) => res.json({ ok: true, service: "mintu-smm-api", database: "supabase", supabase: true, razorpay: razorpayReady, luvsmm: providerConfigured() }));
 app.get("/api/public/config", async (_req, res) => {
@@ -418,9 +550,9 @@ app.get("/api/auth/me", async (req, res) => {
   const user = userFromReq(req);
   if (!user) return res.json({ authenticated: false, user: null });
   try {
-    const { data } = await supa(db.from("smm_users").select("id,name,email,balance,disabled,avatar_url,google_sub,created_at").eq("id", user.uid).maybeSingle());
+    const { data } = await supa(db.from("smm_users").select("id,name,email,balance,disabled,avatar_url,google_sub,api_key,created_at").eq("id", user.uid).maybeSingle());
     if (!data || data.disabled) { clearCookie(res, SESSION_COOKIE); return res.json({ authenticated: false, user: null }); }
-    res.json({ authenticated: true, user: safeUser(data, data.id) });
+    res.json({ authenticated: true, user: { ...safeUser(data, data.id), apiKey: data.api_key || "" } });
   } catch (e) { res.status(500).json({ error: errorText(e) }); }
 });
 app.post("/api/auth/logout", (_req, res) => { clearCookie(res, SESSION_COOKIE); res.json({ ok: true }); });
@@ -747,10 +879,14 @@ app.get("/api/admin/overview", requireAdmin, async (_req, res) => {
       getAdminSettings()
     ]);
     const stats = overviewResult.data || {};
+    const { data: visitorRow } = await supa(db.from("smm_settings").select("total_visitors,today_visitors,visitor_day").eq("id", "main").maybeSingle());
+    const isToday = visitorRow?.visitor_day === new Date().toISOString().slice(0, 10);
     res.json({ stats: {
       users: Number(stats.users || 0), services: Number(stats.services || 0), approvedServices: Number(stats.approvedServices || 0),
       orders: Number(stats.orders || 0), activeOrders: Number(stats.activeOrders || 0), payments: Number(stats.payments || 0),
-      totalDeposits: money(Number(stats.totalDeposits || 0)), totalSales: money(Number(stats.totalSales || 0))
+      totalDeposits: money(Number(stats.totalDeposits || 0)), totalSales: money(Number(stats.totalSales || 0)),
+      totalVisitors: Number(visitorRow?.total_visitors || 0),
+      todayVisitors: isToday ? Number(visitorRow?.today_visitors || 0) : 0
     }, recentOrders: (recentResult.data || []).map(orderFromDb), settings });
   } catch (e) { res.status(500).json({ error: errorText(e) }); }
 });

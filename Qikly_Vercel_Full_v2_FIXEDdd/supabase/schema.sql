@@ -713,3 +713,37 @@ revoke all on public.smm_welcome_claims from public, anon, authenticated;
 grant all on public.smm_welcome_claims to service_role;
 
 notify pgrst, 'reload schema';
+
+-- ---------------------------------------------------------------------------
+-- Reseller API v2 (per-user api_key) & Website Visitor Counter
+-- ---------------------------------------------------------------------------
+alter table public.smm_users add column if not exists api_key text;
+create unique index if not exists smm_users_api_key_uidx on public.smm_users (api_key) where api_key is not null;
+
+alter table public.smm_settings add column if not exists total_visitors bigint not null default 0;
+alter table public.smm_settings add column if not exists today_visitors bigint not null default 0;
+alter table public.smm_settings add column if not exists visitor_day date not null default current_date;
+
+create or replace function public.smm_increment_visitor()
+returns jsonb
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_total bigint;
+  v_today bigint;
+begin
+  update public.smm_settings
+  set
+    total_visitors = total_visitors + 1,
+    today_visitors = case when visitor_day = current_date then today_visitors + 1 else 1 end,
+    visitor_day = current_date,
+    updated_at = now()
+  where id = 'main'
+  returning total_visitors, today_visitors into v_total, v_today;
+  return jsonb_build_object('totalVisitors', coalesce(v_total, 0), 'todayVisitors', coalesce(v_today, 0));
+end;
+$$;
+revoke all on function public.smm_increment_visitor() from public, anon, authenticated;
+grant execute on function public.smm_increment_visitor() to service_role;
+
+notify pgrst, 'reload schema';
